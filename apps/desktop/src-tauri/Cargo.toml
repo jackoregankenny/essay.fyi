@@ -1,0 +1,23 @@
+[package]
+name = "essay-desktop"
+description = "Essay — desktop application shell"
+authors = ["Jack O'Regan Kenny"]
+edition = "2021"
+rust-version = "1.77.2"
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3" }
+
+[dependencies]
+essay-markdown.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log = "0.4"
+tauri = { version = "2.11.3" }
+tauri-plugin-log = "2"

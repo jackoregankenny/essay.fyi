@@ -1,0 +1,19 @@
+@import "tailwindcss";
+@import "@essay/theme/theme.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--essay-font-ui);
+  background: var(--essay-bg);
+  color: var(--essay-text);
+}

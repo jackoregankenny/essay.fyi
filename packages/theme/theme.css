@@ -1,0 +1,37 @@
+/* @essay/theme — design tokens shared by the Essay app and editor packages.
+   System font stacks only: Essay works fully offline. */
+
+:root {
+  --essay-font-prose: "Iowan Old Style", "Palatino Linotype", Palatino,
+    Georgia, "Times New Roman", serif;
+  --essay-font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --essay-font-mono: ui-monospace, "Cascadia Code", Consolas, "SF Mono",
+    Menlo, monospace;
+
+  --essay-editor-font-size: 1.0625rem;
+  --essay-measure: 42rem;
+
+  --essay-bg: oklch(0.985 0.002 90);
+  --essay-surface: oklch(0.955 0.003 90);
+  --essay-border: oklch(0.9 0.004 90);
+  --essay-text: oklch(0.25 0.01 60);
+  --essay-text-muted: oklch(0.45 0.01 60);
+  --essay-text-faint: oklch(0.65 0.008 60);
+  --essay-accent: oklch(0.5 0.12 250);
+  --essay-selection: oklch(0.88 0.045 250);
+  --essay-selection-match: oklch(0.92 0.03 250);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --essay-bg: oklch(0.21 0.005 260);
+    --essay-surface: oklch(0.25 0.006 260);
+    --essay-border: oklch(0.32 0.008 260);
+    --essay-text: oklch(0.92 0.005 90);
+    --essay-text-muted: oklch(0.72 0.01 90);
+    --essay-text-faint: oklch(0.52 0.01 90);
+    --essay-accent: oklch(0.72 0.1 250);
+    --essay-selection: oklch(0.38 0.06 250);
+    --essay-selection-match: oklch(0.33 0.04 250);
+  }
+}

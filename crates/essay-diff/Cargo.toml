@@ -1,0 +1,11 @@
+[package]
+name = "essay-diff"
+description = "Text, structural and editorial diffs between revisions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+essay-core.workspace = true
+serde.workspace = true
+similar.workspace = true

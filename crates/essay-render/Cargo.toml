@@ -1,0 +1,9 @@
+[package]
+name = "essay-render"
+description = "Typst compilation pipeline: Markdown index -> Typst -> PDF/pages"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true

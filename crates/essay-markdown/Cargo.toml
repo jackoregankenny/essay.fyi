@@ -1,0 +1,11 @@
+[package]
+name = "essay-markdown"
+description = "Source-preserving Markdown parsing and document indexing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+essay-core.workspace = true
+serde.workspace = true
+markdown.workspace = true

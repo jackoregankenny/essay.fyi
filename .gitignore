@@ -1,0 +1,14 @@
+node_modules
+.DS_Store
+dist
+/target
+dist-ssr
+*.local
+.env
+.nitro
+.tanstack
+.wrangler
+.output
+.vinxi
+__unconfig*
+todos.json

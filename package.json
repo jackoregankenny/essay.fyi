@@ -1,0 +1,14 @@
+{
+  "name": "essay",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --cwd apps/desktop dev",
+    "build": "bun run --cwd apps/desktop build",
+    "tauri": "bun run --cwd apps/desktop tauri",
+    "typecheck": "tsc --noEmit -p apps/desktop"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@essay/editor",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.1",
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/language": "^6.11.3",
+    "@codemirror/language-data": "^6.5.1",
+    "@codemirror/search": "^6.5.11",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.2",
+    "@lezer/highlight": "^1.2.1"
+  }
+}

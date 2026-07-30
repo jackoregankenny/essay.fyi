@@ -1,0 +1,13 @@
+[package]
+name = "essay-cli"
+description = "The `essay` CLI: agent-facing inspection and patch protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "essay"
+path = "src/main.rs"
+
+[dependencies]
+essay-markdown.workspace = true
