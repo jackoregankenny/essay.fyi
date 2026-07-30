@@ -3,9 +3,11 @@
 **Superhuman for unformed documents.**
 
 Essay is a fast, local-first writing environment for developing serious
-documents from rough thought into finished work: a source-faithful Markdown
-editor, print-quality Typst output, durable revision history and reviewable
-AI editing in one focused desktop application.
+documents from rough thought into finished work: a beautiful rich-text
+editor over plain Markdown files, print-quality Typst output, durable
+revision history and reviewable AI editing in one focused desktop
+application. You edit the designed document; the file on disk stays ordinary
+Markdown.
 
 Free, open source (AGPL-3.0-or-later) and local by default: no account, no
 internet connection, no subscription required. The canonical document is
@@ -41,7 +43,7 @@ cargo run -p essay-cli -- outline fixtures/manuscripts/forty-page-essay.md
 
 ```text
 apps/desktop/     Tauri 2 app — React chrome + Rust shell
-packages/         editor (CodeMirror 6), theme, commands, document-ui, typst-preview
+packages/         editor (Tiptap), theme, commands, document-ui, typst-preview
 crates/           Rust core — document index, revisions, diffs, render, agents, CLI
 templates/        Typst document modes (essay, memo, report, rfc)
 fixtures/         Test corpus for parsing, diffs and rendering
@@ -50,7 +52,9 @@ docs/             Product brief, architecture, document model, agent protocol
 
 ## Status
 
-Milestone 0: scaffold. The three-pane workspace (Structure | Manuscript |
-Print) runs with live outline, word count and quiet-syntax Markdown editing.
-Milestone 1 ("a writer worth using") is next: real file open/save, command
-palette, autosave, crash recovery, search, packaging.
+Milestone 0 plus the first manuscript pass. The three-pane workspace
+(Structure | Manuscript | Print) runs with rich Typora-style editing —
+tables, task lists, markdown typing shortcuts, Literata typography — over a
+canonical Markdown file, with live outline and word count. Milestone 1
+("a writer worth using") is next: real file open/save, command palette,
+autosave, crash recovery, search, packaging.

@@ -9,7 +9,7 @@ the working summary of the technical shape.
 Essay application
 ├── Application chrome        apps/desktop/src (React, TanStack Router)
 ├── Document workspace        apps/desktop/src + packages/document-ui
-├── Editor UI                 packages/editor (CodeMirror 6, React-free)
+├── Editor UI                 packages/editor (Tiptap/ProseMirror, framework-agnostic)
 ├── Document engine           crates/essay-markdown, essay-core
 ├── Revision engine           crates/essay-revisions, essay-diff
 └── Typesetting engine        crates/essay-render (Typst embedded)
@@ -24,15 +24,21 @@ start, but the reusable core is extracted from Essay's real requirements
 - **Tauri 2** desktop shell: Rust backend, OS WebView frontend. We do not
   build a native text-layout engine; browser text infrastructure (IME,
   accessibility, shaping, clipboard) is decades of work we inherit for free.
-- **CodeMirror 6, not a rich-text editor.** The manuscript is source-faithful
-  Markdown; syntax gets visually quiet, never hidden behind an opaque
-  rich-text representation. CodeMirror is the *text surface only* — never the
-  canonical document model or revision database. (The original scaffold used
-  Tiptap; it was replaced because ProseMirror's document model requires
-  reserializing the manuscript, which the brief forbids.)
-- **Source is canonical.** Parsers produce indexes *over* the source
-  (`essay-markdown::DocumentIndex` points into it). Essay never regenerates
-  the file through an AST. Unknown syntax survives unchanged.
+- **Rich-text manuscript surface (Tiptap/ProseMirror), decided by Jack
+  2026-07-31, overriding the brief's CodeMirror section.** You edit the
+  designed document — real headings, tables, task lists — Typora-class; this
+  is also the seed of the spin-out ambition: the best top-of-funnel editor
+  competing with Word. The file on disk stays plain Markdown
+  (`@tiptap/markdown`: parse on open, `editor.getMarkdown()` on save).
+  **The accepted cost:** saving serializes through ProseMirror, so round-trip
+  fidelity is a standing engineering discipline — golden-file round-trip
+  tests in `fixtures/`, raw passthrough for unsupported syntax, and
+  conservative serializer settings. Known normalization today: table columns
+  are re-aligned on serialize. A CodeMirror "view source" mode can return
+  later (the implementation lives in git history at the initial commit).
+- **On disk, source is canonical.** The Rust side never regenerates the file:
+  `essay-markdown::DocumentIndex` is an index *over* the source. Revisions,
+  diffs and agent patches operate on the Markdown file, not on editor state.
 - **markdown-rs** for parsing (source positions, CommonMark + GFM + MDX +
   math + frontmatter). Fallback if constraining: `pulldown-cmark`.
 - **Typst embedded as a Rust library** (Milestone 2). Full-document

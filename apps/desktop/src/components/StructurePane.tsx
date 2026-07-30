@@ -1,4 +1,4 @@
-import type { OutlineItem } from '#/lib/outline'
+import type { OutlineItem } from '@essay/editor'
 
 interface StructurePaneProps {
   outline: OutlineItem[]
@@ -19,14 +19,14 @@ export function StructurePane({ outline, onSelect }: StructurePaneProps) {
         ) : (
           <ul>
             {outline.map((item, i) => (
-              <li key={`${item.line}-${i}`}>
+              <li key={`${item.pos}-${i}`}>
                 <button
                   type="button"
                   onClick={() => onSelect(item)}
                   className="w-full truncate rounded px-2 py-1 text-left text-sm text-[var(--essay-text-muted)] hover:bg-[var(--essay-border)] hover:text-[var(--essay-text)]"
                   style={{ paddingLeft: `${0.5 + (item.level - 1) * 0.75}rem` }}
                 >
-                  {item.text}
+                  {item.text || 'Untitled'}
                 </button>
               </li>
             ))}

@@ -1,0 +1,279 @@
+/* @essay/editor — manuscript typography.
+   The editing surface IS the designed document: literary serif, book-style
+   tables, quiet editorial detailing. Tokens come from @essay/theme. */
+
+.essay-prose {
+  font-family: var(--essay-font-prose);
+  font-optical-sizing: auto;
+  font-size: var(--essay-editor-font-size);
+  line-height: 1.75;
+  color: var(--essay-text);
+  caret-color: var(--essay-text);
+  max-width: var(--essay-measure);
+  margin: 0 auto;
+  padding: 4rem 1.5rem 45vh;
+  outline: none;
+}
+
+.essay-prose ::selection,
+.essay-prose::selection {
+  background: var(--essay-selection);
+}
+
+.essay-prose > * + * {
+  margin-top: 0.85em;
+}
+
+/* ——— Headings ——— */
+
+.essay-prose h1,
+.essay-prose h2,
+.essay-prose h3,
+.essay-prose h4,
+.essay-prose h5,
+.essay-prose h6 {
+  font-weight: 640;
+  line-height: 1.25;
+  letter-spacing: -0.012em;
+}
+
+.essay-prose h1 {
+  font-size: 1.8em;
+  margin-top: 0;
+  margin-bottom: 0.7em;
+}
+
+.essay-prose > * + h1 {
+  margin-top: 1.6em;
+}
+
+.essay-prose h2 {
+  font-size: 1.35em;
+  margin-top: 1.9em;
+}
+
+.essay-prose h3 {
+  font-size: 1.125em;
+  margin-top: 1.6em;
+}
+
+.essay-prose h4 {
+  font-size: 1em;
+  margin-top: 1.5em;
+}
+
+.essay-prose h5,
+.essay-prose h6 {
+  font-size: 0.85em;
+  margin-top: 1.5em;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--essay-text-muted);
+}
+
+/* ——— Inline ——— */
+
+.essay-prose strong {
+  font-weight: 680;
+}
+
+.essay-prose a {
+  color: var(--essay-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in oklab, var(--essay-accent) 40%, transparent);
+  transition: text-decoration-color 120ms ease;
+}
+
+.essay-prose a:hover {
+  text-decoration-color: var(--essay-accent);
+}
+
+.essay-prose code {
+  font-family: var(--essay-font-mono);
+  font-size: 0.85em;
+  background: color-mix(in oklab, var(--essay-text) 7%, transparent);
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+}
+
+/* ——— Blockquote ——— */
+
+.essay-prose blockquote {
+  margin: 1.4em 0;
+  padding: 0.1em 0 0.1em 1.4em;
+  border-left: 2px solid color-mix(in oklab, var(--essay-text) 30%, transparent);
+  color: var(--essay-text-muted);
+  font-style: italic;
+}
+
+.essay-prose blockquote em {
+  font-style: normal;
+}
+
+/* ——— Lists ——— */
+
+.essay-prose ul,
+.essay-prose ol {
+  padding-left: 1.6em;
+}
+
+.essay-prose li {
+  margin: 0.35em 0;
+}
+
+.essay-prose li::marker {
+  color: var(--essay-text-faint);
+}
+
+.essay-prose li > p {
+  margin: 0;
+}
+
+/* Task lists */
+
+.essay-prose ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0.2em;
+}
+
+.essay-prose ul[data-type='taskList'] li {
+  display: flex;
+  gap: 0.65em;
+  align-items: baseline;
+}
+
+.essay-prose ul[data-type='taskList'] li > label {
+  flex: 0 0 auto;
+}
+
+.essay-prose ul[data-type='taskList'] input[type='checkbox'] {
+  accent-color: var(--essay-accent);
+  width: 1em;
+  height: 1em;
+  transform: translateY(0.1em);
+  cursor: pointer;
+}
+
+.essay-prose ul[data-type='taskList'] li[data-checked='true'] > div {
+  color: var(--essay-text-faint);
+}
+
+/* ——— Code blocks ——— */
+
+.essay-prose pre {
+  font-family: var(--essay-font-mono);
+  font-size: 0.85em;
+  line-height: 1.6;
+  background: color-mix(in oklab, var(--essay-text) 5%, transparent);
+  border: 1px solid var(--essay-border);
+  border-radius: 8px;
+  padding: 1em 1.25em;
+  margin: 1.4em 0;
+  overflow-x: auto;
+}
+
+.essay-prose pre code {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  font-size: 1em;
+}
+
+/* ——— Tables: book style — horizontal rules only, no grid ——— */
+
+.essay-prose table {
+  width: 100%;
+  margin: 1.6em 0;
+  border-collapse: collapse;
+  font-size: 0.92em;
+  line-height: 1.5;
+  border-top: 2px solid color-mix(in oklab, var(--essay-text) 70%, transparent);
+  border-bottom: 2px solid color-mix(in oklab, var(--essay-text) 70%, transparent);
+}
+
+.essay-prose th {
+  font-weight: 650;
+  text-align: left;
+  border-bottom: 1px solid color-mix(in oklab, var(--essay-text) 70%, transparent);
+}
+
+.essay-prose th,
+.essay-prose td {
+  padding: 0.5em 0.9em 0.5em 0;
+  vertical-align: baseline;
+  position: relative;
+}
+
+.essay-prose td {
+  border-bottom: 1px solid var(--essay-border);
+}
+
+.essay-prose tr:last-child td {
+  border-bottom: none;
+}
+
+.essay-prose th p,
+.essay-prose td p {
+  margin: 0;
+}
+
+/* Cell selection overlay (ProseMirror table selection) */
+.essay-prose .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--essay-selection);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* ——— Figures ——— */
+
+.essay-prose img {
+  display: block;
+  max-width: 100%;
+  margin: 1.6em auto;
+  border-radius: 3px;
+}
+
+.essay-prose img.ProseMirror-selectednode {
+  outline: 2px solid var(--essay-accent);
+  outline-offset: 2px;
+}
+
+/* ——— Section break: an asterism, not a rule ——— */
+
+.essay-prose hr {
+  border: none;
+  margin: 2.6em 0;
+  text-align: center;
+}
+
+.essay-prose hr::before {
+  content: '⁂';
+  color: var(--essay-text-faint);
+  font-size: 1em;
+  letter-spacing: 0.4em;
+}
+
+.essay-prose hr.ProseMirror-selectednode::before {
+  color: var(--essay-accent);
+}
+
+/* ——— Placeholder ——— */
+
+.essay-prose p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--essay-text-faint);
+}
+
+/* ——— ProseMirror mechanics ——— */
+
+.essay-prose .ProseMirror-gapcursor::after {
+  border-top: 1px solid var(--essay-text);
+}

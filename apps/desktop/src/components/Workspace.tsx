@@ -1,18 +1,29 @@
-import { useMemo, useRef, useState } from 'react'
-import { revealLine, type EditorView } from '@essay/editor'
+import { useCallback, useState } from 'react'
+import {
+  extractOutline,
+  revealHeading,
+  wordCount,
+  type Editor,
+  type OutlineItem,
+} from '@essay/editor'
 import welcome from '#/content/welcome.md?raw'
-import { countWords, estimatePages, extractOutline } from '#/lib/outline'
 import { ManuscriptEditor } from './ManuscriptEditor'
 import { StructurePane } from './StructurePane'
 import { PrintPane } from './PrintPane'
 
 export function Workspace() {
-  const viewRef = useRef<EditorView | null>(null)
-  const [doc, setDoc] = useState(welcome)
+  const [editor, setEditor] = useState<Editor | null>(null)
+  const [outline, setOutline] = useState<OutlineItem[]>([])
+  const [words, setWords] = useState(0)
 
-  const outline = useMemo(() => extractOutline(doc), [doc])
-  const words = useMemo(() => countWords(doc), [doc])
-  const pages = estimatePages(words)
+  const handleEditorUpdate = useCallback((editor: Editor) => {
+    setEditor(editor)
+    setOutline(extractOutline(editor))
+    setWords(wordCount(editor))
+  }, [])
+
+  // Rough estimate until the Typst pipeline reports real pages (Milestone 2).
+  const pages = Math.max(1, Math.ceil(words / 350))
 
   return (
     <div className="grid h-screen grid-rows-[auto_minmax(0,1fr)_auto] bg-[var(--essay-bg)] text-[var(--essay-text)]">
@@ -27,16 +38,13 @@ export function Workspace() {
         <StructurePane
           outline={outline}
           onSelect={(item) => {
-            if (viewRef.current) revealLine(viewRef.current, item.line)
+            if (editor) revealHeading(editor, item.pos)
           }}
         />
         <main className="min-h-0 overflow-hidden">
           <ManuscriptEditor
-            initialDoc={welcome}
-            onDocChanged={setDoc}
-            onReady={(view) => {
-              viewRef.current = view
-            }}
+            initialMarkdown={welcome}
+            onEditorUpdate={handleEditorUpdate}
           />
         </main>
         <div className="hidden lg:block">

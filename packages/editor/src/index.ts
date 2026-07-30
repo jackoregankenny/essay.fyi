@@ -1,141 +1,96 @@
 /**
- * @essay/editor — the manuscript text surface.
+ * @essay/editor — the manuscript surface.
  *
- * CodeMirror 6 is the text surface only. It is not the canonical document
- * model and not the revision database; those live in the Rust core
- * (essay-markdown, essay-revisions). This package must stay React-free so a
- * future host can embed it with its own chrome.
+ * Rich-text editing (Tiptap/ProseMirror) over a canonical Markdown file:
+ * you edit the designed document — real headings, tables, task lists — and
+ * the manuscript serializes back to plain Markdown (`editor.getMarkdown()`).
+ * Typora is the reference experience.
+ *
+ * This package assembles extensions and document helpers only; it is
+ * framework-agnostic (no React). Hosts bring their own binding
+ * (@tiptap/react in apps/desktop) and chrome.
+ *
+ * Round-trip fidelity is a standing engineering discipline here: saving must
+ * never gratuitously rewrite an author's Markdown. Grow golden-file tests in
+ * fixtures/ alongside any serializer-affecting change.
  */
-import { EditorState, type Extension } from '@codemirror/state'
-import {
-  EditorView,
-  drawSelection,
-  dropCursor,
-  highlightSpecialChars,
-  keymap,
-  placeholder,
-  rectangularSelection,
-} from '@codemirror/view'
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
-import { highlightSelectionMatches, searchKeymap } from '@codemirror/search'
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { languages } from '@codemirror/language-data'
-import { tags } from '@lezer/highlight'
+import type { AnyExtension, Editor } from '@tiptap/core'
+import StarterKit from '@tiptap/starter-kit'
+import { Markdown } from '@tiptap/markdown'
+import { TableKit } from '@tiptap/extension-table'
+import { TaskItem, TaskList } from '@tiptap/extension-list'
+import Image from '@tiptap/extension-image'
+import Typography from '@tiptap/extension-typography'
+import { CharacterCount, Placeholder } from '@tiptap/extensions'
 
-export { EditorView } from '@codemirror/view'
-export { EditorState } from '@codemirror/state'
+export type { Editor } from '@tiptap/core'
+
+export interface ManuscriptOptions {
+  placeholder?: string
+}
+
+/** The extension set every Essay manuscript uses, regardless of host. */
+export function manuscriptExtensions(
+  options: ManuscriptOptions = {},
+): AnyExtension[] {
+  return [
+    StarterKit.configure({
+      heading: { levels: [1, 2, 3, 4, 5, 6] },
+      link: { openOnClick: false },
+    }),
+    Markdown,
+    TableKit.configure({
+      table: { resizable: false },
+    }),
+    TaskList,
+    TaskItem.configure({ nested: true }),
+    Image,
+    Typography,
+    CharacterCount,
+    Placeholder.configure({
+      placeholder: options.placeholder ?? 'Start writing…',
+    }),
+  ]
+}
+
+export interface OutlineItem {
+  /** Heading depth, 1–6. */
+  level: number
+  text: string
+  /** ProseMirror document position of the heading node. */
+  pos: number
+}
 
 /**
- * Markdown syntax stays visible (source is canonical) but visually quiet:
- * marks and metadata recede, prose stays foregrounded.
+ * Heading outline straight from the live editor document. The Rust index
+ * (essay-markdown) remains the source of truth for the file on disk; this
+ * reads the in-memory document between saves.
  */
-const manuscriptHighlight = HighlightStyle.define([
-  { tag: tags.heading1, fontSize: '1.45em', fontWeight: '650' },
-  { tag: tags.heading2, fontSize: '1.25em', fontWeight: '650' },
-  { tag: tags.heading3, fontSize: '1.1em', fontWeight: '650' },
-  { tag: tags.heading4, fontWeight: '650' },
-  { tag: tags.heading5, fontWeight: '650' },
-  { tag: tags.heading6, fontWeight: '650' },
-  { tag: tags.strong, fontWeight: '650' },
-  { tag: tags.emphasis, fontStyle: 'italic' },
-  { tag: tags.strikethrough, textDecoration: 'line-through' },
-  { tag: tags.link, color: 'var(--essay-accent)' },
-  { tag: tags.url, color: 'var(--essay-text-faint)' },
-  { tag: tags.quote, color: 'var(--essay-text-muted)', fontStyle: 'italic' },
-  {
-    tag: tags.monospace,
-    fontFamily: 'var(--essay-font-mono)',
-    fontSize: '0.9em',
-  },
-  { tag: tags.processingInstruction, color: 'var(--essay-text-faint)' },
-  { tag: tags.meta, color: 'var(--essay-text-faint)' },
-  { tag: tags.contentSeparator, color: 'var(--essay-text-faint)' },
-  { tag: tags.comment, color: 'var(--essay-text-faint)', fontStyle: 'italic' },
-])
-
-const manuscriptTheme = EditorView.theme({
-  '&': {
-    height: '100%',
-    fontSize: 'var(--essay-editor-font-size)',
-    color: 'var(--essay-text)',
-    backgroundColor: 'transparent',
-  },
-  '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': {
-    fontFamily: 'var(--essay-font-prose)',
-    lineHeight: '1.75',
-  },
-  '.cm-content': {
-    maxWidth: 'var(--essay-measure)',
-    margin: '0 auto',
-    padding: '3.5rem 1.5rem 45vh',
-    caretColor: 'var(--essay-text)',
-  },
-  '.cm-cursor': { borderLeftWidth: '2px' },
-  '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-    backgroundColor: 'var(--essay-selection) !important',
-  },
-  '.cm-selectionMatch': { backgroundColor: 'var(--essay-selection-match)' },
-  '.cm-placeholder': { color: 'var(--essay-text-faint)' },
-})
-
-export interface ManuscriptEditorOptions {
-  parent: HTMLElement
-  doc?: string
-  placeholder?: string
-  /** Called with the full source after every document change. */
-  onDocChanged?: (doc: string) => void
-  /** Host-supplied extensions (diff decorations, comments, …) appended last. */
-  extensions?: Extension[]
+export function extractOutline(editor: Editor): OutlineItem[] {
+  const items: OutlineItem[] = []
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === 'heading') {
+      items.push({
+        level: node.attrs.level as number,
+        text: node.textContent,
+        pos,
+      })
+      return false
+    }
+    return true
+  })
+  return items
 }
 
-export function createManuscriptEditor(
-  options: ManuscriptEditorOptions,
-): EditorView {
-  const extensions: Extension[] = [
-    history(),
-    drawSelection(),
-    dropCursor(),
-    rectangularSelection(),
-    highlightSpecialChars(),
-    highlightSelectionMatches(),
-    EditorView.lineWrapping,
-    markdown({ base: markdownLanguage, codeLanguages: languages }),
-    syntaxHighlighting(manuscriptHighlight),
-    manuscriptTheme,
-    keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
-  ]
-
-  if (options.placeholder) {
-    extensions.push(placeholder(options.placeholder))
+/** Place the cursor in a heading and bring it to the top of the view. */
+export function revealHeading(editor: Editor, pos: number): void {
+  editor.chain().focus().setTextSelection(pos + 1).run()
+  const dom = editor.view.nodeDOM(pos)
+  if (dom instanceof HTMLElement) {
+    dom.scrollIntoView({ block: 'start' })
   }
-  if (options.onDocChanged) {
-    const notify = options.onDocChanged
-    extensions.push(
-      EditorView.updateListener.of((update) => {
-        if (update.docChanged) notify(update.state.doc.toString())
-      }),
-    )
-  }
-  if (options.extensions) {
-    extensions.push(...options.extensions)
-  }
-
-  return new EditorView({
-    state: EditorState.create({ doc: options.doc ?? '', extensions }),
-    parent: options.parent,
-  })
 }
 
-/** Move the cursor to a 1-based line and scroll it near the top of the view. */
-export function revealLine(view: EditorView, lineNumber: number): void {
-  const line = view.state.doc.line(
-    Math.min(Math.max(lineNumber, 1), view.state.doc.lines),
-  )
-  view.dispatch({
-    selection: { anchor: line.from },
-    effects: EditorView.scrollIntoView(line.from, { y: 'start', yMargin: 80 }),
-  })
-  view.focus()
+export function wordCount(editor: Editor): number {
+  return editor.storage.characterCount.words()
 }

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "@essay/theme/theme.css";
+@import "@fontsource-variable/literata";
+@import "@essay/editor/prose.css";
 
 * {
   box-sizing: border-box;

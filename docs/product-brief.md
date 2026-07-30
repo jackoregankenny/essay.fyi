@@ -2,6 +2,13 @@
 
 > Superhuman for unformed documents
 
+> **Editor-technology override (2026-07-31, Jack):** the CodeMirror /
+> source-faithful-editor sections below were a drafting artifact and are
+> superseded. The manuscript surface is **rich text** (Tiptap/ProseMirror),
+> Typora-class: you edit the designed document while the file on disk stays
+> plain Markdown. See [architecture.md](./architecture.md) for the decision
+> record. Everything else in this brief stands.
+
 This version treats Essay as the product name; the eventual domain can become
 its public address without dictating the software's identity.
 

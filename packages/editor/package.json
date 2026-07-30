@@ -4,16 +4,18 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./prose.css": "./prose.css"
   },
   "dependencies": {
-    "@codemirror/commands": "^6.10.1",
-    "@codemirror/lang-markdown": "^6.5.0",
-    "@codemirror/language": "^6.11.3",
-    "@codemirror/language-data": "^6.5.1",
-    "@codemirror/search": "^6.5.11",
-    "@codemirror/state": "^6.5.2",
-    "@codemirror/view": "^6.38.2",
-    "@lezer/highlight": "^1.2.1"
+    "@tiptap/core": "^3.29.2",
+    "@tiptap/extension-image": "^3.29.2",
+    "@tiptap/extension-list": "^3.29.2",
+    "@tiptap/extension-table": "^3.29.2",
+    "@tiptap/extension-typography": "^3.29.2",
+    "@tiptap/extensions": "^3.29.2",
+    "@tiptap/markdown": "^3.29.2",
+    "@tiptap/pm": "^3.29.2",
+    "@tiptap/starter-kit": "^3.29.2"
   }
 }
