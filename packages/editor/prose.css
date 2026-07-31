@@ -1,12 +1,13 @@
 /* @essay/editor — manuscript typography.
-   The editing surface IS the designed document: literary serif, book-style
-   tables, quiet editorial detailing. Tokens come from @essay/theme. */
+   The editing surface IS the designed document: clean Geist type,
+   book-style tables, quiet editorial detailing. Tokens come from
+   @essay/theme. */
 
 .essay-prose {
   font-family: var(--essay-font-prose);
   font-optical-sizing: auto;
   font-size: var(--essay-editor-font-size);
-  line-height: 1.75;
+  line-height: 1.7;
   color: var(--essay-text);
   caret-color: var(--essay-text);
   max-width: var(--essay-measure);
@@ -32,13 +33,13 @@
 .essay-prose h4,
 .essay-prose h5,
 .essay-prose h6 {
-  font-weight: 640;
+  font-weight: 600;
   line-height: 1.25;
-  letter-spacing: -0.012em;
+  letter-spacing: -0.02em;
 }
 
 .essay-prose h1 {
-  font-size: 1.8em;
+  font-size: 1.7em;
   margin-top: 0;
   margin-bottom: 0.7em;
 }
@@ -74,7 +75,7 @@
 /* ——— Inline ——— */
 
 .essay-prose strong {
-  font-weight: 680;
+  font-weight: 620;
 }
 
 .essay-prose a {

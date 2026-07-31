@@ -56,12 +56,15 @@ cargo run -p essay-cli -- outline <file.md>   # working CLI verb
 
 ## Current state
 
-Milestone 0 (scaffold) complete, plus the first product pass: three-pane
-workspace (Structure | Manuscript | Print placeholder) with a rich Tiptap
-manuscript — headings, book-style tables, task lists, blockquotes, asterism
-section breaks, Literata typography (bundled, offline-safe), markdown
-shortcuts, live outline/word count, verified Markdown round-trip via
-`editor.getMarkdown()`. Rust heading index (`essay-markdown`) exposed via
-the `index_document` Tauri command and `essay outline` CLI. Next:
-Milestone 1 — open/save real files, command palette, autosave, crash
-recovery, search, packaging.
+Milestone 0 complete plus the first product passes: rich Tiptap manuscript
+(headings, book-style tables, task lists, markdown shortcuts, verified
+round-trip via `editor.getMarkdown()`), file open/save through native
+dialogs (`read_document`/`write_document` commands, Ctrl+N/O/S), and the
+Linear/Superhuman-direction chrome: Geist typography (bundled), Phosphor
+icons, Base UI primitives (`src/components/ui/`), slim header/footer, and a
+**multi-root file explorer** (`ExplorerPane`) built on `@pierre/trees` —
+any number of folders, not a single vault; `list_markdown_tree` command
+walks each root. Design references of record: diffs.com and trees.software
+(Pierre) — plan to use `@pierre/diffs` for Milestone 3/4 review surfaces.
+Next: Milestone 1 remainder — command palette, autosave, crash recovery,
+search, packaging.

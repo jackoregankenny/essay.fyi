@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { isTauri } from '@tauri-apps/api/core'
 import {
+  FilePlus,
+  FloppyDisk,
+  FolderOpen,
+  SidebarSimple,
+} from '@phosphor-icons/react'
+import {
   extractOutline,
   revealHeading,
   wordCount,
@@ -9,13 +15,16 @@ import {
 } from '@essay/editor'
 import welcome from '#/content/welcome.md?raw'
 import {
+  openDocumentByPath,
   openDocumentFile,
   saveDocumentFile,
   type DocumentRef,
 } from '#/lib/documentFile'
 import { ManuscriptEditor } from './ManuscriptEditor'
-import { StructurePane } from './StructurePane'
+import { Sidebar } from './Sidebar'
 import { PrintPane } from './PrintPane'
+import { IconButton } from './ui/icon-button'
+import { Tip, TooltipProvider } from './ui/tooltip'
 
 const UNTITLED: DocumentRef = { path: null, name: 'untitled.md' }
 
@@ -25,6 +34,7 @@ export function Workspace() {
   const [dirty, setDirty] = useState(false)
   const [outline, setOutline] = useState<OutlineItem[]>([])
   const [words, setWords] = useState(0)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const refreshStats = useCallback((editor: Editor) => {
     setOutline(extractOutline(editor))
@@ -47,25 +57,52 @@ export function Workspace() {
     [refreshStats],
   )
 
-  const newDocument = useCallback(() => {
-    if (!editor) return
-    editor.commands.setContent('', { contentType: 'markdown' })
-    setDocRef(UNTITLED)
-    setDirty(false)
-    refreshStats(editor)
-    editor.commands.focus('start')
-  }, [editor, refreshStats])
+  const loadIntoEditor = useCallback(
+    (editor: Editor, contents: string, ref: DocumentRef) => {
+      editor.commands.setContent(contents, { contentType: 'markdown' })
+      setDocRef(ref)
+      setDirty(false)
+      refreshStats(editor)
+      editor.commands.focus('start')
+    },
+    [refreshStats],
+  )
+
+  /**
+   * Leaving an unsaved document: saved files are written silently (the
+   * local-first default); an untitled buffer asks before discarding.
+   */
+  const settleUnsaved = useCallback(async (): Promise<boolean> => {
+    if (!editor || !dirty) return true
+    if (docRef.path) {
+      await saveDocumentFile(editor.getMarkdown(), docRef.path, docRef.name)
+      return true
+    }
+    return window.confirm('Discard unsaved changes to the untitled document?')
+  }, [editor, dirty, docRef])
+
+  const newDocument = useCallback(async () => {
+    if (!editor || !(await settleUnsaved())) return
+    loadIntoEditor(editor, '', UNTITLED)
+  }, [editor, settleUnsaved, loadIntoEditor])
 
   const openDocument = useCallback(async () => {
-    if (!editor) return
+    if (!editor || !(await settleUnsaved())) return
     const opened = await openDocumentFile()
     if (!opened) return
-    editor.commands.setContent(opened.contents, { contentType: 'markdown' })
-    setDocRef({ path: opened.path, name: opened.name })
-    setDirty(false)
-    refreshStats(editor)
-    editor.commands.focus('start')
-  }, [editor, refreshStats])
+    loadIntoEditor(editor, opened.contents, opened)
+  }, [editor, settleUnsaved, loadIntoEditor])
+
+  const openByPath = useCallback(
+    async (path: string) => {
+      if (!editor || path === docRef.path) return
+      if (!(await settleUnsaved())) return
+      const opened = await openDocumentByPath(path)
+      if (!opened) return
+      loadIntoEditor(editor, opened.contents, opened)
+    },
+    [editor, docRef.path, settleUnsaved, loadIntoEditor],
+  )
 
   const saveDocument = useCallback(
     async (saveAs = false) => {
@@ -94,7 +131,10 @@ export function Workspace() {
         void saveDocument(event.shiftKey)
       } else if (key === 'n') {
         event.preventDefault()
-        newDocument()
+        void newDocument()
+      } else if (key === 'b') {
+        event.preventDefault()
+        setSidebarOpen((open) => !open)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -115,77 +155,94 @@ export function Workspace() {
   const pages = Math.max(1, Math.ceil(words / 350))
 
   return (
-    <div className="grid h-screen grid-rows-[auto_minmax(0,1fr)_auto] bg-[var(--essay-bg)] text-[var(--essay-text)]">
-      <header className="flex items-baseline gap-3 border-b border-[var(--essay-border)] px-4 py-2">
-        <span className="text-sm font-semibold">Essay</span>
-        <span className="text-sm text-[var(--essay-text-faint)]">
-          {docRef.name}
-          {dirty && (
-            <span className="ml-1.5 text-[var(--essay-accent)]" title="Unsaved changes">
-              •
+    <TooltipProvider>
+      <div className="grid h-screen grid-rows-[auto_minmax(0,1fr)_auto] bg-[var(--essay-bg)] text-[var(--essay-text)]">
+        <header className="flex h-10 items-center gap-1 border-b border-[var(--essay-border)] px-2">
+          <Tip
+            label="Toggle sidebar"
+            shortcut="Ctrl+B"
+            trigger={
+              <IconButton onClick={() => setSidebarOpen((open) => !open)}>
+                <SidebarSimple size={16} />
+              </IconButton>
+            }
+          />
+          <div className="mx-1 flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-[13px] font-medium">
+              {docRef.name}
             </span>
+            {dirty && (
+              <span
+                className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--essay-accent)]"
+                title="Unsaved changes"
+              />
+            )}
+          </div>
+          <div className="ml-auto flex items-center gap-0.5">
+            <Tip
+              label="New document"
+              shortcut="Ctrl+N"
+              trigger={
+                <IconButton onClick={() => void newDocument()}>
+                  <FilePlus size={16} />
+                </IconButton>
+              }
+            />
+            <Tip
+              label="Open file"
+              shortcut="Ctrl+O"
+              trigger={
+                <IconButton onClick={() => void openDocument()}>
+                  <FolderOpen size={16} />
+                </IconButton>
+              }
+            />
+            <Tip
+              label="Save"
+              shortcut="Ctrl+S"
+              trigger={
+                <IconButton onClick={() => void saveDocument()}>
+                  <FloppyDisk size={16} />
+                </IconButton>
+              }
+            />
+          </div>
+        </header>
+
+        <div
+          className={`grid min-h-0 ${
+            sidebarOpen
+              ? 'grid-cols-[248px_minmax(0,1fr)] lg:grid-cols-[248px_minmax(0,1fr)_minmax(280px,32%)]'
+              : 'grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_minmax(280px,32%)]'
+          }`}
+        >
+          {sidebarOpen && (
+            <Sidebar
+              outline={outline}
+              onSelectOutline={(item) => {
+                if (editor) revealHeading(editor, item.pos)
+              }}
+              onOpenFile={(path) => void openByPath(path)}
+            />
           )}
-        </span>
-        <nav className="ml-auto flex gap-1 text-sm">
-          <HeaderButton label="New" shortcut="Ctrl+N" onClick={newDocument} />
-          <HeaderButton
-            label="Open"
-            shortcut="Ctrl+O"
-            onClick={() => void openDocument()}
-          />
-          <HeaderButton
-            label="Save"
-            shortcut="Ctrl+S"
-            onClick={() => void saveDocument()}
-          />
-        </nav>
-      </header>
-
-      <div className="grid min-h-0 grid-cols-[220px_minmax(0,1fr)] lg:grid-cols-[220px_minmax(0,1fr)_minmax(280px,34%)]">
-        <StructurePane
-          outline={outline}
-          onSelect={(item) => {
-            if (editor) revealHeading(editor, item.pos)
-          }}
-        />
-        <main className="min-h-0 overflow-hidden">
-          <ManuscriptEditor
-            initialMarkdown={welcome}
-            onReady={handleReady}
-            onChanged={handleChanged}
-          />
-        </main>
-        <div className="hidden lg:block">
-          <PrintPane words={words} pages={pages} />
+          <main className="min-h-0 overflow-hidden">
+            <ManuscriptEditor
+              initialMarkdown={welcome}
+              onReady={handleReady}
+              onChanged={handleChanged}
+            />
+          </main>
+          <div className="hidden lg:block">
+            <PrintPane words={words} pages={pages} />
+          </div>
         </div>
+
+        <footer className="flex h-7 items-center gap-3 border-t border-[var(--essay-border)] px-3 text-[11px] text-[var(--essay-text-faint)]">
+          <span className="tabular-nums">{words} words</span>
+          <span className="tabular-nums">{outline.length} sections</span>
+          <span className="ml-auto">local · works offline</span>
+        </footer>
       </div>
-
-      <footer className="flex gap-4 border-t border-[var(--essay-border)] px-4 py-1.5 text-xs text-[var(--essay-text-faint)]">
-        <span>{words} words</span>
-        <span>{outline.length} sections</span>
-        <span className="ml-auto">local · works offline</span>
-      </footer>
-    </div>
-  )
-}
-
-function HeaderButton({
-  label,
-  shortcut,
-  onClick,
-}: {
-  label: string
-  shortcut: string
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={shortcut}
-      className="rounded px-2 py-0.5 text-[var(--essay-text-muted)] hover:bg-[var(--essay-surface)] hover:text-[var(--essay-text)]"
-    >
-      {label}
-    </button>
+    </TooltipProvider>
   )
 }

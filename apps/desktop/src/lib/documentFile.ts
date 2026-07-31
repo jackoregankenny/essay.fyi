@@ -25,6 +25,15 @@ export function fileName(path: string): string {
   return path.split(/[\\/]/).pop() || path
 }
 
+/** Read a known path directly (explorer clicks). Desktop shell only. */
+export async function openDocumentByPath(
+  path: string,
+): Promise<OpenedDocument | null> {
+  if (!isTauri()) return null
+  const contents = await invoke<string>('read_document', { path })
+  return { path, name: fileName(path), contents }
+}
+
 /** Show an open dialog and read the chosen file. Resolves null on cancel. */
 export async function openDocumentFile(): Promise<OpenedDocument | null> {
   if (isTauri()) {

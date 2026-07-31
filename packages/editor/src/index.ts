@@ -59,18 +59,21 @@ export interface OutlineItem {
   text: string
   /** ProseMirror document position of the heading node. */
   pos: number
+  /** Word count of the section this heading opens (up to the next heading). */
+  words: number
 }
 
 /**
- * Heading outline straight from the live editor document. The Rust index
- * (essay-markdown) remains the source of truth for the file on disk; this
- * reads the in-memory document between saves.
+ * Heading outline straight from the live editor document, with per-section
+ * word weight. The Rust index (essay-markdown) remains the source of truth
+ * for the file on disk; this reads the in-memory document between saves.
  */
 export function extractOutline(editor: Editor): OutlineItem[] {
-  const items: OutlineItem[] = []
-  editor.state.doc.descendants((node, pos) => {
+  const doc = editor.state.doc
+  const headings: Array<Omit<OutlineItem, 'words'>> = []
+  doc.descendants((node, pos) => {
     if (node.type.name === 'heading') {
-      items.push({
+      headings.push({
         level: node.attrs.level as number,
         text: node.textContent,
         pos,
@@ -79,7 +82,11 @@ export function extractOutline(editor: Editor): OutlineItem[] {
     }
     return true
   })
-  return items
+  return headings.map((heading, i) => {
+    const end = i + 1 < headings.length ? headings[i + 1].pos : doc.content.size
+    const text = doc.textBetween(heading.pos, end, ' ', ' ')
+    return { ...heading, words: (text.match(/\S+/g) ?? []).length }
+  })
 }
 
 /** Place the cursor in a heading and bring it to the top of the view. */
