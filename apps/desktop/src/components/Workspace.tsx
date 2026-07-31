@@ -1,27 +1,33 @@
 import { useCallback, useEffect, useState } from 'react'
 import { isTauri } from '@tauri-apps/api/core'
 import {
+  Article,
   FilePlus,
   FloppyDisk,
   FolderOpen,
   SidebarSimple,
 } from '@phosphor-icons/react'
 import {
+  extractMarks,
   extractOutline,
   revealHeading,
+  revealPosition,
   setFocusMode,
   wordCount,
+  type DocumentMark,
   type Editor,
   type OutlineItem,
 } from '@essay/editor'
 import { registerCommand, type Command } from '@essay/commands'
 import welcome from '#/content/welcome.md?raw'
 import {
+  exportPdfFile,
   openDocumentByPath,
   openDocumentFile,
   saveDocumentFile,
   type DocumentRef,
 } from '#/lib/documentFile'
+import { documentDir, usePreview } from '#/lib/usePreview'
 import { CommandPalette } from './CommandPalette'
 import { ManuscriptEditor } from './ManuscriptEditor'
 import { SelectionToolbar } from './SelectionToolbar'
@@ -41,10 +47,16 @@ export function Workspace() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [focusMode, setFocusModeState] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(true)
+  const [marks, setMarks] = useState<DocumentMark[]>([])
+  const [caretPos, setCaretPos] = useState(0)
+  const [renderVersion, setRenderVersion] = useState(0)
 
   const refreshStats = useCallback((editor: Editor) => {
     setOutline(extractOutline(editor))
     setWords(wordCount(editor))
+    setMarks(extractMarks(editor))
+    setRenderVersion((v) => v + 1)
   }, [])
 
   const handleReady = useCallback(
@@ -144,6 +156,9 @@ export function Workspace() {
       } else if (key === 'k') {
         event.preventDefault()
         setPaletteOpen((open) => !open)
+      } else if (key === 'j') {
+        event.preventDefault()
+        setPreviewOpen((open) => !open)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -153,6 +168,32 @@ export function Workspace() {
   useEffect(() => {
     if (editor) setFocusMode(editor, focusMode)
   }, [editor, focusMode])
+
+  // Caret tracking for the outline scroll-spy (which section am I in?).
+  useEffect(() => {
+    if (!editor) return
+    const onSelection = () => setCaretPos(editor.state.selection.head)
+    editor.on('selectionUpdate', onSelection)
+    return () => {
+      editor.off('selectionUpdate', onSelection)
+    }
+  }, [editor])
+
+  const exportPdf = useCallback(async () => {
+    if (!editor) return
+    await exportPdfFile(
+      editor.getMarkdown(),
+      docRef.name,
+      documentDir(docRef.path),
+    )
+  }, [editor, docRef])
+
+  const preview = usePreview(
+    editor,
+    documentDir(docRef.path),
+    previewOpen,
+    renderVersion,
+  )
 
   // The palette reads this registry; File/View/Format/Insert all live here
   // so future surfaces (menus, buttons) share one source of truth.
@@ -164,21 +205,24 @@ export function Workspace() {
       { id: 'file.open', title: 'Open file…', group: 'File', shortcut: 'Ctrl+O', run: () => void openDocument() },
       { id: 'file.save', title: 'Save', group: 'File', shortcut: 'Ctrl+S', run: () => void saveDocument() },
       { id: 'file.saveAs', title: 'Save as…', group: 'File', shortcut: 'Ctrl+Shift+S', run: () => void saveDocument(true) },
+      { id: 'file.exportPdf', title: 'Export PDF…', group: 'File', keywords: 'typeset print render', run: () => void exportPdf() },
       { id: 'view.sidebar', title: 'Toggle sidebar', group: 'View', shortcut: 'Ctrl+B', run: () => setSidebarOpen((open) => !open) },
-      { id: 'view.focus', title: 'Toggle focus mode', group: 'View', keywords: 'zen typewriter dim', run: () => setFocusModeState((on) => !on) },
+      { id: 'view.preview', title: 'Toggle print preview', group: 'View', shortcut: 'Ctrl+J', keywords: 'typeset pages render', run: () => setPreviewOpen((open) => !open) },
+      { id: 'view.focus', title: 'Toggle focus mode', group: 'View', keywords: 'zen typewriter dim centre center', run: () => setFocusModeState((on) => !on) },
       { id: 'format.h1', title: 'Heading 1', group: 'Format', keywords: 'title turn into', run: () => { chain().toggleHeading({ level: 1 }).run() } },
       { id: 'format.h2', title: 'Heading 2', group: 'Format', keywords: 'section turn into', run: () => { chain().toggleHeading({ level: 2 }).run() } },
       { id: 'format.h3', title: 'Heading 3', group: 'Format', keywords: 'subsection turn into', run: () => { chain().toggleHeading({ level: 3 }).run() } },
       { id: 'format.paragraph', title: 'Text', group: 'Format', keywords: 'paragraph body normal', run: () => { chain().setParagraph().run() } },
       { id: 'format.quote', title: 'Quote', group: 'Format', keywords: 'blockquote', run: () => { chain().toggleBlockquote().run() } },
       { id: 'format.codeBlock', title: 'Code block', group: 'Format', run: () => { chain().toggleCodeBlock().run() } },
+      { id: 'format.highlight', title: 'Mark to come back to', group: 'Format', keywords: 'highlight revisit note comeback', run: () => { chain().toggleHighlight().run() } },
       { id: 'insert.table', title: 'Insert table', group: 'Insert', run: () => { chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() } },
       { id: 'insert.taskList', title: 'Insert task list', group: 'Insert', keywords: 'todo checkbox', run: () => { chain().toggleTaskList().run() } },
       { id: 'insert.divider', title: 'Insert section break', group: 'Insert', keywords: 'horizontal rule divider hr', run: () => { chain().setHorizontalRule().run() } },
     ]
     const unregister = commands.map(registerCommand)
     return () => unregister.forEach((fn) => fn())
-  }, [editor, newDocument, openDocument, saveDocument])
+  }, [editor, newDocument, openDocument, saveDocument, exportPdf])
 
   useEffect(() => {
     const title = `${docRef.name}${dirty ? ' •' : ''} — Essay`
@@ -190,8 +234,10 @@ export function Workspace() {
     }
   }, [docRef, dirty])
 
-  // Rough estimate until the Typst pipeline reports real pages (Milestone 2).
-  const pages = Math.max(1, Math.ceil(words / 350))
+  const activeOutlinePos = outline.reduce<number | null>(
+    (active, item) => (item.pos <= caretPos ? item.pos : active),
+    null,
+  )
 
   return (
     <TooltipProvider>
@@ -218,6 +264,19 @@ export function Workspace() {
             )}
           </div>
           <div className="ml-auto flex items-center gap-0.5">
+            <Tip
+              label="Toggle print preview"
+              shortcut="Ctrl+J"
+              trigger={
+                <IconButton
+                  onClick={() => setPreviewOpen((open) => !open)}
+                  className={previewOpen ? 'text-[var(--essay-text)]' : ''}
+                >
+                  <Article size={16} />
+                </IconButton>
+              }
+            />
+            <span className="mx-1 h-4 w-px bg-[var(--essay-border)]" />
             <Tip
               label="New document"
               shortcut="Ctrl+N"
@@ -251,20 +310,29 @@ export function Workspace() {
         <div
           className={`grid min-h-0 ${
             sidebarOpen
-              ? 'grid-cols-[248px_minmax(0,1fr)] lg:grid-cols-[248px_minmax(0,1fr)_minmax(280px,32%)]'
-              : 'grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_minmax(280px,32%)]'
+              ? previewOpen
+                ? 'grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[240px_minmax(0,1fr)_minmax(300px,34%)]'
+                : 'grid-cols-[240px_minmax(0,1fr)]'
+              : previewOpen
+                ? 'grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_minmax(300px,34%)]'
+                : 'grid-cols-[minmax(0,1fr)]'
           }`}
         >
           {sidebarOpen && (
             <Sidebar
               outline={outline}
+              activePos={activeOutlinePos}
+              marks={marks}
               onSelectOutline={(item) => {
                 if (editor) revealHeading(editor, item.pos)
+              }}
+              onSelectMark={(mark) => {
+                if (editor) revealPosition(editor, mark.pos)
               }}
               onOpenFile={(path) => void openByPath(path)}
             />
           )}
-          <main className="min-h-0 overflow-hidden">
+          <main className="min-h-0 overflow-hidden bg-[var(--essay-editor-bg)]">
             <ManuscriptEditor
               initialMarkdown={welcome}
               onReady={handleReady}
@@ -272,9 +340,11 @@ export function Workspace() {
             />
             {editor && <SelectionToolbar editor={editor} />}
           </main>
-          <div className="hidden lg:block">
-            <PrintPane words={words} pages={pages} />
-          </div>
+          {previewOpen && (
+            <div className="hidden lg:block">
+              <PrintPane preview={preview} words={words} />
+            </div>
+          )}
         </div>
 
         <footer className="flex h-7 items-center gap-3 border-t border-[var(--essay-border)] px-3 text-[11px] text-[var(--essay-text-faint)]">

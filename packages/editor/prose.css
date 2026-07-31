@@ -9,11 +9,14 @@
   font-size: var(--essay-editor-font-size);
   line-height: 1.7;
   color: var(--essay-text);
-  caret-color: var(--essay-text);
+  /* The caret is the brand: one saturated element on a calm page (iA). */
+  caret-color: var(--essay-accent);
   max-width: var(--essay-measure);
   margin: 0 auto;
-  padding: 4rem 1.5rem 45vh;
+  padding: 6rem 1.5rem 45vh;
   outline: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 .essay-prose ::selection,
@@ -27,19 +30,20 @@
 
 /* ——— Headings ——— */
 
+/* Shallow heading contrast: hierarchy audible but quiet (Bear's 1.5x cap) */
 .essay-prose h1,
 .essay-prose h2,
 .essay-prose h3,
 .essay-prose h4,
 .essay-prose h5,
 .essay-prose h6 {
-  font-weight: 600;
-  line-height: 1.25;
-  letter-spacing: -0.02em;
+  font-weight: var(--essay-weight-semibold, 590);
+  line-height: 1.3;
+  letter-spacing: -0.012em;
 }
 
 .essay-prose h1 {
-  font-size: 1.7em;
+  font-size: 1.5em;
   margin-top: 0;
   margin-bottom: 0.7em;
 }
@@ -49,12 +53,12 @@
 }
 
 .essay-prose h2 {
-  font-size: 1.35em;
+  font-size: 1.25em;
   margin-top: 1.9em;
 }
 
 .essay-prose h3 {
-  font-size: 1.125em;
+  font-size: 1.1em;
   margin-top: 1.6em;
 }
 
@@ -76,6 +80,15 @@
 
 .essay-prose strong {
   font-weight: 620;
+}
+
+/* The "come back to this" mark — ==text== in the Markdown file */
+.essay-prose mark {
+  background: var(--essay-highlight);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0.05em 0.15em;
+  margin: 0 -0.05em;
 }
 
 .essay-prose a {
@@ -263,11 +276,17 @@
   color: var(--essay-accent);
 }
 
-/* ——— Focus mode: dim everything but the block being written ——— */
+/* ——— Focus mode: dim everything but the block being written, and give
+       the typewriter scroll room to centre the first and last lines ——— */
+
+.essay-prose.is-focus-mode {
+  padding-top: 42vh;
+  padding-bottom: 50vh;
+}
 
 .essay-prose.is-focus-mode > * {
-  opacity: 0.32;
-  transition: opacity 160ms ease;
+  opacity: 0.3;
+  transition: opacity 200ms var(--essay-ease-out, ease);
 }
 
 .essay-prose.is-focus-mode > .is-current-block {

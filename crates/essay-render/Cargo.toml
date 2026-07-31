@@ -6,4 +6,11 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+markdown.workspace = true
 thiserror.workspace = true
+typst = "0.15.1"
+typst-assets = { version = "0.15.1", features = ["fonts"] }
+typst-layout = "0.15.1"
+typst-pdf = "0.15.1"
+typst-render = "0.15.1"
+typst-svg = "0.15.1"

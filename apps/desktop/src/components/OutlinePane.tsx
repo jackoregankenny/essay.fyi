@@ -1,15 +1,18 @@
+import { cn } from '#/lib/cn'
 import type { OutlineItem } from '@essay/editor'
 
 interface OutlinePaneProps {
   outline: OutlineItem[]
+  /** Position of the section the caret is currently inside (scroll-spy). */
+  activePos: number | null
   onSelect: (item: OutlineItem) => void
 }
 
-export function OutlinePane({ outline, onSelect }: OutlinePaneProps) {
+export function OutlinePane({ outline, activePos, onSelect }: OutlinePaneProps) {
   return (
-    <section className="flex max-h-[45%] min-h-0 flex-col border-t border-[var(--essay-border)]">
+    <section className="flex max-h-[40%] min-h-0 flex-col border-t border-[var(--essay-border)]">
       <header className="px-3 pt-3 pb-1">
-        <h2 className="text-[11px] font-medium tracking-wider text-[var(--essay-text-faint)] uppercase">
+        <h2 className="text-[11px] font-[510] tracking-wider text-[var(--essay-text-faint)] uppercase">
           Outline
         </h2>
       </header>
@@ -20,23 +23,36 @@ export function OutlinePane({ outline, onSelect }: OutlinePaneProps) {
           </p>
         ) : (
           <ul>
-            {outline.map((item, i) => (
-              <li key={`${item.pos}-${i}`}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(item)}
-                  className="group flex w-full items-baseline gap-2 rounded-md px-2 py-[3px] text-left text-[13px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[color-mix(in_oklab,var(--essay-text)_7%,transparent)] hover:text-[var(--essay-text)]"
-                  style={{ paddingLeft: `${0.5 + (item.level - 1) * 0.7}rem` }}
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {item.text || 'Untitled'}
-                  </span>
-                  <span className="text-[10px] tabular-nums text-[var(--essay-text-faint)] opacity-0 transition-opacity group-hover:opacity-100">
-                    {item.words}
-                  </span>
-                </button>
-              </li>
-            ))}
+            {outline.map((item, i) => {
+              const active = item.pos === activePos
+              return (
+                <li key={`${item.pos}-${i}`}>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(item)}
+                    className={cn(
+                      'group flex w-full items-baseline gap-2 rounded-md px-2 py-[3px] text-left text-[13px] transition-colors duration-100',
+                      active
+                        ? 'bg-[var(--essay-surface-hover)] text-[var(--essay-text)]'
+                        : 'text-[var(--essay-text-muted)] hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]',
+                    )}
+                    style={{ paddingLeft: `${0.5 + (item.level - 1) * 0.7}rem` }}
+                  >
+                    <span className="min-w-0 flex-1 truncate">
+                      {item.text || 'Untitled'}
+                    </span>
+                    <span
+                      className={cn(
+                        'text-[10px] tabular-nums text-[var(--essay-text-faint)] transition-opacity',
+                        active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                      )}
+                    >
+                      {item.words}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         )}
       </nav>

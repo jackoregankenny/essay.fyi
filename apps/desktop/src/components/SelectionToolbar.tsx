@@ -4,6 +4,7 @@ import { useEditorState } from '@tiptap/react'
 import {
   ArrowElbowDownLeft,
   Code,
+  HighlighterCircle,
   Link as LinkIcon,
   TextB,
   TextItalic,
@@ -26,6 +27,7 @@ export function SelectionToolbar({ editor }: { editor: Editor }) {
       strike: editor.isActive('strike'),
       code: editor.isActive('code'),
       link: editor.isActive('link'),
+      highlight: editor.isActive('highlight'),
     }),
   })
 
@@ -111,6 +113,13 @@ export function SelectionToolbar({ editor }: { editor: Editor }) {
             <Code size={14} />
           </FormatButton>
           <span className="mx-0.5 h-4 w-px bg-[var(--essay-border)]" />
+          <FormatButton
+            title="Mark to come back to"
+            active={marks?.highlight}
+            onClick={() => editor.chain().focus().toggleHighlight().run()}
+          >
+            <HighlighterCircle size={14} />
+          </FormatButton>
           <FormatButton
             title="Link"
             active={marks?.link}

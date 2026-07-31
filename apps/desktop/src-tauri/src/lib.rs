@@ -21,6 +21,45 @@ fn write_document(path: String, contents: String) -> Result<(), String> {
   std::fs::write(&path, contents).map_err(|err| format!("cannot write {path}: {err}"))
 }
 
+#[derive(serde::Serialize)]
+pub struct RenderedDocument {
+  pages: Vec<String>,
+  warnings: Vec<String>,
+}
+
+/// Typeset the manuscript to SVG pages for the live print preview. Runs on
+/// a blocking thread — typing and navigation never wait on this (the
+/// frontend debounces and drops stale results).
+#[tauri::command]
+async fn render_document(
+  source: String,
+  root: Option<String>,
+) -> Result<RenderedDocument, String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    essay_render::render_svg_pages(&source, root.map(Into::into))
+      .map(|pages| RenderedDocument { pages: pages.svgs, warnings: pages.warnings })
+      .map_err(|err| err.to_string())
+  })
+  .await
+  .map_err(|err| err.to_string())?
+}
+
+/// Typeset the manuscript to a finished PDF at `path`.
+#[tauri::command]
+async fn export_pdf(
+  source: String,
+  root: Option<String>,
+  path: String,
+) -> Result<(), String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    let bytes =
+      essay_render::render_pdf(&source, root.map(Into::into)).map_err(|err| err.to_string())?;
+    std::fs::write(&path, bytes).map_err(|err| format!("cannot write {path}: {err}"))
+  })
+  .await
+  .map_err(|err| err.to_string())?
+}
+
 /// List one workspace folder's Markdown contents as root-relative paths for
 /// the explorer tree: directories end with '/', files are .md/.markdown.
 /// Hidden entries and heavy build directories are skipped. Moves to
@@ -94,7 +133,9 @@ pub fn run() {
       index_document,
       read_document,
       write_document,
-      list_markdown_tree
+      list_markdown_tree,
+      render_document,
+      export_pdf
     ])
     .setup(|app| {
       if cfg!(debug_assertions) {

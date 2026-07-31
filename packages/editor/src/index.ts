@@ -21,11 +21,65 @@ import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from '@tiptap/markdown'
 import { TableKit } from '@tiptap/extension-table'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
+import Highlight from '@tiptap/extension-highlight'
 import Image from '@tiptap/extension-image'
 import Typography from '@tiptap/extension-typography'
 import { CharacterCount, Placeholder } from '@tiptap/extensions'
 
 export type { Editor } from '@tiptap/core'
+
+/** Nearest scrollable ancestor of the editor DOM (the manuscript pane). */
+function scrollerOf(dom: HTMLElement): HTMLElement | null {
+  let el: HTMLElement | null = dom.parentElement
+  while (el) {
+    const overflow = getComputedStyle(el).overflowY
+    if (overflow === 'auto' || overflow === 'scroll') return el
+    el = el.parentElement
+  }
+  return null
+}
+
+/** Scroll so the caret sits at the vertical centre of the manuscript pane. */
+function centerCaret(view: { dom: HTMLElement } & Pick<Editor['view'], 'coordsAtPos' | 'state'>): void {
+  const scroller = scrollerOf(view.dom)
+  if (!scroller) return
+  let coords: { top: number; bottom: number }
+  try {
+    coords = view.coordsAtPos(view.state.selection.head)
+  } catch {
+    return
+  }
+  const rect = scroller.getBoundingClientRect()
+  const caretMiddle = (coords.top + coords.bottom) / 2
+  scroller.scrollTop += caretMiddle - (rect.top + rect.height / 2)
+}
+
+/**
+ * Typewriter scrolling: while focus mode is on, the line being written
+ * stays vertically centred. Inert otherwise.
+ */
+const TypewriterScroll = Extension.create({
+  name: 'essayTypewriterScroll',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('essayTypewriterScroll'),
+        view: () => ({
+          update(view, prevState) {
+            if (!view.dom.classList.contains('is-focus-mode')) return
+            if (
+              prevState.doc.eq(view.state.doc) &&
+              prevState.selection.eq(view.state.selection)
+            ) {
+              return
+            }
+            centerCaret(view)
+          },
+        }),
+      }),
+    ]
+  },
+})
 
 /**
  * Marks the top-level block containing the caret with `.is-current-block`.
@@ -54,9 +108,13 @@ const FocusCurrentBlock = Extension.create({
   },
 })
 
-/** Dim everything except the block being written. */
+/**
+ * Dim everything except the block being written and keep the caret line
+ * vertically centred (typewriter scrolling).
+ */
 export function setFocusMode(editor: Editor, on: boolean): void {
   editor.view.dom.classList.toggle('is-focus-mode', on)
+  if (on) centerCaret(editor.view)
 }
 
 export interface ManuscriptOptions {
@@ -80,11 +138,13 @@ export function manuscriptExtensions(
     TaskItem.configure({ nested: true }),
     Image,
     Typography,
+    Highlight,
     CharacterCount,
     Placeholder.configure({
       placeholder: options.placeholder ?? 'Start writing…',
     }),
     FocusCurrentBlock,
+    TypewriterScroll,
   ]
 }
 
@@ -135,4 +195,43 @@ export function revealHeading(editor: Editor, pos: number): void {
 
 export function wordCount(editor: Editor): number {
   return editor.storage.characterCount.words()
+}
+
+export interface DocumentMark {
+  /** The highlighted text, trimmed for display. */
+  text: string
+  /** Document position where the highlighted range starts. */
+  pos: number
+}
+
+/**
+ * All `==highlight==` marks in document order — the author's "come back to
+ * this" annotations, surfaced in the sidebar. Stored in the Markdown file
+ * as `==...==` (Obsidian-compatible), so they survive any other editor.
+ */
+export function extractMarks(editor: Editor): DocumentMark[] {
+  const marks: DocumentMark[] = []
+  editor.state.doc.descendants((node, pos) => {
+    if (!node.isText) return true
+    if (node.marks.some((mark) => mark.type.name === 'highlight')) {
+      const text = (node.text ?? '').trim()
+      const last = marks[marks.length - 1]
+      // Merge adjacent highlighted text nodes (e.g. bold inside a mark).
+      if (last && pos <= last.pos + last.text.length + 1) {
+        last.text += ` ${text}`
+      } else if (text) {
+        marks.push({ text, pos })
+      }
+    }
+    return true
+  })
+  return marks
+}
+
+/** Place the cursor at a document position and scroll it into view. */
+export function revealPosition(editor: Editor, pos: number): void {
+  editor.chain().focus().setTextSelection(pos).run()
+  const dom = editor.view.domAtPos(pos).node
+  const el = dom instanceof HTMLElement ? dom : dom.parentElement
+  el?.scrollIntoView({ block: 'center' })
 }

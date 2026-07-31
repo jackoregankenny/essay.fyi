@@ -29,4 +29,4 @@ Everything here serializes back to plain Markdown. Open it in another editor, co
 
 ## Try it
 
-Type anywhere. Add a heading and watch it appear in the structure pane. The print pane will show real typeset pages once the Typst pipeline lands.
+Type anywhere. Add a heading and watch it appear in the outline. The print pane shows ==real typeset pages== as you write — toggle it with Ctrl+J when you just want to think. Select any text and mark it to come back to later; marks live in the file as plain `==text==`.

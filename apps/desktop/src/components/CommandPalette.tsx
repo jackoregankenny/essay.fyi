@@ -88,7 +88,7 @@ export function CommandPalette({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/25 dark:bg-black/50" />
-        <Dialog.Popup className="fixed top-[16vh] left-1/2 z-50 w-[560px] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-xl border border-[var(--essay-border)] bg-[var(--essay-bg)] shadow-2xl outline-none">
+        <Dialog.Popup className="fixed top-[16vh] left-1/2 z-50 w-[560px] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-hidden rounded-xl border border-[var(--essay-border)] bg-[var(--essay-surface)] shadow-[var(--essay-shadow-palette)] outline-none">
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <div className="flex items-center gap-2 border-b border-[var(--essay-border)] px-3">
             <MagnifyingGlass
@@ -137,7 +137,7 @@ export function CommandPalette({
                     className={cn(
                       'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px]',
                       index === active
-                        ? 'bg-[color-mix(in_oklab,var(--essay-text)_8%,transparent)] text-[var(--essay-text)]'
+                        ? 'bg-[var(--essay-surface-hover)] text-[var(--essay-text)]'
                         : 'text-[var(--essay-text-muted)]',
                     )}
                   >

@@ -66,13 +66,29 @@ icons, Base UI primitives (`src/components/ui/`), slim header/footer, and a
 any number of folders, not a single vault; `list_markdown_tree` command
 walks each root. Design references of record: diffs.com and trees.software
 (Pierre) — plan to use `@pierre/diffs` for Milestone 3/4 review surfaces.
-Also done: **command palette** (Ctrl+K — File/View/Format/Insert commands
-from the `@essay/commands` registry plus jump-to-section from the live
-outline; note the registry preserves registration order for grouping), a
-**selection bubble menu** (bold/italic/strike/code/link with inline link
-input, via `@tiptap/react/menus`), and **focus mode** (dims all but the
-current block; `FocusCurrentBlock` decoration in `@essay/editor` +
-`setFocusMode`). Base UI rc.0 gotcha: Dialog popups don't unmount when the
-controlled `open` prop flips false — mount the whole `Dialog.Root`
-conditionally instead (see `CommandPalette.tsx`). Next: Milestone 1
-remainder — autosave, crash recovery, search, packaging.
+Also done: **command palette** (Ctrl+K — registry preserves registration
+order; jump-to-section from the live outline), **selection bubble menu**
+(marks + inline link input + highlight), **focus mode with typewriter
+scrolling** (current block stays lit and vertically centred;
+`setFocusMode`/`TypewriterScroll` in `@essay/editor`), **outline
+scroll-spy** with per-section word counts, and **==come back to this==
+marks** — `@tiptap/extension-highlight` serializes to Obsidian-compatible
+`==…==`, surfaced in the sidebar Marks pane.
+
+**Milestone 2 core is in: Typst rendering.** `essay-render` embeds Typst
+0.15 (manual `World` in `world.rs`, embedded fonts via typst-assets,
+mdast→Typst emitter in `convert.rs` with escaping + `==highlight==` +
+booktabs tables + front-matter lift; template embedded from
+`templates/essay/essay.typ`). Outputs: SVG pages (live preview), PDF
+(export), PNG (tests/CLI eyeballing). Tauri commands `render_document` /
+`export_pdf` run on blocking threads; the frontend debounces (500ms,
+latest-wins) in `usePreview.ts` — typing never waits. Ctrl+J toggles the
+print pane; `essay render doc.md --format pdf|svg|png` works headless.
+
+Theme follows Linear's extracted tokens (see git history for the research
+report): near-black chrome (`--essay-bg`) with the canvas one step lighter
+(`--essay-editor-bg`), two border tokens, Geist weights 510/590, accent
+caret. Base UI rc.0 gotcha: Dialog popups don't unmount when controlled
+`open` flips false — mount `Dialog.Root` conditionally (CommandPalette).
+Next: autosave, crash recovery, search, packaging; then Milestone 3
+revisions (plan: @pierre/diffs for review surfaces).

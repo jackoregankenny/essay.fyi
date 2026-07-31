@@ -1,4 +1,8 @@
 /* @essay/theme — design tokens shared by the Essay app and editor packages.
+   Palette derived from Linear's shipped CSS tokens (see the design research
+   in git history): near-black chrome with a cool blue-violet cast, canvas
+   one step LIGHTER than chrome (paper floats above desk), borders as their
+   own tokens, one indigo accent with light/dark asymmetry.
    Fonts are bundled locally (Geist) or system: Essay works fully offline. */
 
 :root {
@@ -9,30 +13,68 @@
   --essay-font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Code",
     Consolas, "SF Mono", Menlo, monospace;
 
-  --essay-editor-font-size: 1rem;
-  --essay-measure: 44rem;
+  /* Prose: 17px/1.7 at a 72-character measure (iA Writer's discipline) */
+  --essay-editor-font-size: 1.0625rem;
+  --essay-measure: 42rem;
 
-  --essay-bg: oklch(0.99 0.001 90);
-  --essay-surface: oklch(0.972 0.002 90);
-  --essay-border: oklch(0.925 0.003 90);
-  --essay-text: oklch(0.24 0.008 270);
-  --essay-text-muted: oklch(0.46 0.01 270);
-  --essay-text-faint: oklch(0.62 0.008 270);
-  --essay-accent: oklch(0.55 0.13 275);
-  --essay-selection: oklch(0.9 0.045 275);
-  --essay-selection-match: oklch(0.93 0.03 275);
+  /* Geist Variable supports arbitrary weights — Linear uses 510/590, not
+     500/600, and titles are never 700 */
+  --essay-weight-medium: 510;
+  --essay-weight-semibold: 590;
+
+  --essay-radius-4: 4px;
+  --essay-radius-6: 6px;
+  --essay-radius-8: 8px;
+  --essay-radius-12: 12px;
+
+  --essay-speed-quick: 0.1s;
+  --essay-speed-regular: 0.25s;
+  --essay-ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --essay-ease-out-quint: cubic-bezier(0.23, 1, 0.32, 1);
+
+  /* Light: cool near-white chrome, canvas lighter still */
+  --essay-bg: oklch(0.975 0.002 286);
+  --essay-editor-bg: oklch(0.995 0.0015 286);
+  --essay-surface: oklch(0.985 0.002 286);
+  --essay-surface-hover: oklch(0.945 0.003 286);
+  --essay-border: oklch(0.925 0.003 286);
+  --essay-border-strong: oklch(0.893 0.003 286);
+  --essay-text: oklch(0.285 0.011 271);
+  --essay-text-muted: oklch(0.542 0.014 285);
+  --essay-text-faint: oklch(0.618 0.014 290);
+  --essay-accent: oklch(0.567 0.159 275);
+  --essay-accent-tint: oklch(0.962 0.019 286);
+  --essay-selection: color-mix(in oklch, oklch(0.567 0.159 275), transparent 72%);
+  --essay-selection-match: color-mix(in oklch, oklch(0.567 0.159 275), transparent 85%);
+  --essay-highlight: oklch(0.94 0.08 95);
+
+  --essay-shadow-low: 0 1px 4px -1px rgb(0 0 0 / 0.09);
+  --essay-shadow-medium: 0 3px 12px rgb(0 0 0 / 0.09);
+  --essay-shadow-palette: 0 9px 48px rgb(0 0 0 / 0.08), 0 6px 24px rgb(0 0 0 / 0.1),
+    0 1px 1px rgb(0 0 0 / 0.04);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --essay-bg: oklch(0.205 0.006 270);
-    --essay-surface: oklch(0.235 0.007 270);
-    --essay-border: oklch(0.3 0.009 270);
-    --essay-text: oklch(0.93 0.004 90);
-    --essay-text-muted: oklch(0.71 0.008 90);
-    --essay-text-faint: oklch(0.52 0.008 90);
-    --essay-accent: oklch(0.72 0.11 275);
-    --essay-selection: oklch(0.38 0.065 275);
-    --essay-selection-match: oklch(0.33 0.045 275);
+    /* Dark: chrome at Linear's panel depth, canvas a step lighter */
+    --essay-bg: oklch(0.172 0.004 265);
+    --essay-editor-bg: oklch(0.205 0.005 265);
+    --essay-surface: oklch(0.228 0.006 280);
+    --essay-surface-hover: oklch(0.257 0.006 282);
+    --essay-border: oklch(0.264 0.01 268);
+    --essay-border-strong: oklch(0.327 0.011 282);
+    --essay-text: oklch(0.945 0.002 240);
+    --essay-text-muted: oklch(0.649 0.015 262);
+    --essay-text-faint: oklch(0.509 0.012 262);
+    --essay-accent: oklch(0.691 0.164 276);
+    --essay-accent-tint: oklch(0.222 0.044 282);
+    --essay-selection: color-mix(in oklch, oklch(0.567 0.159 275), black 10%);
+    --essay-selection-match: color-mix(in oklch, oklch(0.567 0.159 275), transparent 70%);
+    --essay-highlight: oklch(0.45 0.07 95);
+
+    --essay-shadow-low: 0 2px 4px rgb(0 0 0 / 0.25);
+    --essay-shadow-medium: 0 4px 24px rgb(0 0 0 / 0.35);
+    --essay-shadow-palette: 0 9px 48px rgb(0 0 0 / 0.35), 0 6px 24px rgb(0 0 0 / 0.4),
+      0 1px 1px rgb(0 0 0 / 0.2);
   }
 }

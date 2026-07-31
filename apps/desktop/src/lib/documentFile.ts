@@ -70,6 +70,25 @@ export async function saveDocumentFile(
   return { path: null, name: fileName(path ?? suggestedName) }
 }
 
+/**
+ * Typeset the manuscript to PDF at a user-chosen location. Desktop only.
+ * Resolves the written path, or null on cancel.
+ */
+export async function exportPdfFile(
+  contents: string,
+  suggestedName: string,
+  root: string | null,
+): Promise<string | null> {
+  if (!isTauri()) return null
+  const target = await saveDialog({
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    defaultPath: suggestedName.replace(/\.(md|markdown)$/i, '.pdf'),
+  })
+  if (!target) return null
+  await invoke('export_pdf', { source: contents, root, path: target })
+  return target
+}
+
 function openViaFileInput(): Promise<OpenedDocument | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
