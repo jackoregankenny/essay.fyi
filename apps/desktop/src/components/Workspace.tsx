@@ -31,13 +31,27 @@ import { Sidebar } from './Sidebar'
 import { PrintPane } from './PrintPane'
 import { IconButton } from './ui/icon-button'
 import { Tip, TooltipProvider } from './ui/tooltip'
+import { WindowControls } from './ui/window-controls'
 
 const UNTITLED: DocumentRef = { path: null, name: 'untitled.md' }
 
 type ViewMode = 'write' | 'preview'
 
+/** The welcome manuscript appears once, on first launch; after that new
+    documents start empty. */
+function initialManuscript(): string {
+  try {
+    if (localStorage.getItem('essay.welcomed')) return ''
+    localStorage.setItem('essay.welcomed', '1')
+    return welcome
+  } catch {
+    return welcome
+  }
+}
+
 export function Workspace() {
   const [editor, setEditor] = useState<Editor | null>(null)
+  const [initialDoc] = useState(initialManuscript)
   const [docRef, setDocRef] = useState<DocumentRef>(UNTITLED)
   const [dirty, setDirty] = useState(false)
   const [outline, setOutline] = useState<OutlineItem[]>([])
@@ -177,6 +191,15 @@ export function Workspace() {
     if (editor) setFocusMode(editor, focusMode)
   }, [editor, focusMode])
 
+  // Autosave: documents with a path write themselves 1.5s after the last
+  // keystroke. The dirty dot is only ever visible for untitled buffers and
+  // the brief moment before a save lands.
+  useEffect(() => {
+    if (!dirty || !docRef.path || !editor) return
+    const timer = setTimeout(() => void saveDocument(), 1500)
+    return () => clearTimeout(timer)
+  }, [dirty, renderVersion, docRef.path, editor, saveDocument])
+
   // Caret tracking for the outline scroll-spy (which section am I in?).
   useEffect(() => {
     if (!editor) return
@@ -246,8 +269,11 @@ export function Workspace() {
   return (
     <TooltipProvider>
       <div className="grid h-screen grid-rows-[auto_minmax(0,1fr)_auto] bg-[var(--essay-bg)] text-[var(--essay-text)]">
-        <header className="grid h-10 grid-cols-[1fr_auto_1fr] items-center border-b border-[var(--essay-border)] px-2">
-          <div className="flex min-w-0 items-center gap-1">
+        <header
+          data-tauri-drag-region
+          className="grid h-10 grid-cols-[1fr_auto_1fr] items-center border-b border-[var(--essay-border)] px-2"
+        >
+          <div data-tauri-drag-region className="flex min-w-0 items-center gap-1">
             <Tip
               label="Toggle sidebar"
               shortcut="Ctrl+B"
@@ -266,7 +292,7 @@ export function Workspace() {
 
           <ModeSwitch mode={mode} onChange={setMode} />
 
-          <div className="flex items-center justify-end">
+          <div data-tauri-drag-region className="flex items-center justify-end">
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
@@ -276,6 +302,7 @@ export function Workspace() {
               <Kbd>Ctrl</Kbd>
               <Kbd>K</Kbd>
             </button>
+            <WindowControls />
           </div>
         </header>
 
@@ -302,7 +329,7 @@ export function Workspace() {
           <main className="relative min-h-0 overflow-hidden bg-[var(--essay-editor-bg)]">
             <div className={mode === 'preview' ? 'hidden' : 'h-full'}>
               <ManuscriptEditor
-                initialMarkdown={welcome}
+                initialMarkdown={initialDoc}
                 onReady={handleReady}
                 onChanged={handleChanged}
               />
@@ -328,7 +355,9 @@ export function Workspace() {
               focus
             </button>
           )}
-          <span className="ml-auto">local · works offline</span>
+          <span className="ml-auto">
+            {docRef.path ? (dirty ? 'saving…' : 'saved') : 'not saved yet'}
+          </span>
         </footer>
 
         <CommandPalette

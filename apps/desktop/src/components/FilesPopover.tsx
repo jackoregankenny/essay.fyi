@@ -37,7 +37,7 @@ export function FilesPopover({ docName, dirty, onOpenFile }: FilesPopoverProps) 
       {open && (
         <Popover.Portal>
           <Popover.Positioner side="bottom" align="start" sideOffset={6}>
-            <Popover.Popup className="z-50 flex h-[380px] w-[300px] flex-col overflow-hidden rounded-xl border border-[var(--essay-border)] bg-[var(--essay-surface)] shadow-[var(--essay-shadow-palette)] outline-none">
+            <Popover.Popup className="essay-pop z-50 flex h-[380px] w-[300px] flex-col overflow-hidden rounded-xl border border-[var(--essay-border)] bg-[var(--essay-surface)] shadow-[var(--essay-shadow-palette)] outline-none">
               <ExplorerPane
                 onOpenFile={(path) => {
                   setOpen(false)

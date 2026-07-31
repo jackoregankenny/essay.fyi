@@ -54,7 +54,7 @@ export function SelectionToolbar({ editor }: { editor: Editor }) {
         if (editor.isActive('codeBlock')) return false
         return editor.isEditable
       }}
-      className="z-40 flex items-center gap-0.5 rounded-lg border border-[var(--essay-border)] bg-[var(--essay-bg)] p-1 shadow-lg"
+      className="essay-pop z-40 flex items-center gap-0.5 rounded-lg border border-[var(--essay-border)] bg-[var(--essay-bg)] p-1 shadow-[var(--essay-shadow-medium)]"
     >
       {linkMode ? (
         <form

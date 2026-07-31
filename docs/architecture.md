@@ -24,6 +24,13 @@ start, but the reusable core is extracted from Essay's real requirements
 - **Tauri 2** desktop shell: Rust backend, OS WebView frontend. We do not
   build a native text-layout engine; browser text infrastructure (IME,
   accessibility, shaping, clipboard) is decades of work we inherit for free.
+  *Watched alternative (2026-07-31):* GPUI (Zed's Rust UI framework) — fully
+  native apps are appearing on it. Not viable for Essay's manuscript surface
+  (no rich-text editor; would forfeit Tiptap/ProseMirror), but a candidate
+  for performance-critical native sub-surfaces (e.g. terminal rendering) if
+  the webview ever becomes the bottleneck. See
+  `docs/research/terminal-embedding.md` for the current webview-vs-native
+  analysis.
 - **Rich-text manuscript surface (Tiptap/ProseMirror), decided by Jack
   2026-07-31, overriding the brief's CodeMirror section.** You edit the
   designed document — real headings, tables, task lists — Typora-class; this

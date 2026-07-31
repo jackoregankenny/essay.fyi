@@ -53,3 +53,56 @@ body {
   font-size: 13px;
   color: var(--essay-text-muted);
 }
+
+/* ——— Entrance motion: one quiet pop for every floating surface ——— */
+
+@keyframes essay-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes essay-pop-centered {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+@keyframes essay-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.essay-pop {
+  animation: essay-pop 130ms var(--essay-ease-out-quint) both;
+}
+
+.essay-pop-centered {
+  animation: essay-pop-centered 150ms var(--essay-ease-out-quint) both;
+}
+
+.essay-fade {
+  animation: essay-fade 120ms var(--essay-ease-out) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .essay-pop,
+  .essay-pop-centered,
+  .essay-fade {
+    animation: none;
+  }
+}

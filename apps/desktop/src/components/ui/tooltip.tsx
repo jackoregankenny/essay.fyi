@@ -18,7 +18,7 @@ export function Tip({ label, shortcut, trigger }: TipProps) {
       <Tooltip.Trigger render={trigger} />
       <Tooltip.Portal>
         <Tooltip.Positioner side="bottom" sideOffset={6}>
-          <Tooltip.Popup className="z-50 flex items-center gap-1.5 rounded-md border border-[var(--essay-border)] bg-[var(--essay-bg)] px-2 py-1 text-xs text-[var(--essay-text)] shadow-md">
+          <Tooltip.Popup className="essay-pop z-50 flex items-center gap-1.5 rounded-lg border border-[var(--essay-border)] bg-[var(--essay-bg)] px-2 py-1 text-xs text-[var(--essay-text)] shadow-[var(--essay-shadow-medium)]">
             {label}
             {shortcut && (
               <kbd className="font-[var(--essay-font-ui)] text-[10px] tracking-wide text-[var(--essay-text-faint)]">
