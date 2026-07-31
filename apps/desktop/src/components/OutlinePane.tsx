@@ -10,7 +10,7 @@ interface OutlinePaneProps {
 
 export function OutlinePane({ outline, activePos, onSelect }: OutlinePaneProps) {
   return (
-    <section className="flex max-h-[40%] min-h-0 flex-col border-t border-[var(--essay-border)]">
+    <section className="flex min-h-0 flex-1 flex-col">
       <header className="px-3 pt-3 pb-1">
         <h2 className="text-[11px] font-[510] tracking-wider text-[var(--essay-text-faint)] uppercase">
           Outline

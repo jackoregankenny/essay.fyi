@@ -14,7 +14,7 @@
  * never gratuitously rewrite an author's Markdown. Grow golden-file tests in
  * fixtures/ alongside any serializer-affecting change.
  */
-import { Extension, type AnyExtension, type Editor } from '@tiptap/core'
+import { Extension, InputRule, type AnyExtension, type Editor } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import StarterKit from '@tiptap/starter-kit'
@@ -109,6 +109,32 @@ const FocusCurrentBlock = Extension.create({
 })
 
 /**
+ * Typora-style link typing: `[text](url)` becomes a link when the closing
+ * parenthesis is typed. StarterKit's Link extension covers paste and
+ * autolink; plain typing needs its own rule.
+ */
+const MarkdownLinkTyping = Extension.create({
+  name: 'essayMarkdownLinkTyping',
+  addInputRules() {
+    return [
+      new InputRule({
+        find: /\[([^[\]]+)\]\(([^()\s]+)\)$/,
+        handler: ({ state, range, match }) => {
+          const [, text, href] = match
+          const link = state.schema.marks.link
+          if (!text || !href || !link) return
+          // Mutate the rule's own transaction — dispatching a separate
+          // chain from inside an input rule collides with it.
+          state.tr
+            .replaceWith(range.from, range.to, state.schema.text(text, [link.create({ href })]))
+            .removeStoredMark(link)
+        },
+      }),
+    ]
+  },
+})
+
+/**
  * Dim everything except the block being written and keep the caret line
  * vertically centred (typewriter scrolling).
  */
@@ -139,6 +165,7 @@ export function manuscriptExtensions(
     Image,
     Typography,
     Highlight,
+    MarkdownLinkTyping,
     CharacterCount,
     Placeholder.configure({
       placeholder: options.placeholder ?? 'Start writing…',

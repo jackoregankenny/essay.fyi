@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { isTauri } from '@tauri-apps/api/core'
-import {
-  Article,
-  FilePlus,
-  FloppyDisk,
-  FolderOpen,
-  SidebarSimple,
-} from '@phosphor-icons/react'
+import { SidebarSimple } from '@phosphor-icons/react'
 import {
   extractMarks,
   extractOutline,
@@ -20,6 +14,7 @@ import {
 } from '@essay/editor'
 import { registerCommand, type Command } from '@essay/commands'
 import welcome from '#/content/welcome.md?raw'
+import { cn } from '#/lib/cn'
 import {
   exportPdfFile,
   openDocumentByPath,
@@ -29,6 +24,7 @@ import {
 } from '#/lib/documentFile'
 import { documentDir, usePreview } from '#/lib/usePreview'
 import { CommandPalette } from './CommandPalette'
+import { FilesPopover } from './FilesPopover'
 import { ManuscriptEditor } from './ManuscriptEditor'
 import { SelectionToolbar } from './SelectionToolbar'
 import { Sidebar } from './Sidebar'
@@ -37,6 +33,8 @@ import { IconButton } from './ui/icon-button'
 import { Tip, TooltipProvider } from './ui/tooltip'
 
 const UNTITLED: DocumentRef = { path: null, name: 'untitled.md' }
+
+type ViewMode = 'write' | 'preview'
 
 export function Workspace() {
   const [editor, setEditor] = useState<Editor | null>(null)
@@ -47,7 +45,7 @@ export function Workspace() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [focusMode, setFocusModeState] = useState(false)
-  const [previewOpen, setPreviewOpen] = useState(true)
+  const [mode, setMode] = useState<ViewMode>('write')
   const [marks, setMarks] = useState<DocumentMark[]>([])
   const [caretPos, setCaretPos] = useState(0)
   const [renderVersion, setRenderVersion] = useState(0)
@@ -81,6 +79,7 @@ export function Workspace() {
       setDocRef(ref)
       setDirty(false)
       refreshStats(editor)
+      setMode('write')
       editor.commands.focus('start')
     },
     [refreshStats],
@@ -137,6 +136,15 @@ export function Workspace() {
     [editor, docRef],
   )
 
+  const exportPdf = useCallback(async () => {
+    if (!editor) return
+    await exportPdfFile(
+      editor.getMarkdown(),
+      docRef.name,
+      documentDir(docRef.path),
+    )
+  }, [editor, docRef])
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey)) return
@@ -158,7 +166,7 @@ export function Workspace() {
         setPaletteOpen((open) => !open)
       } else if (key === 'j') {
         event.preventDefault()
-        setPreviewOpen((open) => !open)
+        setMode((m) => (m === 'write' ? 'preview' : 'write'))
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -179,19 +187,10 @@ export function Workspace() {
     }
   }, [editor])
 
-  const exportPdf = useCallback(async () => {
-    if (!editor) return
-    await exportPdfFile(
-      editor.getMarkdown(),
-      docRef.name,
-      documentDir(docRef.path),
-    )
-  }, [editor, docRef])
-
   const preview = usePreview(
     editor,
     documentDir(docRef.path),
-    previewOpen,
+    mode === 'preview',
     renderVersion,
   )
 
@@ -206,9 +205,14 @@ export function Workspace() {
       { id: 'file.save', title: 'Save', group: 'File', shortcut: 'Ctrl+S', run: () => void saveDocument() },
       { id: 'file.saveAs', title: 'Save as…', group: 'File', shortcut: 'Ctrl+Shift+S', run: () => void saveDocument(true) },
       { id: 'file.exportPdf', title: 'Export PDF…', group: 'File', keywords: 'typeset print render', run: () => void exportPdf() },
+      { id: 'view.preview', title: 'Toggle preview', group: 'View', shortcut: 'Ctrl+J', keywords: 'typeset pages print render', run: () => setMode((m) => (m === 'write' ? 'preview' : 'write')) },
       { id: 'view.sidebar', title: 'Toggle sidebar', group: 'View', shortcut: 'Ctrl+B', run: () => setSidebarOpen((open) => !open) },
-      { id: 'view.preview', title: 'Toggle print preview', group: 'View', shortcut: 'Ctrl+J', keywords: 'typeset pages render', run: () => setPreviewOpen((open) => !open) },
       { id: 'view.focus', title: 'Toggle focus mode', group: 'View', keywords: 'zen typewriter dim centre center', run: () => setFocusModeState((on) => !on) },
+      { id: 'view.dark', title: 'Toggle dark mode', group: 'View', keywords: 'theme light appearance', run: () => {
+        const root = document.documentElement
+        if (root.dataset.theme === 'dark') delete root.dataset.theme
+        else root.dataset.theme = 'dark'
+      } },
       { id: 'format.h1', title: 'Heading 1', group: 'Format', keywords: 'title turn into', run: () => { chain().toggleHeading({ level: 1 }).run() } },
       { id: 'format.h2', title: 'Heading 2', group: 'Format', keywords: 'section turn into', run: () => { chain().toggleHeading({ level: 2 }).run() } },
       { id: 'format.h3', title: 'Heading 3', group: 'Format', keywords: 'subsection turn into', run: () => { chain().toggleHeading({ level: 3 }).run() } },
@@ -242,80 +246,42 @@ export function Workspace() {
   return (
     <TooltipProvider>
       <div className="grid h-screen grid-rows-[auto_minmax(0,1fr)_auto] bg-[var(--essay-bg)] text-[var(--essay-text)]">
-        <header className="flex h-10 items-center gap-1 border-b border-[var(--essay-border)] px-2">
-          <Tip
-            label="Toggle sidebar"
-            shortcut="Ctrl+B"
-            trigger={
-              <IconButton onClick={() => setSidebarOpen((open) => !open)}>
-                <SidebarSimple size={16} />
-              </IconButton>
-            }
-          />
-          <div className="mx-1 flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[13px] font-medium">
-              {docRef.name}
-            </span>
-            {dirty && (
-              <span
-                className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--essay-accent)]"
-                title="Unsaved changes"
-              />
-            )}
+        <header className="grid h-10 grid-cols-[1fr_auto_1fr] items-center border-b border-[var(--essay-border)] px-2">
+          <div className="flex min-w-0 items-center gap-1">
+            <Tip
+              label="Toggle sidebar"
+              shortcut="Ctrl+B"
+              trigger={
+                <IconButton onClick={() => setSidebarOpen((open) => !open)}>
+                  <SidebarSimple size={16} />
+                </IconButton>
+              }
+            />
+            <FilesPopover
+              docName={docRef.name}
+              dirty={dirty}
+              onOpenFile={(path) => void openByPath(path)}
+            />
           </div>
-          <div className="ml-auto flex items-center gap-0.5">
-            <Tip
-              label="Toggle print preview"
-              shortcut="Ctrl+J"
-              trigger={
-                <IconButton
-                  onClick={() => setPreviewOpen((open) => !open)}
-                  className={previewOpen ? 'text-[var(--essay-text)]' : ''}
-                >
-                  <Article size={16} />
-                </IconButton>
-              }
-            />
-            <span className="mx-1 h-4 w-px bg-[var(--essay-border)]" />
-            <Tip
-              label="New document"
-              shortcut="Ctrl+N"
-              trigger={
-                <IconButton onClick={() => void newDocument()}>
-                  <FilePlus size={16} />
-                </IconButton>
-              }
-            />
-            <Tip
-              label="Open file"
-              shortcut="Ctrl+O"
-              trigger={
-                <IconButton onClick={() => void openDocument()}>
-                  <FolderOpen size={16} />
-                </IconButton>
-              }
-            />
-            <Tip
-              label="Save"
-              shortcut="Ctrl+S"
-              trigger={
-                <IconButton onClick={() => void saveDocument()}>
-                  <FloppyDisk size={16} />
-                </IconButton>
-              }
-            />
+
+          <ModeSwitch mode={mode} onChange={setMode} />
+
+          <div className="flex items-center justify-end">
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              title="Command palette"
+              className="flex h-7 items-center gap-1 rounded-md px-2 text-[12px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]"
+            >
+              <Kbd>Ctrl</Kbd>
+              <Kbd>K</Kbd>
+            </button>
           </div>
         </header>
 
         <div
           className={`grid min-h-0 ${
-            sidebarOpen
-              ? previewOpen
-                ? 'grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[240px_minmax(0,1fr)_minmax(300px,34%)]'
-                : 'grid-cols-[240px_minmax(0,1fr)]'
-              : previewOpen
-                ? 'grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_minmax(300px,34%)]'
-                : 'grid-cols-[minmax(0,1fr)]'
+            sidebarOpen ? 'grid-cols-[232px_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]'
           }`}
         >
           {sidebarOpen && (
@@ -324,32 +290,34 @@ export function Workspace() {
               activePos={activeOutlinePos}
               marks={marks}
               onSelectOutline={(item) => {
+                setMode('write')
                 if (editor) revealHeading(editor, item.pos)
               }}
               onSelectMark={(mark) => {
+                setMode('write')
                 if (editor) revealPosition(editor, mark.pos)
               }}
-              onOpenFile={(path) => void openByPath(path)}
             />
           )}
-          <main className="min-h-0 overflow-hidden bg-[var(--essay-editor-bg)]">
-            <ManuscriptEditor
-              initialMarkdown={welcome}
-              onReady={handleReady}
-              onChanged={handleChanged}
-            />
-            {editor && <SelectionToolbar editor={editor} />}
-          </main>
-          {previewOpen && (
-            <div className="hidden lg:block">
-              <PrintPane preview={preview} words={words} />
+          <main className="relative min-h-0 overflow-hidden bg-[var(--essay-editor-bg)]">
+            <div className={mode === 'preview' ? 'hidden' : 'h-full'}>
+              <ManuscriptEditor
+                initialMarkdown={welcome}
+                onReady={handleReady}
+                onChanged={handleChanged}
+              />
+              {editor && <SelectionToolbar editor={editor} />}
             </div>
-          )}
+            {mode === 'preview' && <PrintPane preview={preview} />}
+          </main>
         </div>
 
         <footer className="flex h-7 items-center gap-3 border-t border-[var(--essay-border)] px-3 text-[11px] text-[var(--essay-text-faint)]">
           <span className="tabular-nums">{words} words</span>
           <span className="tabular-nums">{outline.length} sections</span>
+          {mode === 'preview' && preview.pageCount > 0 && (
+            <span className="tabular-nums">{preview.pageCount} pages</span>
+          )}
           {focusMode && (
             <button
               type="button"
@@ -368,10 +336,47 @@ export function Workspace() {
           onOpenChange={setPaletteOpen}
           outline={outline}
           onJumpToSection={(item) => {
+            setMode('write')
             if (editor) revealHeading(editor, item.pos)
           }}
         />
       </div>
     </TooltipProvider>
+  )
+}
+
+function ModeSwitch({
+  mode,
+  onChange,
+}: {
+  mode: ViewMode
+  onChange: (mode: ViewMode) => void
+}) {
+  return (
+    <div className="flex h-7 items-center gap-0.5 rounded-lg bg-[var(--essay-surface-hover)] p-0.5">
+      {(['write', 'preview'] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => onChange(m)}
+          className={cn(
+            'h-6 rounded-md px-3 text-[12px] font-[510] capitalize transition-colors duration-100',
+            mode === m
+              ? 'bg-[var(--essay-bg)] text-[var(--essay-text)] shadow-[var(--essay-shadow-low)]'
+              : 'text-[var(--essay-text-muted)] hover:text-[var(--essay-text)]',
+          )}
+        >
+          {m}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function Kbd({ children }: { children: string }) {
+  return (
+    <kbd className="flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border border-[var(--essay-border)] bg-[var(--essay-surface-hover)] px-1 font-[var(--essay-font-ui)] text-[10px] font-[510]">
+      {children}
+    </kbd>
   )
 }

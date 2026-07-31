@@ -54,8 +54,9 @@
     0 1px 1px rgb(0 0 0 / 0.04);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+/* Light is the default regardless of OS preference; dark is an explicit
+   choice (palette: "Toggle dark mode") via data-theme on <html>. */
+:root[data-theme='dark'] {
     /* Dark: chrome at Linear's panel depth, canvas a step lighter */
     --essay-bg: oklch(0.172 0.004 265);
     --essay-editor-bg: oklch(0.205 0.005 265);
@@ -76,5 +77,4 @@
     --essay-shadow-medium: 0 4px 24px rgb(0 0 0 / 0.35);
     --essay-shadow-palette: 0 9px 48px rgb(0 0 0 / 0.35), 0 6px 24px rgb(0 0 0 / 0.4),
       0 1px 1px rgb(0 0 0 / 0.2);
-  }
 }

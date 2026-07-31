@@ -1,6 +1,5 @@
 import type { DocumentMark, OutlineItem } from '@essay/editor'
 import { HighlighterCircle } from '@phosphor-icons/react'
-import { ExplorerPane } from './ExplorerPane'
 import { OutlinePane } from './OutlinePane'
 
 interface SidebarProps {
@@ -9,20 +8,18 @@ interface SidebarProps {
   marks: DocumentMark[]
   onSelectOutline: (item: OutlineItem) => void
   onSelectMark: (mark: DocumentMark) => void
-  onOpenFile: (absolutePath: string) => void
 }
 
+/** Outline-first: the sidebar is about navigating THIS document. */
 export function Sidebar({
   outline,
   activePos,
   marks,
   onSelectOutline,
   onSelectMark,
-  onOpenFile,
 }: SidebarProps) {
   return (
     <aside className="flex h-full min-h-0 flex-col border-r border-[var(--essay-border)]">
-      <ExplorerPane onOpenFile={onOpenFile} />
       <OutlinePane
         outline={outline}
         activePos={activePos}
@@ -45,7 +42,7 @@ function MarksPane({
   onSelect: (mark: DocumentMark) => void
 }) {
   return (
-    <section className="flex max-h-[26%] min-h-0 flex-col border-t border-[var(--essay-border)]">
+    <section className="flex max-h-[32%] min-h-0 flex-col border-t border-[var(--essay-border)]">
       <header className="flex items-center gap-1.5 px-3 pt-3 pb-1">
         <HighlighterCircle
           size={12}
