@@ -14,7 +14,9 @@
  * never gratuitously rewrite an author's Markdown. Grow golden-file tests in
  * fixtures/ alongside any serializer-affecting change.
  */
-import type { AnyExtension, Editor } from '@tiptap/core'
+import { Extension, type AnyExtension, type Editor } from '@tiptap/core'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from '@tiptap/markdown'
 import { TableKit } from '@tiptap/extension-table'
@@ -24,6 +26,38 @@ import Typography from '@tiptap/extension-typography'
 import { CharacterCount, Placeholder } from '@tiptap/extensions'
 
 export type { Editor } from '@tiptap/core'
+
+/**
+ * Marks the top-level block containing the caret with `.is-current-block`.
+ * Inert on its own — when the host toggles `.is-focus-mode` on the editor
+ * DOM (via setFocusMode), prose.css dims every other block.
+ */
+const FocusCurrentBlock = Extension.create({
+  name: 'essayFocusCurrentBlock',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('essayFocusCurrentBlock'),
+        props: {
+          decorations(state) {
+            const { $head } = state.selection
+            if ($head.depth === 0) return null
+            return DecorationSet.create(state.doc, [
+              Decoration.node($head.before(1), $head.after(1), {
+                class: 'is-current-block',
+              }),
+            ])
+          },
+        },
+      }),
+    ]
+  },
+})
+
+/** Dim everything except the block being written. */
+export function setFocusMode(editor: Editor, on: boolean): void {
+  editor.view.dom.classList.toggle('is-focus-mode', on)
+}
 
 export interface ManuscriptOptions {
   placeholder?: string
@@ -50,6 +84,7 @@ export function manuscriptExtensions(
     Placeholder.configure({
       placeholder: options.placeholder ?? 'Start writing…',
     }),
+    FocusCurrentBlock,
   ]
 }
 

@@ -66,5 +66,13 @@ icons, Base UI primitives (`src/components/ui/`), slim header/footer, and a
 any number of folders, not a single vault; `list_markdown_tree` command
 walks each root. Design references of record: diffs.com and trees.software
 (Pierre) — plan to use `@pierre/diffs` for Milestone 3/4 review surfaces.
-Next: Milestone 1 remainder — command palette, autosave, crash recovery,
-search, packaging.
+Also done: **command palette** (Ctrl+K — File/View/Format/Insert commands
+from the `@essay/commands` registry plus jump-to-section from the live
+outline; note the registry preserves registration order for grouping), a
+**selection bubble menu** (bold/italic/strike/code/link with inline link
+input, via `@tiptap/react/menus`), and **focus mode** (dims all but the
+current block; `FocusCurrentBlock` decoration in `@essay/editor` +
+`setFocusMode`). Base UI rc.0 gotcha: Dialog popups don't unmount when the
+controlled `open` prop flips false — mount the whole `Dialog.Root`
+conditionally instead (see `CommandPalette.tsx`). Next: Milestone 1
+remainder — autosave, crash recovery, search, packaging.

@@ -9,10 +9,12 @@ import {
 import {
   extractOutline,
   revealHeading,
+  setFocusMode,
   wordCount,
   type Editor,
   type OutlineItem,
 } from '@essay/editor'
+import { registerCommand, type Command } from '@essay/commands'
 import welcome from '#/content/welcome.md?raw'
 import {
   openDocumentByPath,
@@ -20,7 +22,9 @@ import {
   saveDocumentFile,
   type DocumentRef,
 } from '#/lib/documentFile'
+import { CommandPalette } from './CommandPalette'
 import { ManuscriptEditor } from './ManuscriptEditor'
+import { SelectionToolbar } from './SelectionToolbar'
 import { Sidebar } from './Sidebar'
 import { PrintPane } from './PrintPane'
 import { IconButton } from './ui/icon-button'
@@ -35,6 +39,8 @@ export function Workspace() {
   const [outline, setOutline] = useState<OutlineItem[]>([])
   const [words, setWords] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [focusMode, setFocusModeState] = useState(false)
 
   const refreshStats = useCallback((editor: Editor) => {
     setOutline(extractOutline(editor))
@@ -135,11 +141,44 @@ export function Workspace() {
       } else if (key === 'b') {
         event.preventDefault()
         setSidebarOpen((open) => !open)
+      } else if (key === 'k') {
+        event.preventDefault()
+        setPaletteOpen((open) => !open)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [openDocument, saveDocument, newDocument])
+
+  useEffect(() => {
+    if (editor) setFocusMode(editor, focusMode)
+  }, [editor, focusMode])
+
+  // The palette reads this registry; File/View/Format/Insert all live here
+  // so future surfaces (menus, buttons) share one source of truth.
+  useEffect(() => {
+    if (!editor) return
+    const chain = () => editor.chain().focus()
+    const commands: Command[] = [
+      { id: 'file.new', title: 'New document', group: 'File', shortcut: 'Ctrl+N', run: () => void newDocument() },
+      { id: 'file.open', title: 'Open file…', group: 'File', shortcut: 'Ctrl+O', run: () => void openDocument() },
+      { id: 'file.save', title: 'Save', group: 'File', shortcut: 'Ctrl+S', run: () => void saveDocument() },
+      { id: 'file.saveAs', title: 'Save as…', group: 'File', shortcut: 'Ctrl+Shift+S', run: () => void saveDocument(true) },
+      { id: 'view.sidebar', title: 'Toggle sidebar', group: 'View', shortcut: 'Ctrl+B', run: () => setSidebarOpen((open) => !open) },
+      { id: 'view.focus', title: 'Toggle focus mode', group: 'View', keywords: 'zen typewriter dim', run: () => setFocusModeState((on) => !on) },
+      { id: 'format.h1', title: 'Heading 1', group: 'Format', keywords: 'title turn into', run: () => { chain().toggleHeading({ level: 1 }).run() } },
+      { id: 'format.h2', title: 'Heading 2', group: 'Format', keywords: 'section turn into', run: () => { chain().toggleHeading({ level: 2 }).run() } },
+      { id: 'format.h3', title: 'Heading 3', group: 'Format', keywords: 'subsection turn into', run: () => { chain().toggleHeading({ level: 3 }).run() } },
+      { id: 'format.paragraph', title: 'Text', group: 'Format', keywords: 'paragraph body normal', run: () => { chain().setParagraph().run() } },
+      { id: 'format.quote', title: 'Quote', group: 'Format', keywords: 'blockquote', run: () => { chain().toggleBlockquote().run() } },
+      { id: 'format.codeBlock', title: 'Code block', group: 'Format', run: () => { chain().toggleCodeBlock().run() } },
+      { id: 'insert.table', title: 'Insert table', group: 'Insert', run: () => { chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() } },
+      { id: 'insert.taskList', title: 'Insert task list', group: 'Insert', keywords: 'todo checkbox', run: () => { chain().toggleTaskList().run() } },
+      { id: 'insert.divider', title: 'Insert section break', group: 'Insert', keywords: 'horizontal rule divider hr', run: () => { chain().setHorizontalRule().run() } },
+    ]
+    const unregister = commands.map(registerCommand)
+    return () => unregister.forEach((fn) => fn())
+  }, [editor, newDocument, openDocument, saveDocument])
 
   useEffect(() => {
     const title = `${docRef.name}${dirty ? ' •' : ''} — Essay`
@@ -231,6 +270,7 @@ export function Workspace() {
               onReady={handleReady}
               onChanged={handleChanged}
             />
+            {editor && <SelectionToolbar editor={editor} />}
           </main>
           <div className="hidden lg:block">
             <PrintPane words={words} pages={pages} />
@@ -240,8 +280,27 @@ export function Workspace() {
         <footer className="flex h-7 items-center gap-3 border-t border-[var(--essay-border)] px-3 text-[11px] text-[var(--essay-text-faint)]">
           <span className="tabular-nums">{words} words</span>
           <span className="tabular-nums">{outline.length} sections</span>
+          {focusMode && (
+            <button
+              type="button"
+              onClick={() => setFocusModeState(false)}
+              className="text-[var(--essay-accent)]"
+              title="Focus mode is on — click to turn off"
+            >
+              focus
+            </button>
+          )}
           <span className="ml-auto">local · works offline</span>
         </footer>
+
+        <CommandPalette
+          open={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          outline={outline}
+          onJumpToSection={(item) => {
+            if (editor) revealHeading(editor, item.pos)
+          }}
+        />
       </div>
     </TooltipProvider>
   )

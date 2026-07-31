@@ -29,6 +29,7 @@
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tiptap/core": "^3.29.2",
+    "@tiptap/extension-bubble-menu": "^3.29.2",
     "@tiptap/react": "^3.29.2",
     "clsx": "^2.1.1",
     "react": "^19.2.0",

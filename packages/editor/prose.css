@@ -263,6 +263,17 @@
   color: var(--essay-accent);
 }
 
+/* ——— Focus mode: dim everything but the block being written ——— */
+
+.essay-prose.is-focus-mode > * {
+  opacity: 0.32;
+  transition: opacity 160ms ease;
+}
+
+.essay-prose.is-focus-mode > .is-current-block {
+  opacity: 1;
+}
+
 /* ——— Placeholder ——— */
 
 .essay-prose p.is-editor-empty:first-child::before {

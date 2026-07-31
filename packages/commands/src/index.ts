@@ -9,6 +9,12 @@
 export interface Command {
   id: string
   title: string
+  /** Palette group header, e.g. 'File', 'Format'. */
+  group?: string
+  /** Display-only shortcut hint, e.g. 'Ctrl+S'. */
+  shortcut?: string
+  /** Extra terms the palette matches against. */
+  keywords?: string
   run: () => void | Promise<void>
 }
 
@@ -25,6 +31,7 @@ export function getCommand(id: string): Command | undefined {
   return registry.get(id)
 }
 
+/** Registration order is presentation order — hosts register groups together. */
 export function listCommands(): Command[] {
-  return [...registry.values()].sort((a, b) => a.title.localeCompare(b.title))
+  return [...registry.values()]
 }
