@@ -8,10 +8,28 @@ fn index_document(source: String) -> DocumentIndex {
   essay_markdown::index(&source)
 }
 
+/// Read a manuscript from disk. File IO lives in Rust so revision capture
+/// and file watching (essay-workspace, Milestone 3) can hook in here.
+#[tauri::command]
+fn read_document(path: String) -> Result<String, String> {
+  std::fs::read_to_string(&path).map_err(|err| format!("cannot read {path}: {err}"))
+}
+
+/// Write the serialized manuscript back to disk.
+#[tauri::command]
+fn write_document(path: String, contents: String) -> Result<(), String> {
+  std::fs::write(&path, contents).map_err(|err| format!("cannot write {path}: {err}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
-    .invoke_handler(tauri::generate_handler![index_document])
+    .plugin(tauri_plugin_dialog::init())
+    .invoke_handler(tauri::generate_handler![
+      index_document,
+      read_document,
+      write_document
+    ])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

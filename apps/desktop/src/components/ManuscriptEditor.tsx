@@ -3,13 +3,16 @@ import { manuscriptExtensions, type Editor } from '@essay/editor'
 
 interface ManuscriptEditorProps {
   initialMarkdown: string
-  /** Fires on create and after every document change with the live editor. */
-  onEditorUpdate?: (editor: Editor) => void
+  /** Fires once when the editor instance exists. */
+  onReady?: (editor: Editor) => void
+  /** Fires after every document change from typing or commands. */
+  onChanged?: (editor: Editor) => void
 }
 
 export function ManuscriptEditor({
   initialMarkdown,
-  onEditorUpdate,
+  onReady,
+  onChanged,
 }: ManuscriptEditorProps) {
   const editor = useEditor({
     extensions: manuscriptExtensions(),
@@ -22,9 +25,9 @@ export function ManuscriptEditor({
       if (import.meta.env.DEV) {
         ;(window as Window & { __essay?: unknown }).__essay = { editor }
       }
-      onEditorUpdate?.(editor)
+      onReady?.(editor)
     },
-    onUpdate: ({ editor }) => onEditorUpdate?.(editor),
+    onUpdate: ({ editor }) => onChanged?.(editor),
   })
 
   return (
