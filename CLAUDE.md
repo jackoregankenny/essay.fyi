@@ -7,7 +7,9 @@ Router + Tiptap 3 (rich manuscript surface) + Tailwind 4 + Typst
 AGPL-3.0-or-later.
 
 The product brief is `docs/product-brief.md`; technical decisions live in
-`docs/architecture.md`. Read them before large changes.
+`docs/architecture.md`. Read them before large changes. Deep research
+reports (pagination UX, terminal embedding, agent integration/ACP) live in
+`docs/research/` — consult before building those areas.
 
 ## Commands (run from repo root)
 
