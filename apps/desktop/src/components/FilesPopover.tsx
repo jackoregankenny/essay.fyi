@@ -7,6 +7,10 @@ interface FilesPopoverProps {
   docName: string
   dirty: boolean
   onOpenFile: (absolutePath: string) => void
+  /** Drop the document's name from the trigger. Set when the tab strip is
+      showing, which already says which document is open — twice would be
+      noise, and the caret alone still reads as "browse files". */
+  nameless?: boolean
 }
 
 /**
@@ -14,14 +18,23 @@ interface FilesPopoverProps {
  * document's name, not a permanent pane — switching files is occasional,
  * the outline is constant.
  */
-export function FilesPopover({ docName, dirty, onOpenFile }: FilesPopoverProps) {
+export function FilesPopover({
+  docName,
+  dirty,
+  onOpenFile,
+  nameless = false,
+}: FilesPopoverProps) {
   const [open, setOpen] = useState(false)
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger className="flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[13px] font-[510] text-[var(--essay-text)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)]">
-        <span className="truncate">{docName}</span>
-        {dirty && (
+      <Popover.Trigger
+        aria-label={nameless ? 'Browse files' : undefined}
+        title={nameless ? 'Browse files' : undefined}
+        className="flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[13px] font-[510] text-[var(--essay-text)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)]"
+      >
+        {!nameless && <span className="truncate">{docName}</span>}
+        {!nameless && dirty && (
           <span
             className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--essay-accent)]"
             title="Unsaved changes"

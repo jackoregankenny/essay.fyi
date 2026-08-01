@@ -36,7 +36,7 @@ Rust workspace:
 ```bash
 cargo check
 cargo test
-cargo run -p essay-cli -- outline fixtures/manuscripts/forty-page-essay.md
+cargo run -p essay-cli -- outline fixtures/manuscripts/the-shape-of-an-argument.md
 ```
 
 ## Layout

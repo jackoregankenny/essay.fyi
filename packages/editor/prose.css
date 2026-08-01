@@ -7,8 +7,10 @@
   font-family: var(--essay-font-prose);
   font-optical-sizing: auto;
   font-size: var(--essay-editor-font-size);
-  line-height: 1.7;
-  color: var(--essay-text);
+  line-height: 1.75;
+  /* Falls back to chrome text so a host that has not adopted the paper
+     tokens still renders sensibly. */
+  color: var(--essay-prose-ink, var(--essay-text));
   /* The caret is the brand: one saturated element on a calm page (iA). */
   caret-color: var(--essay-accent);
   max-width: var(--essay-measure);
@@ -17,6 +19,30 @@
   outline: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* Reflow the source's line wrapping.
+   ProseMirror sets `white-space: break-spaces` on its editable element so
+   that trailing spaces stay visible and typable. For prose over a Markdown
+   file that is actively wrong: a paragraph hard-wrapped at 80 columns — which
+   is how most Markdown in the world is written — renders every one of those
+   soft wraps as a line break, and a page of writing arrives shredded.
+   The newlines stay in the model, so the file still round-trips byte for
+   byte; only the display reflows them, which is what Markdown means by them.
+   Scoped to prose blocks: `pre` and `code` below keep their whitespace, where
+   it is content rather than formatting. */
+.essay-prose p,
+.essay-prose h1,
+.essay-prose h2,
+.essay-prose h3,
+.essay-prose h4,
+.essay-prose h5,
+.essay-prose h6,
+.essay-prose li,
+.essay-prose blockquote,
+.essay-prose td,
+.essay-prose th {
+  white-space: normal;
 }
 
 .essay-prose ::selection,

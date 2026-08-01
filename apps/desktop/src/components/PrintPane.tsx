@@ -105,7 +105,7 @@ function Diagnostics({
             Showing the last good pages — the current draft has an issue:
           </p>
         )}
-        <pre className="font-[var(--essay-font-mono)] whitespace-pre-wrap">
+        <pre className="font-(family-name:--essay-font-mono) whitespace-pre-wrap">
           {message ?? 'Unknown rendering error'}
         </pre>
       </div>

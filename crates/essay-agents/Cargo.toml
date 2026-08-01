@@ -1,11 +1,24 @@
 [package]
 name = "essay-agents"
-description = "Agent integration: patch protocol, provenance, process management"
+description = "Agent integration: ACP host, change sets, provenance, process management"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 essay-core.workspace = true
+essay-diff.workspace = true
+essay-revisions.workspace = true
+essay-workspace.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
+agent-client-protocol = "2.0"
+futures = "0.3"
+log = "0.4"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+
+[dev-dependencies]
+env_logger = "0.11"
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }

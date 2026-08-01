@@ -1,0 +1,1724 @@
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
+import {
+  AcceptIcon,
+  AgentIcon,
+  BusyIcon,
+  CloseIcon,
+  CollapseIcon,
+  ConnectIcon,
+  DocumentIcon,
+  EditIcon,
+  ErrorIcon,
+  ExpandIcon,
+  MoreIcon,
+  OnDiskIcon,
+  RejectIcon,
+  RetryIcon,
+  RevertIcon,
+  SendIcon,
+  StopIcon,
+  ThinkingIcon,
+  ToolIcon,
+  TuneIcon,
+  type Icon,
+} from '#/lib/icons'
+import { cn } from '#/lib/cn'
+import {
+  acceptChangeSet,
+  baseName,
+  cancelAgentTurn,
+  listAgentSessions,
+  listAgents,
+  listChangeSets,
+  onAgentEvent,
+  onChangeSet,
+  onPermissionRequest,
+  rejectChangeSet,
+  relativeTime,
+  respondToPermission,
+  listSkills,
+  samePath,
+  sendAgentPrompt,
+  sessionOptions,
+  setSessionOption,
+  startAgentSession,
+  stopAgentSession,
+  type AgentCommand,
+  type AgentEvent,
+  type AgentInfo,
+  type AppliedEdit,
+  type ChangeSet,
+  type PermissionRequest,
+  type PlanEntry,
+  type SessionOption,
+  type SessionSummary,
+  type Skill,
+} from '#/lib/agents'
+import { Select } from '@base-ui-components/react/select'
+import { Check } from '@phosphor-icons/react'
+import type { ReviewRequest } from './DiffReview'
+import { IconButton } from './ui/icon-button'
+
+/**
+ * The agent surface: pick an agent, ask it something, watch it work, and
+ * decide what — if anything — reaches the manuscript.
+ *
+ * Two things about it are load-bearing rather than decorative.
+ *
+ * **Nothing is applied here.** Accepting opens the diff first, because a
+ * proposal is the only moment the author still owns their phrasing. Rejecting
+ * needs no review: declining costs nothing, since the file was never touched.
+ *
+ * **An agent's edit can arrive by two roads and they are not the same event.**
+ * A `ChangeSet` is a proposal Essay intercepted — nothing on disk, accept
+ * writes it. An `AppliedEdit` is an agent that ignored the protocol's
+ * filesystem capability and wrote the file itself (opencode 1.17.8 does, see
+ * `docs/research/agent-integration.md` §8.2); the bytes have landed and the
+ * only decision left is whether to revert. The panel labels the two
+ * differently and offers different verbs, because telling an author their
+ * document is untouched when it is not is the one lie this feature cannot
+ * afford.
+ */
+export interface AgentPanelProps {
+  /** Whether the pane is showing. It stays mounted either way: a running turn,
+      a transcript and a queue of proposals must survive the author shutting
+      the pane to get the width back. */
+  open: boolean
+  /** Absolute path of the open document; null while it is untitled. An agent
+      needs a real file — there is nothing to give it otherwise. */
+  documentPath: string | null
+  documentName: string
+  /** Edits the watcher caught, attributed to a running session by the host. */
+  appliedEdits: AppliedEdit[]
+  /** Tells the host whether a session is live, so a watcher-caught edit can be
+      attributed to the agent that was running when it landed. */
+  onSessionChange: (agentName: string | null) => void
+  /** How many decisions the panel is holding, so the chrome can say so while
+      the pane is shut. */
+  onWaitingChange: (count: number) => void
+  /** Ask the workspace to show a diff over the manuscript. */
+  onReview: (review: ReviewRequest) => void
+  onCloseReview: () => void
+  /** A proposal reached disk; the editor's buffer has to follow it there. */
+  onAccepted: (change: ChangeSet, hash: string) => void
+  /** The file moved under a proposal — the workspace owns that conversation. */
+  onAcceptConflict: (diskHash: string, diskContents: string) => void
+  onKeepApplied: (edit: AppliedEdit) => void
+  onRevertApplied: (edit: AppliedEdit) => void
+  onClose: () => void
+}
+
+/** A transcript entry. Chunks are folded into these as they arrive, so a
+    streaming reply grows one paragraph rather than stacking fragments. */
+type Entry =
+  | { id: number; kind: 'prompt'; text: string }
+  | { id: number; kind: 'message'; text: string }
+  | { id: number; kind: 'thought'; text: string }
+  | {
+      id: number
+      kind: 'tool'
+      toolCallId: string
+      title: string
+      status: string
+      toolKind: string
+      locations: string[]
+    }
+  | { id: number; kind: 'plan'; entries: PlanEntry[] }
+  | { id: number; kind: 'note'; tone: 'quiet' | 'error'; text: string }
+
+let entrySeq = 0
+const nextId = () => (entrySeq += 1)
+
+/** How close to the bottom still counts as "following along". Below this the
+    author has scrolled back to read, and the transcript must stop moving. */
+const STICK_SLACK = 32
+
+/** The agent the author used last, so opening the panel can warm it up. */
+const LAST_AGENT_KEY = 'essay.agent.v1'
+
+/**
+ * Whether this machine is running on battery, best effort.
+ *
+ * Pre-warming spawns a subprocess the author has not asked for yet; on mains
+ * that is free, on battery it is somebody's afternoon. Chromium's Battery
+ * Status API answers where it exists; where it does not, assume mains —
+ * the pre-warm is cheap and the author expressed intent by opening the panel.
+ */
+async function onBattery(): Promise<boolean> {
+  try {
+    const getBattery = (
+      navigator as Navigator & {
+        getBattery?: () => Promise<{ charging: boolean }>
+      }
+    ).getBattery
+    if (!getBattery) return false
+    const battery = await getBattery.call(navigator)
+    return battery.charging === false
+  } catch {
+    return false
+  }
+}
+
+export function AgentPanel({
+  open,
+  documentPath,
+  documentName,
+  appliedEdits,
+  onSessionChange,
+  onWaitingChange,
+  onReview,
+  onCloseReview,
+  onAccepted,
+  onAcceptConflict,
+  onKeepApplied,
+  onRevertApplied,
+  onClose,
+}: AgentPanelProps) {
+  const [agents, setAgents] = useState<AgentInfo[]>([])
+  const [session, setSession] = useState<SessionSummary | null>(null)
+  const [starting, setStarting] = useState<string | null>(null)
+  const [entries, setEntries] = useState<Entry[]>([])
+  const [running, setRunning] = useState(false)
+  const [changes, setChanges] = useState<ChangeSet[]>([])
+  const [asks, setAsks] = useState<PermissionRequest[]>([])
+  const [draft, setDraft] = useState('')
+  const [failure, setFailure] = useState<string | null>(null)
+  const [skills, setSkills] = useState<Skill[]>([])
+  /** The agent's knobs — mode, model, whatever it advertises. Whole-state
+      replaced on every `options` event; the stream is the source of truth. */
+  const [options, setOptions] = useState<SessionOption[]>([])
+  /** Whether the knobs are showing. Off by default: power, tucked away. */
+  const [tuning, setTuning] = useState(false)
+  const [commands, setCommands] = useState<AgentCommand[]>([])
+  /** Preference skills switched on. The house skill is not in here: it is
+      always sent, and offering to turn it off would be offering to tell the
+      agent less about where it is. */
+  const [chosen, setChosen] = useState<string[]>([])
+
+  const transcriptRef = useRef<HTMLDivElement>(null)
+  const stuckToBottom = useRef(true)
+  /** The live session, for listeners registered once at mount. */
+  const sessionRef = useRef<SessionSummary | null>(null)
+
+  useEffect(() => {
+    sessionRef.current = session
+    onSessionChange(session?.agentName ?? null)
+  }, [session, onSessionChange])
+
+  /** The open document, for the mount-time probe below, which must not
+      re-run every time the author switches files. */
+  const documentRef = useRef(documentPath)
+  documentRef.current = documentPath
+
+  // What the host already knows: agents on this machine, proposals still in
+  // the queue, and any session that outlived a WebView reload. Mount only —
+  // a session outlives which file is on screen, and re-probing on every
+  // document change would restart a transcript mid-conversation.
+  useEffect(() => {
+    void listAgents().then(setAgents)
+    void listChangeSets().then(setChanges)
+    void listAgentSessions().then((open) => {
+      const mine =
+        open.find((s) => samePath(s.document, documentRef.current)) ?? open[0]
+      if (mine) {
+        setSession(mine)
+        void sessionOptions(mine.sessionId).then(setOptions)
+        setEntries([
+          {
+            id: nextId(),
+            kind: 'note',
+            tone: 'quiet',
+            text: `Reattached to ${mine.agentName}.`,
+          },
+        ])
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    const disposers: Array<() => void> = []
+    let cancelled = false
+    const track = (pending: Promise<() => void>) =>
+      void pending.then((dispose) =>
+        cancelled ? dispose() : disposers.push(dispose),
+      )
+
+    track(
+      onAgentEvent((event) => {
+        // Events from a session the panel is not showing are still real, but
+        // interleaving two transcripts would make neither readable.
+        if (
+          sessionRef.current &&
+          event.sessionId !== sessionRef.current.sessionId
+        ) {
+          return
+        }
+        // Session state, not transcript: these replace rather than append.
+        if (event.kind === 'options') {
+          setOptions(event.options)
+          return
+        }
+        if (event.kind === 'commands') {
+          setCommands(event.commands)
+          return
+        }
+        setEntries((current) => absorb(current, event))
+        if (event.kind === 'prompt') setRunning(true)
+        if (
+          event.kind === 'turnEnded' ||
+          event.kind === 'error' ||
+          event.kind === 'stopped'
+        ) {
+          setRunning(false)
+        }
+        if (event.kind === 'stopped') {
+          setSession(null)
+          setOptions([])
+          setCommands([])
+        }
+      }),
+    )
+    track(
+      onChangeSet((change) =>
+        setChanges((current) => [
+          ...current.filter((entry) => entry.id !== change.id),
+          change,
+        ]),
+      ),
+    )
+    track(
+      onPermissionRequest((request) =>
+        setAsks((current) => [...current, request]),
+      ),
+    )
+
+    return () => {
+      cancelled = true
+      disposers.forEach((dispose) => dispose())
+    }
+  }, [])
+
+  // Follow the stream only while the author is already at the bottom. A
+  // transcript that yanks itself down while they are reading back is the
+  // single most common way a panel like this becomes unusable.
+  useEffect(() => {
+    const node = transcriptRef.current
+    if (node && stuckToBottom.current) node.scrollTop = node.scrollHeight
+  }, [entries])
+
+  const start = useCallback(
+    async (agent: AgentInfo) => {
+      if (!documentPath) return
+      setFailure(null)
+      setStarting(agent.id)
+      try {
+        const summary = await startAgentSession(agent.id, documentPath)
+        setSession(summary)
+        setEntries([])
+        try {
+          localStorage.setItem(LAST_AGENT_KEY, agent.id)
+        } catch {
+          // Forgetting the preference costs one extra click next session.
+        }
+      } catch (error) {
+        // No prefix: the host's errors already read "X could not start: …" /
+        // "X is not installed: …", and stacking a second prefix on top was
+        // exactly the doubled message this used to show.
+        setFailure(String(error))
+      } finally {
+        setStarting(null)
+      }
+    },
+    [documentPath],
+  )
+
+  /** One warm-up per panel lifetime: an author who ended a session has said
+      no, and reopening the pane must not say yes for them. */
+  const prewarmed = useRef(false)
+
+  // Opening the pane is the intent signal: connect to the agent the author
+  // used last, so the two-plus seconds an adapter takes to answer `initialize`
+  // are spent while they are still deciding what to ask. An idle ACP session
+  // costs nothing until a prompt is sent. Skipped on battery — a subprocess
+  // nobody asked for yet is the wrong thing to spend a charge on.
+  useEffect(() => {
+    if (!open || session || starting || !documentPath || prewarmed.current)
+      return
+    if (agents.length === 0) return
+    const last = (() => {
+      try {
+        return localStorage.getItem(LAST_AGENT_KEY)
+      } catch {
+        return null
+      }
+    })()
+    const agent = agents.find((entry) => entry.id === last && entry.available)
+    if (!agent) return
+    prewarmed.current = true
+    void onBattery().then((draining) => {
+      if (!draining) void start(agent)
+    })
+  }, [open, session, starting, documentPath, agents, start])
+
+  // Skills live beside the document, so they are re-read when it changes —
+  // and an author who edits a skill file sees it on the next document switch
+  // rather than having to restart Essay.
+  useEffect(() => {
+    if (!documentPath) {
+      setSkills([])
+      return
+    }
+    let current = true
+    void listSkills(documentPath).then((found) => {
+      if (current) setSkills(found)
+    })
+    return () => {
+      current = false
+    }
+  }, [documentPath])
+
+  const send = useCallback(async () => {
+    const text = draft.trim()
+    if (!session || !text || running) return
+    setDraft('')
+    stuckToBottom.current = true
+    try {
+      await sendAgentPrompt(session.sessionId, text, chosen)
+    } catch (error) {
+      setFailure(String(error))
+    }
+  }, [draft, session, running, chosen])
+
+  const interrupt = useCallback(() => {
+    if (session) void cancelAgentTurn(session.sessionId).catch(() => {})
+  }, [session])
+
+  const endSession = useCallback(async () => {
+    if (!session) return
+    await stopAgentSession(session.sessionId).catch(() => {})
+    setSession(null)
+    setRunning(false)
+    setAsks([])
+    setOptions([])
+    setCommands([])
+    setTuning(false)
+  }, [session])
+
+  const tune = useCallback(
+    (option: SessionOption, value: string) => {
+      if (!session) return
+      // Optimistic: the `options` event brings the agent's word shortly, but
+      // a select that snaps back while the round trip runs reads as broken.
+      setOptions((current) =>
+        current.map((entry) =>
+          entry.id === option.id ? { ...entry, currentValue: value } : entry,
+        ),
+      )
+      void setSessionOption(session.sessionId, option.id, value).catch(
+        (error) => setFailure(String(error)),
+      )
+    },
+    [session],
+  )
+
+  const answer = useCallback(
+    (request: PermissionRequest, optionId: string | null) => {
+      setAsks((current) =>
+        current.filter((ask) => ask.requestId !== request.requestId),
+      )
+      void respondToPermission(
+        request.requestId,
+        optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' },
+      ).catch((error) => setFailure(String(error)))
+    },
+    [],
+  )
+
+  const accept = useCallback(
+    async (change: ChangeSet) => {
+      onCloseReview()
+      try {
+        const outcome = await acceptChangeSet(change.id)
+        if (outcome.status === 'conflict') {
+          onAcceptConflict(outcome.diskHash, outcome.diskContents)
+          return
+        }
+        setChanges((current) =>
+          current.map((entry) =>
+            entry.id === change.id
+              ? { ...entry, status: 'accepted' as const }
+              : entry,
+          ),
+        )
+        onAccepted(change, outcome.hash)
+      } catch (error) {
+        setFailure(String(error))
+      }
+    },
+    [onAccepted, onAcceptConflict, onCloseReview],
+  )
+
+  const reject = useCallback(
+    async (change: ChangeSet) => {
+      onCloseReview()
+      try {
+        await rejectChangeSet(change.id)
+        setChanges((current) =>
+          current.map((entry) =>
+            entry.id === change.id
+              ? { ...entry, status: 'rejected' as const }
+              : entry,
+          ),
+        )
+      } catch (error) {
+        setFailure(String(error))
+      }
+    },
+    [onCloseReview],
+  )
+
+  const reviewChange = useCallback(
+    (change: ChangeSet) => {
+      onReview({
+        diff: change.diff,
+        title: baseName(change.file),
+        provenance: `Proposed by ${change.provenance.agent} · ${
+          change.provenance.promptExcerpt || 'no instruction recorded'
+        } · ${relativeTime(change.provenance.timestampMillis)}`,
+        oldLabel: 'On disk',
+        newLabel: 'Proposed',
+        actions: [
+          { label: 'Accept', primary: true, onClick: () => void accept(change) },
+          { label: 'Reject', onClick: () => void reject(change) },
+        ],
+      })
+    },
+    [accept, reject, onReview],
+  )
+
+  const reviewApplied = useCallback(
+    (edit: AppliedEdit) => {
+      if (!edit.diff) return
+      onReview({
+        diff: edit.diff,
+        title: baseName(edit.file),
+        // Past tense on purpose: this already happened.
+        provenance: `${edit.agent} wrote this to disk itself · ${relativeTime(edit.at)}`,
+        oldLabel: 'Yours',
+        newLabel: 'On disk',
+        actions: [
+          {
+            label: 'Revert',
+            primary: true,
+            onClick: () => {
+              onCloseReview()
+              onRevertApplied(edit)
+            },
+          },
+          {
+            label: 'Keep it',
+            onClick: () => {
+              onCloseReview()
+              onKeepApplied(edit)
+            },
+          },
+        ],
+      })
+    },
+    [onReview, onCloseReview, onKeepApplied, onRevertApplied],
+  )
+
+  const pending = changes.filter((change) => change.status === 'pending')
+  const unsettled = appliedEdits.filter((edit) => edit.settled === null)
+  const settled = [
+    ...changes.filter((change) => change.status !== 'pending'),
+    ...appliedEdits.filter((edit) => edit.settled !== null),
+  ]
+  const waiting = pending.length + unsettled.length + asks.length
+
+  useEffect(() => {
+    onWaitingChange(waiting)
+  }, [waiting, onWaitingChange])
+
+  return (
+    <aside
+      aria-label="Agent"
+      className={cn(
+        'flex h-full min-h-0 flex-col border-l border-[var(--essay-border)] bg-[var(--essay-bg)]',
+        !open && 'hidden',
+      )}
+    >
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-[var(--essay-border)] pr-1 pl-3">
+        <AgentIcon size={14} aria-hidden className="text-[var(--essay-text-faint)]" />
+        <h2 className="text-[12px] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
+          {session ? session.agentName : 'Agent'}
+        </h2>
+        {session && (
+          <span
+            className={cn(
+              'h-1.5 w-1.5 shrink-0 rounded-full',
+              running
+                ? 'bg-[var(--essay-accent)]'
+                : 'bg-[var(--essay-diff-insert)]',
+            )}
+            title={running ? 'Working' : 'Idle'}
+          />
+        )}
+        <span className="ml-auto" />
+        {session && options.length > 0 && (
+          <IconButton
+            onClick={() => setTuning((on) => !on)}
+            aria-label="Agent settings — mode, model"
+            aria-expanded={tuning}
+            className={cn(tuning && 'bg-[var(--essay-surface-hover)] text-[var(--essay-text)]')}
+          >
+            <TuneIcon size={14} />
+          </IconButton>
+        )}
+        {session && (
+          <button
+            type="button"
+            onClick={() => void endSession()}
+            className="h-6 shrink-0 rounded-md px-2 text-[11px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
+          >
+            End session
+          </button>
+        )}
+        <IconButton onClick={onClose} aria-label="Close the agent panel">
+          <CloseIcon size={14} />
+        </IconButton>
+      </header>
+
+      {session && tuning && options.length > 0 && (
+        <OptionsStrip options={options} onTune={tune} />
+      )}
+
+      {(pending.length > 0 || unsettled.length > 0 || settled.length > 0) && (
+        <ChangesBlock
+          pending={pending}
+          applied={unsettled}
+          settled={settled}
+          onReviewChange={reviewChange}
+          onRejectChange={(change) => void reject(change)}
+          onReviewApplied={reviewApplied}
+        />
+      )}
+
+      {session ? (
+        <div
+          ref={transcriptRef}
+          onScroll={(event) => {
+            const node = event.currentTarget
+            stuckToBottom.current =
+              node.scrollHeight - node.scrollTop - node.clientHeight <
+              STICK_SLACK
+          }}
+          className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        >
+          {entries.length === 0 && (
+            <p className="py-8 text-center text-[12px] text-[var(--essay-text-faint)]">
+              {session.agentName} is listening. It can read {documentName} and
+              propose edits; nothing it writes reaches the file until you
+              accept it.
+            </p>
+          )}
+          <ol className="flex flex-col gap-2.5">
+            {entries.map((entry) => (
+              <TranscriptEntry key={entry.id} entry={entry} />
+            ))}
+          </ol>
+        </div>
+      ) : (
+        <AgentPicker
+          agents={agents}
+          documentPath={documentPath}
+          documentName={documentName}
+          starting={starting}
+          onStart={(agent) => void start(agent)}
+        />
+      )}
+
+      {failure && (
+        <p
+          role="alert"
+          className="shrink-0 border-t border-[var(--essay-border)] bg-[var(--essay-diff-remove-bg)] px-3 py-2 text-[11px] leading-[1.5] text-[var(--essay-text)]"
+        >
+          {failure}
+        </p>
+      )}
+
+      {/* Above the composer rather than inside the transcript: an ask that
+          scrolls out of sight is an agent blocked on nothing. */}
+      {asks.map((ask) => (
+        <PermissionCard
+          key={ask.requestId}
+          request={ask}
+          onAnswer={(optionId) => answer(ask, optionId)}
+        />
+      ))}
+
+      {session && commands.length > 0 && draft.startsWith('/') && (
+        <CommandHints
+          commands={commands}
+          draft={draft}
+          onPick={(name) => setDraft(`/${name} `)}
+        />
+      )}
+
+      {session && (
+        <SkillBar
+          skills={skills}
+          chosen={chosen}
+          onToggle={(id) =>
+            setChosen((on) =>
+              on.includes(id) ? on.filter((x) => x !== id) : [...on, id],
+            )
+          }
+        />
+      )}
+
+      {session && (
+        <Composer
+          value={draft}
+          running={running}
+          agentName={session.agentName}
+          onChange={setDraft}
+          onSend={() => void send()}
+          onInterrupt={interrupt}
+        />
+      )}
+    </aside>
+  )
+}
+
+/**
+ * The agent's knobs — mode, model, whatever else it advertised — rendered
+ * generically from what ACP handed over, so a new agent with new knobs needs
+ * no new UI. Behind the faders toggle rather than always on screen: these are
+ * decisions made once a session, not while writing.
+ */
+function OptionsStrip({
+  options,
+  onTune,
+}: {
+  options: SessionOption[]
+  onTune: (option: SessionOption, value: string) => void
+}) {
+  return (
+    <div className="shrink-0 border-b border-[var(--essay-border)] bg-[var(--essay-surface)] px-3 py-1.5">
+      {options.map((option) => (
+        <div key={option.id} className="flex h-7 items-center gap-2">
+          <span
+            className="w-[72px] shrink-0 truncate text-[11px] text-[var(--essay-text-muted)]"
+            title={option.description ?? undefined}
+          >
+            {option.name}
+          </span>
+          <OptionSelect option={option} onTune={onTune} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function OptionSelect({
+  option,
+  onTune,
+}: {
+  option: SessionOption
+  onTune: (option: SessionOption, value: string) => void
+}) {
+  const label = (choice: SessionChoiceLike) =>
+    choice.group ? `${choice.name} — ${choice.group}` : choice.name
+  const current =
+    option.choices.find((choice) => choice.value === option.currentValue) ??
+    null
+
+  return (
+    <Select.Root
+      value={option.currentValue}
+      onValueChange={(next) => {
+        if (next && next !== option.currentValue) onTune(option, next)
+      }}
+      items={option.choices.map((choice) => ({
+        value: choice.value,
+        label: label(choice),
+      }))}
+    >
+      <Select.Trigger
+        aria-label={option.name}
+        className="flex h-6 min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 text-[11px] text-[var(--essay-text)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)] data-[popup-open]:bg-[var(--essay-surface-hover)]"
+      >
+        <span className="min-w-0 truncate">
+          {current ? label(current) : option.currentValue}
+        </span>
+        <ExpandIcon
+          size={9}
+          aria-hidden
+          className="ml-auto shrink-0 rotate-90 text-[var(--essay-text-faint)]"
+        />
+      </Select.Trigger>
+      <Select.Portal>
+        <Select.Positioner
+          side="bottom"
+          align="start"
+          sideOffset={4}
+          alignItemWithTrigger={false}
+          className="z-50"
+        >
+          <Select.Popup className="essay-pop max-h-[320px] min-w-[200px] overflow-y-auto rounded-lg border border-[var(--essay-border)] bg-[var(--essay-surface)] p-1 shadow-[var(--essay-shadow-palette)] outline-none">
+            <Select.List>
+              {option.choices.map((choice) => (
+                <Select.Item
+                  key={choice.value}
+                  value={choice.value}
+                  className="flex min-h-7 cursor-default select-none items-center gap-2 rounded-md px-2 py-1 text-[12px] text-[var(--essay-text-muted)] outline-none data-[highlighted]:bg-[var(--essay-surface-hover)] data-[highlighted]:text-[var(--essay-text)] data-[selected]:text-[var(--essay-text)]"
+                >
+                  <span className="flex w-3 shrink-0 justify-center">
+                    <Select.ItemIndicator className="text-[var(--essay-accent)]">
+                      <Check size={11} weight="bold" />
+                    </Select.ItemIndicator>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <Select.ItemText>{label(choice)}</Select.ItemText>
+                    {choice.description && (
+                      <span className="block truncate text-[10px] text-[var(--essay-text-faint)]">
+                        {choice.description}
+                      </span>
+                    )}
+                  </span>
+                </Select.Item>
+              ))}
+            </Select.List>
+          </Select.Popup>
+        </Select.Positioner>
+      </Select.Portal>
+    </Select.Root>
+  )
+}
+
+type SessionChoiceLike = { name: string; group: string | null }
+
+/**
+ * The standing instructions going to the agent, above the box you type in.
+ *
+ * Sits here rather than behind a settings pane because it is spending the
+ * author's own subscription and shaping every reply: a preamble you cannot
+ * see is the intrusive version of this feature. Each chip opens to its full
+ * text, so "what is it actually telling the thing?" is one click, not a
+ * matter of trust.
+ */
+function SkillBar({
+  skills,
+  chosen,
+  onToggle,
+}: {
+  skills: Skill[]
+  chosen: string[]
+  onToggle: (id: string) => void
+}) {
+  const [reading, setReading] = useState<string | null>(null)
+  if (skills.length === 0) return null
+  const open = skills.find((skill) => skill.id === reading)
+
+  return (
+    <div className="border-t border-[var(--essay-border)] px-3 py-2">
+      <div className="flex flex-wrap items-center gap-1">
+        {skills.map((skill) => {
+          const on = skill.builtIn || chosen.includes(skill.id)
+          return (
+            <span key={skill.id} className="flex items-center">
+              <button
+                type="button"
+                // The house skill is not a choice, so it is not a switch.
+                onClick={() => !skill.builtIn && onToggle(skill.id)}
+                aria-pressed={skill.builtIn ? undefined : on}
+                disabled={skill.builtIn}
+                title={
+                  skill.builtIn
+                    ? 'Always sent — tells the agent it is editing a manuscript'
+                    : on
+                      ? 'Sent with your next message'
+                      : 'Not being sent'
+                }
+                className={cn(
+                  'h-[22px] rounded-l-full rounded-r-none border py-0 pl-2 pr-1.5 text-[11px]',
+                  'transition-colors duration-100',
+                  'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]',
+                  on
+                    ? 'border-[var(--essay-accent-tint)] bg-[var(--essay-accent-tint)] text-[var(--essay-text)]'
+                    : 'border-[var(--essay-border)] text-[var(--essay-text-muted)] hover:border-[var(--essay-border-strong)] hover:text-[var(--essay-text)]',
+                  skill.builtIn && 'cursor-default',
+                )}
+              >
+                {skill.name}
+              </button>
+              <button
+                type="button"
+                onClick={() => setReading(reading === skill.id ? null : skill.id)}
+                aria-label={`What ${skill.name} says`}
+                aria-expanded={reading === skill.id}
+                className={cn(
+                  'flex h-[22px] w-5 items-center justify-center rounded-r-full border border-l-0 text-[10px]',
+                  'transition-colors duration-100',
+                  'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]',
+                  on
+                    ? 'border-[var(--essay-accent-tint)] bg-[var(--essay-accent-tint)] text-[var(--essay-text-muted)] hover:text-[var(--essay-text)]'
+                    : 'border-[var(--essay-border)] text-[var(--essay-text-faint)] hover:text-[var(--essay-text)]',
+                )}
+              >
+                ?
+              </button>
+            </span>
+          )
+        })}
+      </div>
+
+      {open && (
+        <div className="essay-pop mt-2 rounded-md border border-[var(--essay-border)] bg-[var(--essay-bg)] p-2">
+          <p className="whitespace-pre-wrap text-[11px] leading-[1.5] text-[var(--essay-text-muted)]">
+            {open.body}
+          </p>
+          {open.path && (
+            <p className="mt-1.5 truncate font-(family-name:--essay-font-mono) text-[10px] text-[var(--essay-text-faint)]">
+              {open.path}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Fold an event into the transcript.
+ *
+ * Message and thought chunks are appended to the entry they continue: ACP
+ * chunks are not sentence-aligned, and rendering each as its own block turns a
+ * paragraph into a stack of fragments that reflows on every token. Tool calls
+ * are updated in place by id, so a call that goes pending → in progress →
+ * completed stays one row instead of becoming three.
+ */
+function absorb(entries: Entry[], event: AgentEvent): Entry[] {
+  const last = entries[entries.length - 1]
+
+  switch (event.kind) {
+    case 'prompt':
+      return [...entries, { id: nextId(), kind: 'prompt', text: event.text }]
+    case 'message':
+      if (last?.kind === 'message') {
+        return [
+          ...entries.slice(0, -1),
+          { ...last, text: last.text + event.text },
+        ]
+      }
+      return [...entries, { id: nextId(), kind: 'message', text: event.text }]
+    case 'thought':
+      if (last?.kind === 'thought') {
+        return [
+          ...entries.slice(0, -1),
+          { ...last, text: last.text + event.text },
+        ]
+      }
+      return [...entries, { id: nextId(), kind: 'thought', text: event.text }]
+    case 'toolCall': {
+      const index = entries.findIndex(
+        (entry) => entry.kind === 'tool' && entry.toolCallId === event.toolCallId,
+      )
+      const row: Entry = {
+        id: index === -1 ? nextId() : entries[index].id,
+        kind: 'tool',
+        toolCallId: event.toolCallId,
+        title: event.title,
+        status: event.status,
+        toolKind: event.toolKind,
+        locations: event.locations,
+      }
+      if (index === -1) return [...entries, row]
+      // An update carries only the fields that changed; a blank title would
+      // otherwise wipe the one the author is reading.
+      const before = entries[index]
+      const merged: Entry =
+        before.kind === 'tool'
+          ? {
+              ...row,
+              title: event.title || before.title,
+              locations: event.locations.length
+                ? event.locations
+                : before.locations,
+            }
+          : row
+      return entries.map((entry, i) => (i === index ? merged : entry))
+    }
+    case 'plan': {
+      const index = entries.findIndex((entry) => entry.kind === 'plan')
+      const row: Entry = {
+        id: index === -1 ? nextId() : entries[index].id,
+        kind: 'plan',
+        entries: event.entries,
+      }
+      return index === -1
+        ? [...entries, row]
+        : entries.map((entry, i) => (i === index ? row : entry))
+    }
+    case 'turnEnded':
+      // An ordinary finish needs no line of its own; anything else does.
+      if (event.stopReason === 'end_turn') return entries
+      return [
+        ...entries,
+        {
+          id: nextId(),
+          kind: 'note',
+          tone: 'quiet',
+          text: STOP_REASON[event.stopReason] ?? `Turn ended: ${event.stopReason}`,
+        },
+      ]
+    case 'error':
+      return [
+        ...entries,
+        {
+          id: nextId(),
+          kind: 'note',
+          tone: 'error',
+          // The one failure an author can actually fix from here. The agent's
+          // wording buries it in JSON; say what to do about it.
+          text: /authenticat/i.test(event.message)
+            ? `${event.message}\n\nThe agent's sign-in has lapsed. Run its CLI in a terminal (e.g. \`claude\`), sign in, then start a new session here.`
+            : event.message,
+        },
+      ]
+    case 'stopped':
+      return [
+        ...entries,
+        { id: nextId(), kind: 'note', tone: 'quiet', text: 'Session ended.' },
+      ]
+    case 'started':
+    // Session state, absorbed before the transcript; nothing to add here.
+    case 'options':
+    case 'commands':
+      return entries
+  }
+}
+
+const STOP_REASON: Record<string, string> = {
+  cancelled: 'You stopped this turn.',
+  refusal: 'The agent declined to answer.',
+  max_tokens: 'The agent ran out of room to answer.',
+  max_turn_requests: 'The agent hit its limit for one turn.',
+}
+
+// ——— Choosing an agent ———
+
+function AgentPicker({
+  agents,
+  documentPath,
+  documentName,
+  starting,
+  onStart,
+}: {
+  agents: AgentInfo[]
+  documentPath: string | null
+  documentName: string
+  starting: string | null
+  onStart: (agent: AgentInfo) => void
+}) {
+  const ready = (agent: AgentInfo) => agent.available && documentPath !== null
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <p className="mb-3 text-[12px] leading-[1.55] text-[var(--essay-text-muted)]">
+        {documentPath ? (
+          <>
+            An agent reads <DocumentChip>{documentName}</DocumentChip> and
+            proposes edits you review before anything is written.
+          </>
+        ) : (
+          <>
+            Save <DocumentChip>{documentName}</DocumentChip> first — an agent
+            works on a file, and this one is not on disk yet.
+          </>
+        )}
+      </p>
+      <ul className="flex flex-col gap-1">
+        {agents.map((agent) => (
+          <li key={agent.id}>
+            <button
+              type="button"
+              disabled={!ready(agent) || starting !== null}
+              onClick={() => onStart(agent)}
+              // Unavailable is drawn with a dashed border and muted ink rather
+              // than dimmed: fading a row is how the sentence explaining *why*
+              // it is unusable becomes the least readable thing on screen.
+              className={cn(
+                'flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left',
+                'transition-colors duration-100',
+                'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]',
+                ready(agent)
+                  ? 'border-[var(--essay-border)] hover:border-[var(--essay-border-strong)] hover:bg-[var(--essay-surface-hover)]'
+                  : 'cursor-default border-dashed border-[var(--essay-border)]',
+              )}
+            >
+              {starting === agent.id ? (
+                <BusyIcon
+                  size={14}
+                  aria-hidden
+                  className="shrink-0 text-[var(--essay-accent)] motion-safe:animate-spin"
+                />
+              ) : (
+                <ConnectIcon
+                  size={14}
+                  aria-hidden
+                  className={cn(
+                    'shrink-0',
+                    ready(agent)
+                      ? 'text-[var(--essay-text-muted)]'
+                      : 'text-[var(--essay-text-faint)]',
+                  )}
+                />
+              )}
+              <span className="min-w-0 flex-1">
+                <span
+                  className={cn(
+                    'block truncate text-[13px] font-[var(--essay-weight-medium)]',
+                    ready(agent)
+                      ? 'text-[var(--essay-text)]'
+                      : 'text-[var(--essay-text-muted)]',
+                  )}
+                >
+                  {agent.name}
+                </span>
+                {/* The command is the answer to "why is this greyed out?" —
+                    it names the thing that has to be on PATH. */}
+                <span className="block truncate font-(family-name:--essay-font-mono) text-[10px] text-[var(--essay-text-muted)]">
+                  {agent.available ? agent.command : `${agent.command} — not on PATH`}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+        {agents.length === 0 && (
+          <li className="rounded-lg border border-dashed border-[var(--essay-border)] px-2.5 py-3 text-[12px] text-[var(--essay-text-faint)]">
+            No agents found. Essay looks for <code>opencode</code> and{' '}
+            <code>claude</code> on your PATH.
+          </li>
+        )}
+      </ul>
+    </div>
+  )
+}
+
+function DocumentChip({ children }: { children: ReactNode }) {
+  return (
+    <span className="font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
+      {children}
+    </span>
+  )
+}
+
+// ——— The queue ———
+
+function ChangesBlock({
+  pending,
+  applied,
+  settled,
+  onReviewChange,
+  onRejectChange,
+  onReviewApplied,
+}: {
+  pending: ChangeSet[]
+  applied: AppliedEdit[]
+  settled: Array<ChangeSet | AppliedEdit>
+  onReviewChange: (change: ChangeSet) => void
+  onRejectChange: (change: ChangeSet) => void
+  onReviewApplied: (edit: AppliedEdit) => void
+}) {
+  const [showSettled, setShowSettled] = useState(false)
+  const waiting = pending.length + applied.length
+
+  return (
+    <section
+      aria-label="Changes"
+      className="max-h-[46%] shrink-0 overflow-y-auto border-b border-[var(--essay-border)] bg-[var(--essay-surface)] px-2 py-2"
+    >
+      <div className="mb-1 flex items-center gap-2 px-1">
+        {/* 11px faint uppercase — the same micro-heading the outline pane and
+            the diff surface already use, so the panel reads as part of the
+            chrome rather than a visitor in it. */}
+        <h3 className="text-[11px] font-[510] tracking-wider text-[var(--essay-text-faint)] uppercase">
+          Changes
+        </h3>
+        <span className="text-[11px] tabular-nums text-[var(--essay-text-faint)]">
+          {waiting}
+        </span>
+        {settled.length > 0 && (
+          <button
+            type="button"
+            aria-expanded={showSettled}
+            onClick={() => setShowSettled((on) => !on)}
+            className="ml-auto rounded-md px-1 py-0.5 text-[10px] text-[var(--essay-text-faint)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
+          >
+            {showSettled ? 'Hide settled' : `${settled.length} settled`}
+          </button>
+        )}
+      </div>
+
+      {waiting === 0 && (
+        <p className="px-1 py-1 text-[11px] text-[var(--essay-text-faint)]">
+          Nothing waiting on you.
+        </p>
+      )}
+
+      <ul className="flex flex-col gap-1">
+        {applied.map((edit) => (
+          <li key={edit.id}>
+            <ChangeRow
+              tone="applied"
+              title={baseName(edit.file)}
+              detail={`${edit.agent} wrote this itself · ${relativeTime(edit.at)}`}
+              inserted={edit.diff?.stats.wordsInserted ?? 0}
+              removed={edit.diff?.stats.wordsRemoved ?? 0}
+              rewrite={edit.looksLikeARewrite}
+              onOpen={() => onReviewApplied(edit)}
+            />
+          </li>
+        ))}
+        {pending.map((change) => (
+          <li key={change.id}>
+            <ChangeRow
+              tone="proposal"
+              title={baseName(change.file)}
+              detail={`${change.provenance.agent} · ${relativeTime(change.provenance.timestampMillis)}`}
+              inserted={change.diff.stats.wordsInserted}
+              removed={change.diff.stats.wordsRemoved}
+              rewrite={change.looksLikeARewrite}
+              onOpen={() => onReviewChange(change)}
+              // Declining needs no review — nothing was ever written.
+              onDismiss={() => onRejectChange(change)}
+            />
+          </li>
+        ))}
+      </ul>
+
+      {showSettled && (
+        <ul className="mt-1 flex flex-col gap-0.5 border-t border-[var(--essay-border)] pt-1">
+          {settled.map((entry) => (
+            <li
+              key={entry.id}
+              className="flex items-center gap-2 px-1 py-1 text-[11px] text-[var(--essay-text-faint)]"
+            >
+              <span className="truncate">
+                {baseName(entry.file)}
+              </span>
+              <span className="ml-auto shrink-0">
+                {'status' in entry ? entry.status : entry.settled}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+/**
+ * One waiting decision.
+ *
+ * The pill is the whole point of the row: `proposal` means the file is
+ * untouched and accepting is what writes it; `on disk` means an agent already
+ * wrote it and the verb on offer is revert. Same list, because the author
+ * wants one place to look — different words, because they are different facts.
+ */
+function ChangeRow({
+  tone,
+  title,
+  detail,
+  inserted,
+  removed,
+  rewrite,
+  onOpen,
+  onDismiss,
+}: {
+  tone: 'proposal' | 'applied'
+  title: string
+  detail: string
+  inserted: number
+  removed: number
+  rewrite: boolean
+  onOpen: () => void
+  onDismiss?: () => void
+}) {
+  const applied = tone === 'applied'
+  return (
+    <div
+      className={cn(
+        'essay-pop flex items-center gap-2 rounded-lg border px-2 py-1.5',
+        'transition-colors duration-100',
+        applied
+          ? 'border-[var(--essay-diff-remove-bg)] bg-[var(--essay-diff-remove-bg)]'
+          : 'border-[var(--essay-border)] bg-[var(--essay-editor-bg)]',
+      )}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--essay-accent)]"
+      >
+        <span className="flex items-center gap-1.5">
+          <span
+            className={cn(
+              'inline-flex h-[15px] shrink-0 items-center gap-1 rounded-[4px] px-1.5',
+              'text-[9px] font-[var(--essay-weight-semibold)] tracking-wide uppercase',
+              // Body ink on a tinted chip, for the reason StatusPill states in
+              // DiffReview: accent-on-tint is the prettier version and it
+              // measures 4.2:1, which is not a number to put a 9px label on.
+              applied
+                ? 'bg-[var(--essay-diff-remove)] text-[var(--essay-editor-bg)]'
+                : 'bg-[var(--essay-accent-tint)] text-[var(--essay-text)]',
+            )}
+          >
+            {applied ? <OnDiskIcon size={9} weight="bold" aria-hidden /> : null}
+            {applied ? 'on disk' : 'proposal'}
+          </span>
+          <span className="min-w-0 truncate text-[12px] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
+            {title}
+          </span>
+          {rewrite && (
+            // Before the accept, not after: an author who misses this has lost
+            // a document's worth of their own phrasing.
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-[4px] bg-[var(--essay-accent-tint)] px-1 text-[9px] font-[var(--essay-weight-semibold)] tracking-wide text-[var(--essay-text)] uppercase"
+              title="Most of the document changed — this reads as a rewrite, not an edit"
+            >
+              <RetryIcon size={9} weight="bold" aria-hidden />
+              rewrite
+            </span>
+          )}
+        </span>
+        <span className="mt-0.5 flex items-center gap-2">
+          <span className="min-w-0 truncate text-[10px] text-[var(--essay-text-muted)]">
+            {detail}
+          </span>
+          <span
+            className="ml-auto shrink-0 text-[10px] tabular-nums"
+            aria-label={`${inserted} words added, ${removed} removed`}
+          >
+            <span className="text-[var(--essay-diff-insert)]">+{inserted}</span>
+            <span className="text-[var(--essay-text-faint)]">/</span>
+            <span className="text-[var(--essay-diff-remove)]">−{removed}</span>
+          </span>
+        </span>
+      </button>
+      {onDismiss ? (
+        <IconButton
+          onClick={onDismiss}
+          aria-label={`Reject the proposal for ${title}`}
+          title="Reject — the file was never touched"
+          className="h-6 w-6"
+        >
+          <CloseIcon size={12} />
+        </IconButton>
+      ) : (
+        <RevertIcon
+          size={12}
+          aria-hidden
+          className="shrink-0 text-[var(--essay-diff-remove)]"
+        />
+      )}
+    </div>
+  )
+}
+
+// ——— Transcript ———
+
+function TranscriptEntry({ entry }: { entry: Entry }) {
+  switch (entry.kind) {
+    case 'prompt':
+      return (
+        <li className="border-l-2 border-[var(--essay-accent)] pl-2.5 text-[12px] leading-[1.55] whitespace-pre-wrap text-[var(--essay-text)]">
+          {entry.text}
+        </li>
+      )
+    case 'message':
+      return (
+        <li className="text-[13px] leading-[1.6] whitespace-pre-wrap text-[var(--essay-text)]">
+          {entry.text}
+        </li>
+      )
+    case 'thought':
+      return <Thought text={entry.text} />
+    case 'tool':
+      return (
+        <ToolRow
+          title={entry.title}
+          status={entry.status}
+          toolKind={entry.toolKind}
+          locations={entry.locations}
+        />
+      )
+    case 'plan':
+      return <Plan entries={entry.entries} />
+    case 'note':
+      return (
+        <li
+          className={cn(
+            'rounded-md px-2 py-1 text-[11px] leading-[1.5]',
+            entry.tone === 'error'
+              ? 'bg-[var(--essay-diff-remove-bg)] text-[var(--essay-text)]'
+              : 'text-[var(--essay-text-muted)]',
+          )}
+        >
+          {entry.tone === 'error' && (
+            <ErrorIcon
+              size={11}
+              weight="bold"
+              aria-hidden
+              className="mr-1 inline-block align-[-1px] text-[var(--essay-diff-remove)]"
+            />
+          )}
+          {entry.text}
+        </li>
+      )
+  }
+}
+
+/**
+ * Reasoning, kept subordinate to the answer: smaller, fainter, clamped to two
+ * lines until asked for. It is how the agent got there, not what it said, and
+ * a transcript where the two look alike reads as twice as much text.
+ */
+function Thought({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <li>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((on) => !on)}
+        className="flex w-full items-start gap-1.5 rounded-md px-1 py-0.5 text-left transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
+      >
+        <ThinkingIcon
+          size={11}
+          aria-hidden
+          className="mt-[3px] shrink-0 text-[var(--essay-text-faint)]"
+        />
+        <span
+          className={cn(
+            // Muted rather than faint: it is several lines of reading, not a
+            // label, and faint ink measures 3.4:1 at this size. Italic, 11px
+            // and a clamp are what keep it subordinate to the answer.
+            'min-w-0 flex-1 text-[11px] leading-[1.5] whitespace-pre-wrap text-[var(--essay-text-muted)] italic',
+            !open && 'line-clamp-2',
+          )}
+        >
+          {text}
+        </span>
+      </button>
+    </li>
+  )
+}
+
+const TOOL_ICON: Record<string, Icon> = {
+  read: DocumentIcon,
+  edit: EditIcon,
+  execute: ToolIcon,
+  think: ThinkingIcon,
+}
+
+/** Compact enough to skim a dozen of them; never a wall of JSON. */
+function ToolRow({
+  title,
+  status,
+  toolKind,
+  locations,
+}: {
+  title: string
+  status: string
+  toolKind: string
+  locations: string[]
+}) {
+  const Glyph = TOOL_ICON[toolKind] ?? MoreIcon
+  const failed = status === 'failed'
+  const done = status === 'completed'
+  const busy = status === 'in_progress' || status === 'pending'
+
+  return (
+    <li className="flex items-center gap-2 rounded-md bg-[var(--essay-surface)] px-2 py-1">
+      <Glyph
+        size={11}
+        aria-hidden
+        className={cn(
+          'shrink-0',
+          failed
+            ? 'text-[var(--essay-diff-remove)]'
+            : 'text-[var(--essay-text-faint)]',
+        )}
+      />
+      <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--essay-text-muted)]">
+        {title || toolKind}
+        {locations.length > 0 && (
+          <span className="ml-1.5 font-(family-name:--essay-font-mono) text-[10px] text-[var(--essay-text-faint)]">
+            {locations.map(baseName).join(', ')}
+          </span>
+        )}
+      </span>
+      <span className="shrink-0" title={status}>
+        {busy && (
+          <BusyIcon
+            size={11}
+            aria-label="running"
+            className="text-[var(--essay-text-faint)] motion-safe:animate-spin"
+          />
+        )}
+        {done && (
+          <AcceptIcon
+            size={11}
+            weight="fill"
+            aria-label="done"
+            className="text-[var(--essay-diff-insert)]"
+          />
+        )}
+        {failed && (
+          <RejectIcon
+            size={11}
+            weight="bold"
+            aria-label="failed"
+            className="text-[var(--essay-diff-remove)]"
+          />
+        )}
+      </span>
+    </li>
+  )
+}
+
+function Plan({ entries }: { entries: PlanEntry[] }) {
+  const [open, setOpen] = useState(true)
+  const done = entries.filter((entry) => entry.status === 'completed').length
+  return (
+    <li className="rounded-lg border border-[var(--essay-border)]">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((on) => !on)}
+        className="flex w-full items-center gap-1.5 px-2 py-1 text-left transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--essay-accent)]"
+      >
+        {open ? (
+          <CollapseIcon size={10} aria-hidden className="text-[var(--essay-text-faint)]" />
+        ) : (
+          <ExpandIcon size={10} aria-hidden className="text-[var(--essay-text-faint)]" />
+        )}
+        <span className="text-[10px] font-[510] tracking-wider text-[var(--essay-text-faint)] uppercase">
+          Plan
+        </span>
+        <span className="ml-auto text-[10px] tabular-nums text-[var(--essay-text-faint)]">
+          {done}/{entries.length}
+        </span>
+      </button>
+      {open && (
+        <ul className="px-2 pb-1.5">
+          {entries.map((entry, index) => (
+            <li
+              key={`${index}-${entry.content}`}
+              className={cn(
+                'flex items-start gap-1.5 py-[2px] text-[11px] leading-[1.45]',
+                entry.status === 'completed'
+                  ? 'text-[var(--essay-text-faint)] line-through'
+                  : 'text-[var(--essay-text-muted)]',
+              )}
+            >
+              <span className="mt-[5px] h-1 w-1 shrink-0 rounded-full bg-current" />
+              {entry.content}
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  )
+}
+
+/**
+ * The agent's slash-commands, shown while the draft starts with `/`.
+ *
+ * ACP sends these as data (`available_commands_update`) but they are typed as
+ * text: picking one just completes the draft, and the agent parses it out of
+ * the prompt like it would from any terminal.
+ */
+function CommandHints({
+  commands,
+  draft,
+  onPick,
+}: {
+  commands: AgentCommand[]
+  draft: string
+  onPick: (name: string) => void
+}) {
+  const typed = draft.slice(1).split(/\s/, 1)[0].toLowerCase()
+  const matches = commands
+    .filter((command) => command.name.toLowerCase().startsWith(typed))
+    .slice(0, 6)
+  if (matches.length === 0) return null
+
+  return (
+    <div className="max-h-[180px] shrink-0 overflow-y-auto border-t border-[var(--essay-border)] px-2 py-1">
+      {matches.map((command) => (
+        <button
+          key={command.name}
+          type="button"
+          onClick={() => onPick(command.name)}
+          className="flex w-full items-baseline gap-2 rounded-md px-2 py-1 text-left transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--essay-accent)]"
+        >
+          <span className="shrink-0 font-(family-name:--essay-font-mono) text-[11px] text-[var(--essay-text)]">
+            /{command.name}
+          </span>
+          {command.inputHint && (
+            <span className="shrink-0 font-(family-name:--essay-font-mono) text-[10px] text-[var(--essay-text-faint)]">
+              {command.inputHint}
+            </span>
+          )}
+          <span className="min-w-0 truncate text-[11px] text-[var(--essay-text-muted)]">
+            {command.description}
+          </span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ——— Decisions and input ———
+
+/**
+ * A permission ask. Loud enough not to be missed and quiet enough not to be a
+ * modal — the agent is blocked, the author is not.
+ */
+function PermissionCard({
+  request,
+  onAnswer,
+}: {
+  request: PermissionRequest
+  onAnswer: (optionId: string | null) => void
+}) {
+  return (
+    <section
+      aria-label={`${request.agentName} needs a decision`}
+      className="essay-pop shrink-0 border-t border-[var(--essay-border)] bg-[var(--essay-accent-tint)] px-3 py-2.5"
+    >
+      {/* The live region is the sentence, not the card: an alert wrapping
+          buttons is announced as text and then fought over by the reader. */}
+      <p role="status" className="text-[11px] text-[var(--essay-text-muted)]">
+        {request.agentName} needs a decision
+      </p>
+      <p className="mt-0.5 text-[12px] leading-[1.5] text-[var(--essay-text)]">
+        {request.title || 'No description given.'}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {request.options.map((option) => {
+          const allows = option.kind.startsWith('allow')
+          return (
+            <button
+              key={option.optionId}
+              type="button"
+              onClick={() => onAnswer(option.optionId)}
+              className={cn(
+                'h-6 rounded-md px-2 text-[11px] font-[var(--essay-weight-medium)]',
+                'transition-colors duration-100',
+                'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]',
+                allows
+                  ? 'bg-[var(--essay-accent)] text-[var(--essay-editor-bg)] hover:brightness-110'
+                  : 'text-[var(--essay-text-muted)] hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]',
+              )}
+            >
+              {option.name}
+            </button>
+          )
+        })}
+        {request.options.length === 0 && (
+          <button
+            type="button"
+            onClick={() => onAnswer(null)}
+            className="h-6 rounded-md px-2 text-[11px] text-[var(--essay-text-muted)] hover:bg-[var(--essay-surface-hover)]"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function Composer({
+  value,
+  running,
+  agentName,
+  onChange,
+  onSend,
+  onInterrupt,
+}: {
+  value: string
+  running: boolean
+  agentName: string
+  onChange: (value: string) => void
+  onSend: () => void
+  onInterrupt: () => void
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  // Grow to fit, then scroll. Six lines is about as much instruction as
+  // anybody types before they would rather be writing it in the manuscript.
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+    node.style.height = 'auto'
+    node.style.height = `${Math.min(node.scrollHeight, 132)}px`
+  }, [value])
+
+  return (
+    <div className="shrink-0 border-t border-[var(--essay-border)] p-2">
+      <div className="rounded-lg border border-[var(--essay-border)] bg-[var(--essay-editor-bg)] focus-within:border-[var(--essay-border-strong)]">
+        <textarea
+          ref={ref}
+          rows={1}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
+              onSend()
+            }
+          }}
+          placeholder={
+            running ? `${agentName} is working…` : `Ask ${agentName} to…`
+          }
+          className="block max-h-[132px] w-full resize-none bg-transparent px-2.5 py-2 text-[12px] leading-[1.5] text-[var(--essay-text)] outline-none placeholder:text-[var(--essay-text-faint)]"
+        />
+        <div className="flex items-center gap-2 px-2 pb-1.5">
+          <span className="text-[10px] text-[var(--essay-text-muted)]">
+            Enter to send · Shift+Enter for a new line
+          </span>
+          {running ? (
+            <button
+              type="button"
+              onClick={onInterrupt}
+              className="ml-auto flex h-6 items-center gap-1 rounded-md bg-[var(--essay-surface-hover)] px-2 text-[11px] font-[var(--essay-weight-medium)] text-[var(--essay-text)] transition-colors duration-100 hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
+            >
+              <StopIcon size={10} weight="fill" aria-hidden />
+              Stop
+            </button>
+          ) : (
+            <IconButton
+              onClick={onSend}
+              disabled={!value.trim()}
+              aria-label={`Send to ${agentName}`}
+              className="ml-auto h-6 w-6 text-[var(--essay-accent)]"
+            >
+              <SendIcon size={13} weight="fill" />
+            </IconButton>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

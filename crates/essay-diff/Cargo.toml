@@ -7,5 +7,9 @@ license.workspace = true
 
 [dependencies]
 essay-core.workspace = true
+essay-markdown.workspace = true
 serde.workspace = true
 similar.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

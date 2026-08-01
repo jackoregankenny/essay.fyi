@@ -12,18 +12,21 @@ Type Markdown and it becomes the thing itself: `# ` starts a heading, `**bold**`
 
 Everything here serializes back to plain Markdown. Open it in another editor, commit it to Git, hand it to Claude Code. Essay keeps its own state — history, comments, provenance — in a removable `.essay` sidecar that can never corrupt your writing.
 
+Edit the file elsewhere while it is open here and Essay notices, snapshots what arrived, and asks you what to do with it. A save never overwrites a change it has not shown you.
+
 ## Evidence, laid out properly
 
 | Milestone | Focus | Status |
 | --- | --- | --- |
-| A writer worth using | Files, autosave, palette | next |
-| Beautiful documents | Typst preview and PDF | planned |
-| History and diffs | Revisions you can explain | planned |
+| A writer worth using | Files, autosave, palette | done |
+| Beautiful documents | Typst preview and PDF | done |
+| History and diffs | Revisions you can explain | next |
+| Agents | Reviewable proposals, not rewrites | planned |
 
 - [x] Rich manuscript editing over plain Markdown
-- [x] Live structure and word count
-- [ ] Open and save real files
-- [ ] Print-quality PDF export
+- [x] Open and save real files, with crash recovery
+- [x] Print-quality PDF export
+- [ ] A revision timeline you can read
 
 ---
 

@@ -11,6 +11,7 @@ essay — inspect and edit Essay documents
 
 Usage:
   essay outline <document.md>            Print the heading outline
+  essay diff <before.md> <after.md>      Section-level summary of what changed
   essay inspect <document.md>            (planned) Document metadata and stats
   essay read <document.md> --section <s> (planned) Read one section
   essay search <document.md> <query>     (planned) Search the document
@@ -32,6 +33,13 @@ fn main() -> ExitCode {
             }
         },
         Some("render") => render(&args[1..]),
+        Some("diff") => match (args.get(1), args.get(2)) {
+            (Some(before), Some(after)) => diff(before, after),
+            _ => {
+                eprintln!("essay diff: needs <before.md> <after.md>");
+                ExitCode::FAILURE
+            }
+        },
         Some(verb @ ("inspect" | "read" | "search" | "propose" | "status")) => {
             eprintln!("essay {verb}: not implemented yet (see docs/agent-protocol.md)");
             ExitCode::FAILURE
@@ -41,6 +49,76 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Section-level summary of a change — the same view the review surface
+/// shows, so an agent can check its own work before proposing it.
+fn diff(before: &str, after: &str) -> ExitCode {
+  let (Ok(old), Ok(new)) = (
+    std::fs::read_to_string(before),
+    std::fs::read_to_string(after),
+  ) else {
+    eprintln!("essay diff: cannot read {before} or {after}");
+    return ExitCode::FAILURE;
+  };
+
+  let diff = essay_diff::diff_documents(&old, &new);
+  if diff.is_empty() {
+    println!("No changes.");
+    return ExitCode::SUCCESS;
+  }
+
+  for section in &diff.sections {
+    let mark = match section.status {
+      essay_diff::SectionStatus::Unchanged => continue,
+      essay_diff::SectionStatus::Edited => "edited",
+      essay_diff::SectionStatus::Moved => "moved",
+      essay_diff::SectionStatus::MovedAndEdited => "moved+edited",
+      essay_diff::SectionStatus::Added => "added",
+      essay_diff::SectionStatus::Removed => "removed",
+    };
+    let heading = section.heading.as_deref().unwrap_or("(preamble)");
+    let words = match (section.stats.words_inserted, section.stats.words_removed) {
+      (0, 0) => String::new(),
+      (added, removed) => format!("  +{added}/-{removed} words"),
+    };
+    println!("{mark:>12}  {heading}{words}");
+  }
+
+  let touched = diff
+    .sections
+    .iter()
+    .filter(|s| s.status != essay_diff::SectionStatus::Unchanged)
+    .count();
+  // A pure reordering still shows words on both sides of the line diff.
+  // Saying "+23/-23 words" about it would be true and misleading.
+  let only_moves = diff
+    .sections
+    .iter()
+    .filter(|s| s.status != essay_diff::SectionStatus::Unchanged)
+    .all(|s| s.status.moved());
+  if only_moves {
+    println!(
+      "\n{touched}/{} sections reordered; no words written or deleted",
+      diff.sections.len()
+    );
+  } else {
+    println!(
+      "\n{touched}/{} sections, +{}/-{} lines, +{}/-{} words",
+      diff.sections.len(),
+      diff.lines_inserted,
+      diff.lines_removed,
+      diff.stats.words_inserted,
+      diff.stats.words_removed,
+    );
+  }
+  if diff.looks_like_a_rewrite() {
+    println!(
+      "\nThis reads as a rewrite, not an edit ({:.0}% of sections touched).",
+      diff.churn * 100.0
+    );
+  }
+  ExitCode::SUCCESS
 }
 
 fn render(args: &[String]) -> ExitCode {

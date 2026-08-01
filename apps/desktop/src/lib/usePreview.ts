@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
-import type { Editor } from '@essay/editor'
+import { getManuscript, type Editor } from '@essay/editor'
 
 export interface PreviewState {
   /**
@@ -58,7 +58,7 @@ export function usePreview(
     setState((s) => ({ ...s, status: 'rendering' }))
     const timer = setTimeout(() => {
       invoke<RenderedDocument>('render_document', {
-        source: editor.getMarkdown(),
+        source: getManuscript(editor),
         root: docDir,
       })
         .then((result) => {

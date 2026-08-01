@@ -28,6 +28,14 @@ import { CharacterCount, Placeholder } from '@tiptap/extensions'
 
 export type { Editor } from '@tiptap/core'
 
+export {
+  clearFrontMatter,
+  getManuscript,
+  setManuscript,
+  splitFrontMatter,
+  type SplitManuscript,
+} from './frontmatter'
+
 /** Nearest scrollable ancestor of the editor DOM (the manuscript pane). */
 function scrollerOf(dom: HTMLElement): HTMLElement | null {
   let el: HTMLElement | null = dom.parentElement

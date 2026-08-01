@@ -170,3 +170,74 @@ crates/essay-agents/
 ```
 
 All change sets operate on the Markdown file against a recorded `base_hash` (Rust-side canonical, per invariant 3); `.essay/` state (snapshots, pending changesets) stays deletable.
+
+---
+
+## 8. Addendum: what building it actually found (2026-07-31)
+
+Section 7's ranking survives; two of its details did not. Verified against the
+installed binaries while implementing `essay-agents`, not from documentation.
+
+### 8.1 The `agent-client-protocol` crate is not the API §7 sketches
+
+The sketch imagines implementing a `Client` trait with `write_text_file` /
+`request_permission` methods. Version **2.0** is a builder over a JSON-RPC
+connection instead:
+
+```rust
+Client.builder()
+    .on_receive_request(async |req: WriteTextFileRequest, responder, cx| { … },
+                        agent_client_protocol::on_receive_request!())
+    .on_receive_notification(async |n: SessionNotification, cx| { … },
+                             agent_client_protocol::on_receive_notification!())
+    .connect_with(AcpAgent::new(config), async |cx| { /* handshake, prompts */ })
+    .await
+```
+
+Details worth knowing before touching it: the `on_receive_*!()` macros are
+mandatory (a workaround for unstable return-type notation); handlers run *on
+the dispatch loop* and block message processing, so anything that waits — a
+permission ask, a request back to the peer — must go through `cx.spawn`; and
+the connection lives only as long as the `connect_with` closure, which is why
+Essay drives sessions from a command channel inside it. `AcpAgentConfig` covers
+subprocess launch but resolves nothing: on Windows `npx` is `npx.cmd`, which
+`CreateProcess` will not find and cannot execute — the host resolves PATH and
+PATHEXT itself and re-launches scripts through `cmd /c`.
+
+### 8.2 Advertising `fs` does not mean the agent will use it
+
+§5's claim — "when the client advertises the `fs` capability, agents route
+reads/writes through `fs/read_text_file` / `fs/write_text_file`" — is what the
+protocol says, not what every agent does.
+
+**opencode 1.17.8 ignores it.** With `fs.readTextFile` and `fs.writeTextFile`
+both advertised in `initialize`, opencode completes the handshake, then reads
+and writes the file with its own tools. It reports `tool_call` notifications
+(`kind: "read"`, `kind: "edit"`, with `locations`) so the client can *watch* —
+but it never sends an `fs/*` request, so there is nothing to hold. The edit is
+on disk before the client hears about it.
+
+**Claude Code's adapter is unverified on this point.** `npx -y
+@agentclientprotocol/claude-agent-acp` completes `initialize` and `session/new`
+cleanly, but the prompt turn failed with `authentication_failed` (expired
+OAuth) on the test machine, so whether it proxies its writes is still an open
+question. Worth re-testing: it is the agent §7 picks for the Milestone 4 demo.
+
+This does not change the ranking — it vindicates it. §7 ranks file-watch
+capture first *because* it is the one channel no agent can opt out of, and this
+is exactly the case it was ranked first for. What it changes is the framing:
+ACP interception is the good path, not the only one, and the review surface has
+to be honest about which channel an edit arrived on. Essay's host therefore
+does both — it holds `fs/write_text_file` as a change set, and when an edit
+arrives on disk instead it asks the host who was running and attributes the
+revision to that agent rather than to `Unknown`.
+
+### 8.3 Returning success for a write that did not happen
+
+The protocol offers no "held for review" response: `WriteTextFileResponse` is
+an empty object, and the only other answer is a JSON-RPC error, which agents
+surface as a failed tool call and retry. So Essay answers `Ok`. The cost is
+that the agent's model of the file is then wrong, which it discovers on its
+next read — so reads of a path with a pending proposal serve the *proposal*,
+not the file. The author's file stays the author's; the agent's story stays
+consistent; neither is misled about the thing they care about.

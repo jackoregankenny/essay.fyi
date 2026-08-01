@@ -32,9 +32,19 @@
   --essay-ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
   --essay-ease-out-quint: cubic-bezier(0.23, 1, 0.32, 1);
 
-  /* Light: cool near-white chrome, canvas lighter still */
+  /* Light: cool near-white chrome, canvas lighter still.
+
+     The canvas breaks with the chrome's hue on purpose. Everything around the
+     manuscript is a tool and reads cool; the page itself is warm, because a
+     clinical white rectangle is where you file a bug and a warm one is where
+     you write. The chrome stays at hue 286 and the paper sits at 92 — the
+     difference is a few hundredths of chroma, invisible named and obvious
+     felt. Warmth here is worth more than any amount of it in the chrome. */
   --essay-bg: oklch(0.975 0.002 286);
-  --essay-editor-bg: oklch(0.995 0.0015 286);
+  --essay-editor-bg: oklch(0.988 0.009 92);
+  /* Ink, not chrome text: a warm near-black that sits on paper without the
+     blue cast that makes long reading feel like a screen. */
+  --essay-prose-ink: oklch(0.305 0.016 62);
   --essay-surface: oklch(0.985 0.002 286);
   --essay-surface-hover: oklch(0.945 0.003 286);
   --essay-border: oklch(0.925 0.003 286);
@@ -48,6 +58,16 @@
   --essay-selection-match: color-mix(in oklch, oklch(0.567 0.159 275), transparent 85%);
   --essay-highlight: oklch(0.94 0.08 95);
 
+  /* Review surfaces. Two hues held at the same lightness so neither side of a
+     diff shouts louder than the other, and desaturated enough to sit under
+     prose rather than on top of it. The `-bg` pair tints a whole line; the
+     plain token inks the +/- gutter and the section pills, and is dark enough
+     to carry text on the page background. */
+  --essay-diff-insert: oklch(0.472 0.108 152);
+  --essay-diff-insert-bg: oklch(0.945 0.038 152);
+  --essay-diff-remove: oklch(0.487 0.152 24);
+  --essay-diff-remove-bg: oklch(0.947 0.032 24);
+
   --essay-shadow-low: 0 1px 4px -1px rgb(0 0 0 / 0.09);
   --essay-shadow-medium: 0 3px 12px rgb(0 0 0 / 0.09);
   --essay-shadow-palette: 0 9px 48px rgb(0 0 0 / 0.08), 0 6px 24px rgb(0 0 0 / 0.1),
@@ -59,7 +79,10 @@
 :root[data-theme='dark'] {
     /* Dark: chrome at Linear's panel depth, canvas a step lighter */
     --essay-bg: oklch(0.172 0.004 265);
-    --essay-editor-bg: oklch(0.205 0.005 265);
+    /* Same move at night: chrome cool, page warm. A warm charcoal reads as a
+       lamp on a desk; the cool one read as a terminal. */
+    --essay-editor-bg: oklch(0.213 0.008 75);
+    --essay-prose-ink: oklch(0.918 0.008 85);
     --essay-surface: oklch(0.228 0.006 280);
     --essay-surface-hover: oklch(0.257 0.006 282);
     --essay-border: oklch(0.264 0.01 268);
@@ -72,6 +95,11 @@
     --essay-selection: color-mix(in oklch, oklch(0.567 0.159 275), black 10%);
     --essay-selection-match: color-mix(in oklch, oklch(0.567 0.159 275), transparent 70%);
     --essay-highlight: oklch(0.45 0.07 95);
+
+    --essay-diff-insert: oklch(0.802 0.146 152);
+    --essay-diff-insert-bg: oklch(0.286 0.052 152);
+    --essay-diff-remove: oklch(0.762 0.135 24);
+    --essay-diff-remove-bg: oklch(0.301 0.055 24);
 
     --essay-shadow-low: 0 2px 4px rgb(0 0 0 / 0.25);
     --essay-shadow-medium: 0 4px 24px rgb(0 0 0 / 0.35);

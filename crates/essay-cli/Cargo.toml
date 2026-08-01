@@ -10,5 +10,6 @@ name = "essay"
 path = "src/main.rs"
 
 [dependencies]
+essay-diff.workspace = true
 essay-markdown.workspace = true
 essay-render.workspace = true

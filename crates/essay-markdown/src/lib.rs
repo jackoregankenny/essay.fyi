@@ -66,13 +66,24 @@ pub struct Reference {
 /// structural diff and anchor work needs them (Milestones 3 and 5).
 pub fn index(source: &str) -> DocumentIndex {
     let mut headings = Vec::new();
-    if let Ok(root) = markdown::to_mdast(source, &ParseOptions::gfm()) {
+    if let Ok(root) = markdown::to_mdast(source, &parse_options()) {
         collect_headings(&root, &mut headings);
     }
     DocumentIndex {
         headings,
         ..DocumentIndex::default()
     }
+}
+
+/// Front matter must be enabled, and not only so it can be lifted into the
+/// typeset title. Without it the closing `---` of a YAML block turns the line
+/// above into a setext heading, and the whole block lands in the outline.
+/// `essay-render` sets the same flag; the two must agree or the outline and
+/// the printed page disagree about what the document contains.
+pub fn parse_options() -> ParseOptions {
+    let mut options = ParseOptions::gfm();
+    options.constructs.frontmatter = true;
+    options
 }
 
 fn collect_headings(node: &Node, out: &mut Vec<Heading>) {
@@ -139,6 +150,25 @@ mod tests {
         let index = index(source);
         let range = index.headings[0].range;
         assert_eq!(&source[range.start..range.end], "# Title");
+    }
+
+    #[test]
+    fn front_matter_is_not_an_outline_entry() {
+        let source = "---\ntitle: A Memo\nauthor: Someone\n---\n\n# Real Heading\n";
+        let index = index(source);
+        assert_eq!(index.headings.len(), 1);
+        assert_eq!(index.headings[0].text, "Real Heading");
+        assert_eq!(index.headings[0].depth, 1);
+    }
+
+    #[test]
+    fn setext_headings_are_still_headings() {
+        let source = "Title\n=====\n\nBody.\n\nSection\n-------\n";
+        let index = index(source);
+        assert_eq!(index.headings.len(), 2);
+        assert_eq!(index.headings[0].depth, 1);
+        assert_eq!(index.headings[1].depth, 2);
+        assert_eq!(index.headings[1].text, "Section");
     }
 
     #[test]
