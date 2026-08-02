@@ -12,5 +12,12 @@ typst = "0.15.1"
 typst-assets = { version = "0.15.1", features = ["fonts"] }
 typst-layout = "0.15.1"
 typst-pdf = "0.15.1"
-typst-render = "0.15.1"
+# Optional: the raster (tiny-skia) stack behind `render_png_page`. PNG only
+# serves the CLI's `--format png` eyeballing path and tests, never the
+# desktop app (live preview is SVG, export is PDF) — keep it out of the
+# default feature set so the desktop binary doesn't carry it.
+typst-render = { version = "0.15.1", optional = true }
 typst-svg = "0.15.1"
+
+[features]
+png = ["dep:typst-render"]

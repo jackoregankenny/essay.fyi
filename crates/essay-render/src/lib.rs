@@ -59,7 +59,10 @@ pub fn render_pdf(
 }
 
 /// Compile one page to PNG — used by tests and `essay render --format png`
-/// to eyeball real typeset output.
+/// to eyeball real typeset output. Gated behind the `png` feature: the
+/// raster stack (typst-render, tiny-skia) has no consumer in the desktop
+/// app, which only needs SVG (preview) and PDF (export).
+#[cfg(feature = "png")]
 pub fn render_png_page(
   markdown_source: &str,
   root: Option<PathBuf>,
