@@ -4,6 +4,7 @@ import { MagnifyingGlass } from '@phosphor-icons/react'
 import { listCommands } from '@essay/commands'
 import type { OutlineItem } from '@essay/editor'
 import { cn } from '#/lib/cn'
+import { loadRecentFiles } from '#/lib/recents'
 
 interface PaletteEntry {
   key: string
@@ -31,6 +32,8 @@ interface CommandPaletteProps {
   onOpenChange: (open: boolean) => void
   outline: OutlineItem[]
   onJumpToSection: (item: OutlineItem) => void
+  /** Open a document by absolute path — how a recent file is reopened. */
+  onOpenFile?: (path: string) => void
   /** Runs the query through `essay-search`. The palette never matches text
       itself — it only asks, and renders what comes back. */
   onSearch?: (query: string) => Promise<SearchEntry[]>
@@ -41,6 +44,7 @@ export function CommandPalette({
   onOpenChange,
   outline,
   onJumpToSection,
+  onOpenFile,
   onSearch,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
@@ -68,8 +72,25 @@ export function CommandPalette({
       keywords: 'section heading go jump',
       run: () => onJumpToSection(item),
     }))
-    return [...commands, ...sections]
-  }, [open, outline, onJumpToSection])
+    // Read here rather than held in state: `open` is in the dependency list,
+    // so the list is re-read every time the palette is summoned and a file
+    // opened a moment ago is already at the top of it.
+    //
+    // The whole path is a keyword, so typing a folder name finds a document
+    // whose own name does not contain it — which is how you tell two
+    // `notes.md` apart.
+    const recents = onOpenFile
+      ? loadRecentFiles().map((recent) => ({
+          key: `recent-${recent.path}`,
+          title: recent.name,
+          group: 'Recent files',
+          keywords: `${recent.path} open recent file document`,
+          hint: parentLabel(recent.path),
+          run: () => onOpenFile(recent.path),
+        }))
+      : []
+    return [...commands, ...sections, ...recents]
+  }, [open, outline, onJumpToSection, onOpenFile])
 
   // Search results are appended rather than filtered: they were selected by
   // the query already, and running them back through the command scorer would
@@ -214,6 +235,13 @@ export function CommandPalette({
       </Dialog.Portal>
     </Dialog.Root>
   )
+}
+
+/** The folder a document sits in, for the right-hand hint. The full path is
+    too long for the row and the basename is already the title. */
+function parentLabel(path: string): string {
+  const segments = path.split(/[\\/]/)
+  return segments[segments.length - 2] ?? ''
 }
 
 function filterEntries(entries: PaletteEntry[], query: string): PaletteEntry[] {

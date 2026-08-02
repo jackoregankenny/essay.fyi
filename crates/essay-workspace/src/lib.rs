@@ -16,11 +16,13 @@
 
 mod file;
 mod journal;
+mod roots;
 mod snapshot;
 mod watcher;
 
 pub use file::{hash_source, read_document, write_document, DocumentPayload, WriteOutcome};
 pub use journal::{JournalEntry, RecoveryStore};
+pub use roots::{markdown_tree, RootChange, RootWatcher};
 pub use snapshot::{sidecar_dir, SnapshotStore};
 pub use watcher::{DocumentWatcher, ExternalChange};
 

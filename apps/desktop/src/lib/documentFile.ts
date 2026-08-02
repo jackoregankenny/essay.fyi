@@ -11,6 +11,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog'
+import { forgetRecentFile, rememberRecentFile } from './recents'
 
 const MARKDOWN_FILTERS = [
   { name: 'Markdown', extensions: ['md', 'markdown'] },
@@ -56,12 +57,30 @@ export function fileName(path: string): string {
   return path.split(/[\\/]/).pop() || path
 }
 
-/** Read a known path directly (explorer clicks). Desktop shell only. */
+/**
+ * Read a known path directly (explorer clicks, the recents list, the palette).
+ * Desktop shell only.
+ *
+ * Resolves null when the file cannot be read rather than throwing. Every
+ * caller reaches this from something the author clicked on — a tree row, a
+ * remembered path — and any of those can name a file that has since been
+ * renamed, moved or deleted. A rejected promise there is an unhandled
+ * rejection in the console and nothing at all on screen.
+ */
 export async function openDocumentByPath(
   path: string,
 ): Promise<OpenedDocument | null> {
   if (!isTauri()) return null
-  return { path, name: fileName(path), ...(await readDocument(path)) }
+  try {
+    const payload = await readDocument(path)
+    const name = fileName(path)
+    rememberRecentFile(path, name)
+    return { path, name, ...payload }
+  } catch {
+    // Gone or unreadable. Stop offering it back.
+    forgetRecentFile(path)
+    return null
+  }
 }
 
 /** Show an open dialog and read the chosen file. Resolves null on cancel. */
@@ -69,7 +88,7 @@ export async function openDocumentFile(): Promise<OpenedDocument | null> {
   if (isTauri()) {
     const path = await openDialog({ multiple: false, filters: MARKDOWN_FILTERS })
     if (typeof path !== 'string') return null
-    return { path, name: fileName(path), ...(await readDocument(path)) }
+    return openDocumentByPath(path)
   }
   return openViaFileInput()
 }

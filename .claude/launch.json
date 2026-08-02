@@ -6,6 +6,12 @@
       "runtimeExecutable": "bun",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "dev-alt",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--cwd", "apps/desktop", "dev", "--port", "3100"],
+      "port": 3100
     }
   ]
 }
