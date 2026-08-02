@@ -1454,10 +1454,10 @@ dependencies = [
 name = "essay-render"
 version = "0.1.0"
 dependencies = [
+ "fontdb",
  "markdown",
  "thiserror 2.0.19",
  "typst",
- "typst-assets",
  "typst-layout",
  "typst-pdf",
  "typst-render",

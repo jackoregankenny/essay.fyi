@@ -6,10 +6,16 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# The system font database. Essay does not embed fonts: `typst-assets`'
+# `fonts` feature is an all-or-nothing 9.23 MB of Libertinus, New Computer
+# Modern and DejaVu, and no crate in the Typst tree turns it on but us — so
+# leaving it off is what keeps those megabytes out of every artifact. What
+# the compiler typesets with instead is whatever this machine has installed;
+# see `world.rs` and the font stack in `templates/essay/essay.typ`.
+fontdb = "0.23"
 markdown.workspace = true
 thiserror.workspace = true
 typst = "0.15.1"
-typst-assets = { version = "0.15.1", features = ["fonts"] }
 typst-layout = "0.15.1"
 typst-pdf = "0.15.1"
 # Optional: the raster (tiny-skia) stack behind `render_png_page`. PNG only

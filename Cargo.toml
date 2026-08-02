@@ -2,6 +2,28 @@
 resolver = "2"
 members = ["apps/desktop/src-tauri", "crates/*"]
 
+# Release settings, because the defaults are wrong for this shape of binary.
+#
+# Essay links one very large dependency — the Typst compiler — into every
+# artifact, and cargo's stock release profile leaves it in sixteen codegen
+# units with no cross-crate inlining or dead-code elimination between them.
+# Measured on essay-desktop: 64.38 MB stock, 58.96 MB with these settings.
+#
+# The cost is build time, and it is not small: a cold release build roughly
+# doubles, because fat LTO cannot start until every crate has compiled and
+# then optimises the lot as one unit. That is paid by the `size` job and the
+# release workflow, which already cache aggressively, and never by `cargo
+# check`, `cargo test` or `tauri dev` — none of which use this profile. If it
+# ever becomes the bottleneck, `lto = "thin"` keeps most of the saving for a
+# fraction of the link time.
+#
+# `strip` earns nothing on the MSVC target, where symbols live in a separate
+# PDB; it is here for the GNU, macOS and Linux targets, where they do not.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"

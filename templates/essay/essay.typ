@@ -13,8 +13,40 @@
     margin: (x: 2.4cm, top: 2.6cm, bottom: 2.8cm),
     numbering: "1",
   )
-  set text(size: 11pt)
+  // A stack, not a family. Essay does not embed fonts, so Typst's own default
+  // (Libertinus Serif) is not present on most machines; naming one family
+  // would leave the fallback to chance. The order is: the intended face if the
+  // author happens to have it, then the best serif each platform actually
+  // ships — macOS, Windows, then the common Linux packages.
+  set text(
+    size: 11pt,
+    font: (
+      "Libertinus Serif",
+      "Charter",
+      "Palatino Linotype",
+      "Palatino",
+      "Cambria",
+      "Georgia",
+      "Liberation Serif",
+      "DejaVu Serif",
+      "Times New Roman",
+    ),
+  )
   set par(justify: true, leading: 0.68em)
+
+  // The same reasoning for code. `raw` is the only place a monospace face is
+  // asked for, and every platform has at least one of these.
+  show raw: set text(
+    font: (
+      "DejaVu Sans Mono",
+      "Cascadia Mono",
+      "Consolas",
+      "SF Mono",
+      "Menlo",
+      "Liberation Mono",
+      "Courier New",
+    ),
+  )
 
   set heading(numbering: none)
   show heading.where(level: 1): set text(size: 15pt, weight: 600)
