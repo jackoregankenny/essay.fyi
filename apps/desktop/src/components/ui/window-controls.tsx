@@ -1,6 +1,7 @@
 import { isTauri } from '@tauri-apps/api/core'
 import { Minus, Square, X } from '@phosphor-icons/react'
 import { cn } from '#/lib/cn'
+import { isWindows } from '#/lib/platform'
 
 async function currentWindow() {
   const { getCurrentWindow } = await import('@tauri-apps/api/window')
@@ -11,9 +12,16 @@ async function currentWindow() {
  * Windows-style window controls for the frameless window. The header
  * doubles as the titlebar (data-tauri-drag-region); these are the only
  * chrome the OS no longer draws for us.
+ *
+ * Windows only, and the shape of these buttons is why: they are square, they
+ * are top-right, and the close button turns Segoe red. On macOS the window
+ * keeps its decorations (`titleBarStyle: Overlay`) and the OS draws real
+ * traffic lights top-left; on Linux the window manager draws its own frame.
+ * On both, rendering these as well would put a second, foreign set of window
+ * buttons in the wrong corner — worse than none, because both sets work.
  */
 export function WindowControls() {
-  if (!isTauri()) return null
+  if (!isTauri() || !isWindows) return null
   return (
     <div className="-mr-2 ml-1 flex h-10 items-stretch">
       <ControlButton

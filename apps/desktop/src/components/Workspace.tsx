@@ -51,6 +51,12 @@ import {
   type MeasureId,
 } from '#/lib/measure'
 import {
+  commandKey,
+  isMac,
+  shortcut,
+  TRAFFIC_LIGHT_INSET,
+} from '#/lib/platform'
+import {
   authorLabel,
   checkpointDocument,
   originLabel,
@@ -888,16 +894,19 @@ export function Workspace() {
     if (!editor) return
     const chain = () => editor.chain().focus()
     const commands: Command[] = [
-      { id: 'file.new', title: 'New document', group: 'File', shortcut: 'Ctrl+N', run: () => void newDocument() },
-      { id: 'file.open', title: 'Open file…', group: 'File', shortcut: 'Ctrl+O', run: () => void openDocument() },
-      { id: 'file.save', title: 'Save', group: 'File', shortcut: 'Ctrl+S', run: () => void saveDocument() },
-      { id: 'file.saveAs', title: 'Save as…', group: 'File', shortcut: 'Ctrl+Shift+S', run: () => void saveDocument(true) },
+      // Shortcuts are declared in Windows/Linux spelling and translated here
+      // (see `shortcut`): the handler has always accepted Cmd as well as Ctrl,
+      // so on a Mac these labels were the only part that was wrong.
+      { id: 'file.new', title: 'New document', group: 'File', shortcut: shortcut('Ctrl+N'), run: () => void newDocument() },
+      { id: 'file.open', title: 'Open file…', group: 'File', shortcut: shortcut('Ctrl+O'), run: () => void openDocument() },
+      { id: 'file.save', title: 'Save', group: 'File', shortcut: shortcut('Ctrl+S'), run: () => void saveDocument() },
+      { id: 'file.saveAs', title: 'Save as…', group: 'File', shortcut: shortcut('Ctrl+Shift+S'), run: () => void saveDocument(true) },
       { id: 'file.exportPdf', title: 'Export PDF…', group: 'File', keywords: 'typeset print render', run: () => void exportPdf() },
       { id: 'file.checkpoint', title: 'Mark this version', group: 'File', keywords: 'checkpoint history revision snapshot milestone draft sent', run: () => void checkpoint() },
-      { id: 'file.find', title: 'Find a phrase…', group: 'File', shortcut: 'Ctrl+F', keywords: 'search find look for text grep phrase across folders', run: () => setPaletteOpen(true) },
-      { id: 'view.preview', title: 'Toggle preview', group: 'View', shortcut: 'Ctrl+J', keywords: 'typeset pages print render', run: () => setMode((m) => (m === 'write' ? 'preview' : 'write')) },
-      { id: 'view.sidebar', title: 'Toggle sidebar', group: 'View', shortcut: 'Ctrl+B', run: () => setSidebarOpen((open) => !open) },
-      { id: 'view.agent', title: 'Toggle agent panel', group: 'View', shortcut: 'Ctrl+Shift+A', keywords: 'ai assistant opencode claude propose changes review', run: () => setAgentOpen((open) => !open) },
+      { id: 'file.find', title: 'Find a phrase…', group: 'File', shortcut: shortcut('Ctrl+F'), keywords: 'search find look for text grep phrase across folders', run: () => setPaletteOpen(true) },
+      { id: 'view.preview', title: 'Toggle preview', group: 'View', shortcut: shortcut('Ctrl+J'), keywords: 'typeset pages print render', run: () => setMode((m) => (m === 'write' ? 'preview' : 'write')) },
+      { id: 'view.sidebar', title: 'Toggle sidebar', group: 'View', shortcut: shortcut('Ctrl+B'), run: () => setSidebarOpen((open) => !open) },
+      { id: 'view.agent', title: 'Toggle agent panel', group: 'View', shortcut: shortcut('Ctrl+Shift+A'), keywords: 'ai assistant opencode claude propose changes review', run: () => setAgentOpen((open) => !open) },
       { id: 'view.focus', title: 'Toggle focus mode', group: 'View', keywords: 'zen typewriter dim centre center', run: () => setFocusModeState((on) => !on) },
       { id: 'view.measure', title: `Writing width: ${measureLabel(measure)}`, group: 'View', keywords: 'column measure line length narrow wide', run: () => setMeasure(nextMeasure(measure)) },
       { id: 'view.dark', title: 'Toggle dark mode', group: 'View', keywords: 'theme light appearance', run: () => {
@@ -954,11 +963,22 @@ export function Workspace() {
         <header
           data-tauri-drag-region
           className="grid h-10 grid-cols-[1fr_auto_1fr] items-center border-b border-[var(--essay-border)] px-2"
+          // macOS draws the traffic lights over the top-left of the content
+          // (titleBarStyle: Overlay) and the DOM has no way to know they are
+          // there, so the header leaves the room itself — otherwise the
+          // sidebar toggle sits under the close button. Only under Tauri: the
+          // browser preview has no native title bar to make room for, and off
+          // macOS there is nothing overlapping at all.
+          style={
+            isMac && isTauri()
+              ? { paddingLeft: TRAFFIC_LIGHT_INSET }
+              : undefined
+          }
         >
           <div data-tauri-drag-region className="flex min-w-0 items-center gap-1">
             <Tip
               label="Toggle sidebar"
-              shortcut="Ctrl+B"
+              shortcut={shortcut('Ctrl+B')}
               trigger={
                 <IconButton onClick={() => setSidebarOpen((open) => !open)}>
                   <SidebarSimple size={16} />
@@ -992,7 +1012,7 @@ export function Workspace() {
             <UpdateButton documentsSaved={!dirty && !conflict} />
             <Tip
               label="Agent"
-              shortcut="Ctrl+Shift+A"
+              shortcut={shortcut('Ctrl+Shift+A')}
               trigger={
                 <IconButton
                   onClick={() => setAgentOpen((open) => !open)}
@@ -1014,7 +1034,7 @@ export function Workspace() {
               title="Command palette"
               className="flex h-7 items-center gap-1 rounded-md px-2 text-[12px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]"
             >
-              <Kbd>Ctrl</Kbd>
+              <Kbd>{commandKey}</Kbd>
               <Kbd>K</Kbd>
             </button>
             <WindowControls />
@@ -1205,6 +1225,7 @@ export function Workspace() {
             setMode('write')
             if (editor) revealHeading(editor, item.pos)
           }}
+          onOpenFile={(path) => void openByPath(path)}
           onSearch={runSearch}
         />
       </div>

@@ -5,8 +5,8 @@ use essay_agents::{
 use essay_markdown::DocumentIndex;
 use essay_revisions::{Revision, RevisionAuthor, RevisionOrigin};
 use essay_workspace::{
-  DocumentPayload, DocumentWatcher, ExternalChange, JournalEntry, RecoveryStore, SnapshotStore,
-  WriteOutcome,
+  DocumentPayload, DocumentWatcher, ExternalChange, JournalEntry, RecoveryStore, RootChange,
+  RootWatcher, SnapshotStore, WriteOutcome,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -16,6 +16,10 @@ use tauri::{Emitter, Manager};
 /// unsaved buffers are journalled, and whose name goes on a revision.
 struct Workspace {
   watcher: DocumentWatcher,
+  /// Watches the explorer's folders for files appearing and disappearing.
+  /// Separate from `watcher` because it answers a different question — the
+  /// shape of a tree rather than the bytes of one file.
+  roots: RootWatcher,
   recovery: RecoveryStore,
   author: RevisionAuthor,
 }
@@ -32,6 +36,11 @@ struct Agents {
 /// Event carrying an edit Essay did not make. The change is already in the
 /// sidecar by the time this reaches the WebView.
 const EXTERNAL_CHANGE: &str = "essay://external-change";
+
+/// A workspace folder's file listing has changed — something was created,
+/// deleted or renamed under it. Carries the new listing, so the explorer
+/// redraws without walking the folder a second time.
+const TREE_CHANGE: &str = "essay://tree-change";
 
 /// One thing that happened in an agent session — a message chunk, a thought,
 /// a tool call, the end of a turn. Tagged by `kind`.
@@ -374,67 +383,38 @@ async fn search_project(
 
 /// List one workspace folder's Markdown contents as root-relative paths for
 /// the explorer tree: directories end with '/', files are .md/.markdown.
-/// Hidden entries and heavy build directories are skipped. Moves to
-/// essay-workspace once file watching lands (Milestone 3).
+/// Hidden entries and heavy build directories are skipped.
+///
+/// The walk itself lives in `essay-workspace` beside the watcher that repeats
+/// it: the watcher decides whether anything changed by comparing two listings,
+/// so a second implementation here would mean the explorer and the watcher
+/// could disagree about what is in a folder.
 #[tauri::command]
 fn list_markdown_tree(root: String) -> Result<Vec<String>, String> {
   let root_path = std::path::PathBuf::from(&root);
   if !root_path.is_dir() {
     return Err(format!("not a directory: {root}"));
   }
-  let mut paths = Vec::new();
-  walk_markdown(&root_path, &root_path, &mut paths, 0);
-  Ok(paths)
+  Ok(essay_workspace::markdown_tree(&root_path))
 }
 
-const SKIPPED_DIRS: &[&str] = &["node_modules", "target", "dist", "build", "out"];
-const MAX_DEPTH: u8 = 12;
-
-fn walk_markdown(
-  root: &std::path::Path,
-  dir: &std::path::Path,
-  out: &mut Vec<String>,
-  depth: u8,
-) {
-  if depth > MAX_DEPTH {
-    return;
-  }
-  let Ok(entries) = std::fs::read_dir(dir) else {
-    return;
-  };
-  for entry in entries.flatten() {
-    let name = entry.file_name().to_string_lossy().to_string();
-    if name.starts_with('.') {
-      continue;
-    }
-    let Ok(file_type) = entry.file_type() else {
-      continue;
-    };
-    let path = entry.path();
-    if file_type.is_dir() {
-      if SKIPPED_DIRS.contains(&name.as_str()) {
-        continue;
-      }
-      if let Some(rel) = relative_path(root, &path) {
-        out.push(format!("{rel}/"));
-      }
-      walk_markdown(root, &path, out, depth + 1);
-    } else {
-      let lower = name.to_lowercase();
-      if lower.ends_with(".md") || lower.ends_with(".markdown") {
-        if let Some(rel) = relative_path(root, &path) {
-          out.push(rel);
-        }
-      }
-    }
-  }
-}
-
-fn relative_path(root: &std::path::Path, path: &std::path::Path) -> Option<String> {
-  path
-    .strip_prefix(root)
-    .ok()
-    .map(|p| p.to_string_lossy().replace('\\', "/"))
+/// Watch these folders for files being created, deleted or renamed.
+///
+/// Takes the whole set every time, because that is how the explorer holds it —
+/// a list the author adds to and removes from. An empty list stops watching,
+/// which is what the explorer sends when it closes: an author who is not
+/// looking at the tree does not need it kept live, and a recursive watch on a
+/// large folder is not free.
+#[tauri::command]
+fn watch_workspace_roots(
+  roots: Vec<String>,
+  workspace: tauri::State<'_, Workspace>,
+) -> Result<(), String> {
+  let roots: Vec<std::path::PathBuf> = roots.into_iter().map(Into::into).collect();
+  workspace
+    .roots
+    .watch(&roots)
+    .map_err(|err| err.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -691,6 +671,22 @@ fn respond_to_permission(
   agents.host.permissions().resolve(&request_id, outcome)
 }
 
+/// Window chrome differs per platform, and it is *not* configured here.
+///
+/// `tauri.conf.json` carries the Windows shape — `decorations: false`, with the
+/// header doubling as the title bar and `WindowControls` drawing the buttons.
+/// macOS and Linux get their own `tauri.{macos,linux}.conf.json` beside it,
+/// merged over the base at build time (RFC 7396, so the whole `app.windows`
+/// array is replaced — which is why those files repeat the geometry rather than
+/// naming only what differs; keep them in step).
+///
+/// Doing it here instead was the obvious alternative and does not work.
+/// `WebviewWindow` exposes `set_decorations` and `set_title_bar_style` at
+/// runtime, but `hiddenTitle` is builder-only, so a window fixed up after
+/// creation would draw the macOS title string across the document tabs with no
+/// way to turn it off. Toggling decorations on an already-visible NSWindow also
+/// costs a flash of the wrong chrome on every launch. Create-time config avoids
+/// both, at the price of the duplication above.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -709,6 +705,7 @@ pub fn run() {
       restore_revision,
       checkpoint_document,
       list_markdown_tree,
+      watch_workspace_roots,
       search_document,
       search_project,
       render_document,
@@ -809,12 +806,23 @@ pub fn run() {
         }
       });
 
+      // A file appearing in a workspace folder is news the explorer wants and
+      // nothing else does, so this one only reports — no snapshot, no sidecar.
+      // Nothing was overwritten; a file exists that did not before.
+      let tree_handle = app.handle().clone();
+      let roots = RootWatcher::new(move |change: RootChange| {
+        if let Err(err) = tree_handle.emit(TREE_CHANGE, change) {
+          log::warn!("cannot report a change to a workspace folder: {err}");
+        }
+      });
+
       // Recovery state is about this installation's unsaved buffers, not
       // about any one document, so it lives here rather than in `.essay/`.
       let recovery = RecoveryStore::open(&app.path().app_data_dir()?)?;
 
       app.manage(Workspace {
         watcher,
+        roots,
         recovery,
         author: local_author(),
       });
