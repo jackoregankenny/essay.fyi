@@ -4,7 +4,7 @@ For contributors who need to know what Essay's artifacts weigh, why, and which
 levers have already been pulled. The CI job that measures them is in
 [release](./release.md).
 
-## The size budget: record, then enforce
+## The size budget, armed
 
 `scripts/size-budget.json` lists artifacts against baseline byte counts, with
 a `tolerancePercent` (currently 5).
@@ -12,18 +12,24 @@ a `tolerancePercent` (currently 5).
 ```json
 {
   "tolerancePercent": 5,
-  "target/release/essay.exe": null,
-  "target/release/essay-desktop.exe": null,
-  "apps/desktop/dist": null
+  "target/release/essay.exe": 38385152,
+  "target/release/essay-desktop.exe": 52202496,
+  "apps/desktop/dist": 1640804
 }
 ```
 
-**All three baselines are currently `null`, which means nothing is enforced
-yet.** A `null` entry is informational: the measured size is printed with a
-"record this" note and the run never fails on it. To arm the gate, run the
-`size` job on `main`, copy the measured byte counts out of the job summary
-table into those fields, and commit. From then on, exceeding
-`baseline × (1 + tolerance/100)` fails the run.
+**These are enforced**: exceeding `baseline × (1 + tolerance/100)` fails the
+run. Setting an entry back to `null` makes it informational again — the
+measured size is printed with a "record this" note and the run never fails on
+it, which is what all three did until the levers below were pulled and the
+numbers settled.
+
+The baselines were measured on `x86_64-pc-windows-msvc`, which is the target
+the `size` job uses too (`runs-on: windows-latest`). One caveat is written
+into the file itself and worth repeating: fat LTO output is sensitive to the
+compiler version, so a miss of a few percent on the *first* CI run after they
+landed is a toolchain difference rather than code growth — take CI's numbers
+from the job summary in that case. A miss on any run after that is real.
 
 What a local release build measures (Windows, `x86_64-pc-windows-msvc`):
 
@@ -32,6 +38,12 @@ What a local release build measures (Windows, `x86_64-pc-windows-msvc`):
 | `target/release/essay-desktop.exe` | 64.38 MB | 58.96 MB | **49.75 MB** |
 | `target/release/essay.exe` | 49.23 MB | 45.79 MB | **36.59 MB** |
 | `apps/desktop/dist` | 1.55 MB | 1.55 MB | 1.55 MB |
+
+Those three columns measure the *levers*, each against the same tree. The
+recorded baselines are a little above the last column — 49.78 MB, 36.61 MB
+and 1.56 MB — because citations, the revision timeline, the author font
+directory and the raw-HTML node landed after that comparison was taken. The
+gap is the cost of those features, not drift in the levers.
 
 **Those are unpacked binaries, and they are not the number a user downloads.**
 The NSIS installer compresses with LZMA, and a binary this full of repeated
