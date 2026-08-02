@@ -20,6 +20,7 @@ essay-diff.workspace = true
 essay-markdown.workspace = true
 essay-render.workspace = true
 essay-revisions.workspace = true
+essay-search.workspace = true
 essay-workspace.workspace = true
 serde.workspace = true
 serde_json.workspace = true

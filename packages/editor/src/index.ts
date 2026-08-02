@@ -299,6 +299,70 @@ export function extractMarks(editor: Editor): DocumentMark[] {
   return marks
 }
 
+/** A run of text, and where it sits in both coordinate systems. */
+interface TextRun {
+  /** Offset of the run in the flattened text, in UTF-16 code units. */
+  offset: number
+  /** ProseMirror position where the run starts. */
+  pos: number
+  length: number
+}
+
+export interface ManuscriptText {
+  /** The manuscript as the author sees it: one line per block, no syntax. */
+  text: string
+  runs: TextRun[]
+}
+
+/**
+ * The manuscript flattened to plain text, with a map back to positions.
+ *
+ * Search reads this rather than the Markdown source on purpose. An author
+ * looking for "the quick brown" expects to find it whether or not "quick" is
+ * bold, and does not expect a hit inside a link's URL; the source would answer
+ * both questions the other way round. The map is what makes the answer
+ * actionable — a match arrives as an offset into `text` and has to become a
+ * caret position, and nothing about that step is a second search.
+ */
+export function manuscriptText(editor: Editor): ManuscriptText {
+  const runs: TextRun[] = []
+  let text = ''
+  editor.state.doc.descendants((node, pos) => {
+    if (node.isTextblock) {
+      // Every block starts a line, so a line number means a block and a match
+      // can never straddle two paragraphs.
+      if (text.length > 0) text += '\n'
+      return true
+    }
+    if (node.type.name === 'hardBreak') {
+      text += '\n'
+      return false
+    }
+    if (node.isText && node.text) {
+      runs.push({ offset: text.length, pos, length: node.text.length })
+      text += node.text
+    }
+    return true
+  })
+  return { text, runs }
+}
+
+/**
+ * The ProseMirror position for an offset into `manuscriptText`.
+ *
+ * An offset that falls on a line break — between two blocks — resolves to the
+ * start of the next run, which is where a reader would say the next line
+ * begins.
+ */
+export function positionAtOffset(text: ManuscriptText, offset: number): number {
+  for (const run of text.runs) {
+    if (offset < run.offset) return run.pos
+    if (offset < run.offset + run.length) return run.pos + (offset - run.offset)
+  }
+  const last = text.runs[text.runs.length - 1]
+  return last ? last.pos + last.length : 0
+}
+
 /** Place the cursor at a document position and scroll it into view. */
 export function revealPosition(editor: Editor, pos: number): void {
   editor.chain().focus().setTextSelection(pos).run()

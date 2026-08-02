@@ -1418,6 +1418,7 @@ dependencies = [
  "essay-markdown",
  "essay-render",
  "essay-revisions",
+ "essay-search",
  "essay-workspace",
  "log",
  "serde",
@@ -1476,7 +1477,8 @@ dependencies = [
 name = "essay-search"
 version = "0.1.0"
 dependencies = [
- "essay-core",
+ "serde",
+ "tempfile",
 ]
 
 [[package]]

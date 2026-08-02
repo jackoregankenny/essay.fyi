@@ -336,6 +336,42 @@ async fn export_pdf(
   .map_err(|err| err.to_string())?
 }
 
+/// Find a phrase in the manuscript on screen.
+///
+/// The text comes from the editor rather than from the file, because the buffer
+/// is ahead of disk between autosaves and because the offsets that come back
+/// only mean anything against the text they were computed over. Keeping the
+/// matching in Rust keeps `essay-search` the only place a match is decided —
+/// the palette and any future find bar cannot disagree about what "whole word"
+/// means.
+#[tauri::command]
+fn search_document(
+  text: String,
+  query: String,
+  options: essay_search::SearchOptions,
+) -> essay_search::TextMatches {
+  essay_search::search_text(&text, &query, &options)
+}
+
+/// Find a phrase across the workspace folders.
+///
+/// On a blocking thread: this walks directories and reads files, and the
+/// author is typing the query while it runs.
+#[tauri::command]
+async fn search_project(
+  roots: Vec<String>,
+  query: String,
+  options: essay_search::SearchOptions,
+  skip: Option<String>,
+) -> Result<essay_search::ProjectSearch, String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    let roots: Vec<std::path::PathBuf> = roots.into_iter().map(Into::into).collect();
+    essay_search::search_project(&roots, &query, &options, skip.as_ref().map(Path::new))
+  })
+  .await
+  .map_err(|err| err.to_string())
+}
+
 /// List one workspace folder's Markdown contents as root-relative paths for
 /// the explorer tree: directories end with '/', files are .md/.markdown.
 /// Hidden entries and heavy build directories are skipped. Moves to
@@ -673,6 +709,8 @@ pub fn run() {
       restore_revision,
       checkpoint_document,
       list_markdown_tree,
+      search_document,
+      search_project,
       render_document,
       export_pdf,
       list_agents,

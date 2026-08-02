@@ -13,6 +13,8 @@ import {
   extractMarks,
   extractOutline,
   getManuscript,
+  manuscriptText,
+  positionAtOffset,
   revealHeading,
   revealPosition,
   setFocusMode,
@@ -57,9 +59,15 @@ import {
   revisionTime,
   type Revision,
 } from '#/lib/revisions'
+import {
+  documentLabel,
+  searchDocument,
+  searchProject,
+} from '#/lib/search'
 import { documentDir, usePreview } from '#/lib/usePreview'
+import { loadWorkspaceFolders } from '#/lib/workspace'
 import { AgentPanel } from './AgentPanel'
-import { CommandPalette } from './CommandPalette'
+import { CommandPalette, type SearchEntry } from './CommandPalette'
 import type { ReviewRequest } from './DiffReview'
 import { DocumentTabs, type OpenTab } from './DocumentTabs'
 import { FilesPopover } from './FilesPopover'
@@ -364,6 +372,82 @@ export function Workspace() {
       documentDir(docRef.path),
     )
   }, [editor, docRef])
+
+  // ——— Finding things ———
+
+  /**
+   * Open the document a result came from and put the caret on the match.
+   *
+   * The offset that came back with a project result is into the file's
+   * Markdown, which says nothing about a ProseMirror position, so the phrase is
+   * found again in the buffer once it is loaded. Two searches for one click,
+   * both of them cheap, and the caret lands where the result promised instead
+   * of at the top of the file.
+   */
+  const openAtMatch = useCallback(
+    async (path: string, query: string) => {
+      await openByPath(path)
+      if (!editor) return
+      const text = manuscriptText(editor)
+      const found = await searchDocument(text.text, query)
+      const first = found?.matches[0]
+      if (first) revealPosition(editor, positionAtOffset(text, first.offset))
+    },
+    [editor, openByPath],
+  )
+
+  /**
+   * The palette's query, answered by `essay-search` twice: once against the
+   * buffer on screen, once across the workspace folders.
+   *
+   * The open document is searched from the editor rather than from its file —
+   * the buffer is ahead of disk between autosaves, and it is the only version
+   * whose offsets can become caret positions — which is why the file itself is
+   * skipped in the folder pass.
+   */
+  const runSearch = useCallback(
+    async (query: string): Promise<SearchEntry[]> => {
+      if (!editor) return []
+      const entries: SearchEntry[] = []
+
+      const text = manuscriptText(editor)
+      const here = await searchDocument(text.text, query)
+      for (const match of here?.matches ?? []) {
+        entries.push({
+          key: `here-${match.offset}`,
+          title: match.excerpt,
+          group: docRef.name,
+          // No line number here on purpose: the buffer is searched by block,
+          // so its "line 4" is not the file's line 4, and a number that is
+          // nearly right is worse than none.
+          run: () => {
+            setMode('write')
+            revealPosition(editor, positionAtOffset(text, match.offset))
+          },
+        })
+      }
+
+      const roots = loadWorkspaceFolders().map((folder) => folder.path)
+      if (roots.length === 0) return entries
+      const project = await searchProject(roots, query, {}, docRef.path)
+      for (const document of project?.documents ?? []) {
+        for (const match of document.matches) {
+          entries.push({
+            key: `${document.path}:${match.offset}`,
+            title: match.excerpt,
+            // Grouped under the document, so a heading appears once and the
+            // reader sees "four hits in this essay" rather than four rows that
+            // each have to name their file.
+            group: documentLabel(document),
+            hint: `line ${match.line}`,
+            run: () => void openAtMatch(document.path, query),
+          })
+        }
+      }
+      return entries
+    },
+    [editor, docRef.name, docRef.path, openAtMatch],
+  )
 
   // ——— Reconciling with the file on disk ———
 
@@ -757,6 +841,12 @@ export function Workspace() {
       } else if (key === 'k') {
         event.preventDefault()
         setPaletteOpen((open) => !open)
+      } else if (key === 'f') {
+        // Find lives in the palette rather than in a bar of its own: the
+        // question "where did I write that" is the same question whether the
+        // answer is in this document or in the folder beside it.
+        event.preventDefault()
+        setPaletteOpen(true)
       } else if (key === 'j') {
         event.preventDefault()
         setMode((m) => (m === 'write' ? 'preview' : 'write'))
@@ -804,6 +894,7 @@ export function Workspace() {
       { id: 'file.saveAs', title: 'Save as…', group: 'File', shortcut: 'Ctrl+Shift+S', run: () => void saveDocument(true) },
       { id: 'file.exportPdf', title: 'Export PDF…', group: 'File', keywords: 'typeset print render', run: () => void exportPdf() },
       { id: 'file.checkpoint', title: 'Mark this version', group: 'File', keywords: 'checkpoint history revision snapshot milestone draft sent', run: () => void checkpoint() },
+      { id: 'file.find', title: 'Find a phrase…', group: 'File', shortcut: 'Ctrl+F', keywords: 'search find look for text grep phrase across folders', run: () => setPaletteOpen(true) },
       { id: 'view.preview', title: 'Toggle preview', group: 'View', shortcut: 'Ctrl+J', keywords: 'typeset pages print render', run: () => setMode((m) => (m === 'write' ? 'preview' : 'write')) },
       { id: 'view.sidebar', title: 'Toggle sidebar', group: 'View', shortcut: 'Ctrl+B', run: () => setSidebarOpen((open) => !open) },
       { id: 'view.agent', title: 'Toggle agent panel', group: 'View', shortcut: 'Ctrl+Shift+A', keywords: 'ai assistant opencode claude propose changes review', run: () => setAgentOpen((open) => !open) },
@@ -1114,6 +1205,7 @@ export function Workspace() {
             setMode('write')
             if (editor) revealHeading(editor, item.pos)
           }}
+          onSearch={runSearch}
         />
       </div>
     </TooltipProvider>

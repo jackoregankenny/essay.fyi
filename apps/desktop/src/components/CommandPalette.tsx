@@ -11,14 +11,29 @@ interface PaletteEntry {
   group: string
   shortcut?: string
   keywords?: string
+  /** Where the entry came from — a line number, a file. Shown to its right. */
+  hint?: string
   run: () => void | Promise<void>
 }
+
+/** A match found in the manuscript or the workspace folders. */
+export type SearchEntry = Omit<PaletteEntry, 'shortcut' | 'keywords'>
+
+/** Shortest query worth walking every folder for. */
+const MIN_QUERY = 2
+
+/** Long enough that a typist is not searching after every letter, short
+    enough that a reader who has stopped typing does not notice waiting. */
+const SEARCH_DELAY = 180
 
 interface CommandPaletteProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   outline: OutlineItem[]
   onJumpToSection: (item: OutlineItem) => void
+  /** Runs the query through `essay-search`. The palette never matches text
+      itself — it only asks, and renders what comes back. */
+  onSearch?: (query: string) => Promise<SearchEntry[]>
 }
 
 export function CommandPalette({
@@ -26,9 +41,14 @@ export function CommandPalette({
   onOpenChange,
   outline,
   onJumpToSection,
+  onSearch,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
+  // Held as full palette entries: a result has no shortcut and no keywords,
+  // and the two optional fields are what let it sit in the same list.
+  const [results, setResults] = useState<PaletteEntry[]>([])
+  const [searching, setSearching] = useState(false)
   const listRef = useRef<HTMLUListElement>(null)
 
   const entries = useMemo<PaletteEntry[]>(() => {
@@ -51,18 +71,50 @@ export function CommandPalette({
     return [...commands, ...sections]
   }, [open, outline, onJumpToSection])
 
-  const filtered = useMemo(() => filterEntries(entries, query), [entries, query])
+  // Search results are appended rather than filtered: they were selected by
+  // the query already, and running them back through the command scorer would
+  // drop the ones whose excerpt happens not to repeat the words — every
+  // case-insensitive or whole-word hit, which is most of them.
+  const filtered = useMemo(
+    () => [...filterEntries(entries, query), ...results],
+    [entries, query, results],
+  )
 
   useEffect(() => {
     if (open) {
       setQuery('')
       setActive(0)
+      setResults([])
     }
   }, [open])
 
   useEffect(() => {
     setActive(0)
   }, [query])
+
+  useEffect(() => {
+    const wanted = query.trim()
+    if (!open || !onSearch || wanted.length < MIN_QUERY) {
+      setResults([])
+      setSearching(false)
+      return
+    }
+    setSearching(true)
+    // Stale results are dropped rather than raced: a folder walk for "riv" can
+    // outlive the one for "river", and the author is reading the newer query.
+    let live = true
+    const timer = setTimeout(() => {
+      void onSearch(wanted).then((found) => {
+        if (!live) return
+        setResults(found)
+        setSearching(false)
+      })
+    }, SEARCH_DELAY)
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
+  }, [open, query, onSearch])
 
   const runEntry = (entry: PaletteEntry) => {
     onOpenChange(false)
@@ -97,6 +149,7 @@ export function CommandPalette({
             />
             <input
               autoFocus
+              spellCheck={false}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -112,14 +165,14 @@ export function CommandPalette({
                   if (entry) runEntry(entry)
                 }
               }}
-              placeholder="Type a command or section…"
+              placeholder="Type a command, a section, or a phrase to find…"
               className="h-11 w-full bg-transparent text-[14px] text-[var(--essay-text)] outline-none placeholder:text-[var(--essay-text-faint)]"
             />
           </div>
           <ul ref={listRef} className="max-h-[320px] overflow-y-auto p-1.5">
             {filtered.length === 0 ? (
               <li className="px-2.5 py-4 text-center text-[13px] text-[var(--essay-text-faint)]">
-                No matching commands
+                {searching ? 'Searching…' : 'Nothing found'}
               </li>
             ) : (
               filtered.map((entry, index) => (
@@ -142,6 +195,11 @@ export function CommandPalette({
                     )}
                   >
                     <span className="min-w-0 flex-1 truncate">{entry.title}</span>
+                    {entry.hint && (
+                      <span className="shrink-0 text-[11px] text-[var(--essay-text-faint)]">
+                        {entry.hint}
+                      </span>
+                    )}
                     {entry.shortcut && (
                       <kbd className="shrink-0 text-[10px] tracking-wide text-[var(--essay-text-faint)]">
                         {entry.shortcut}
