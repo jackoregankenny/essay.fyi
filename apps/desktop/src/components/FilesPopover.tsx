@@ -1,7 +1,18 @@
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { Popover } from '@base-ui-components/react/popover'
 import { CaretDown } from '@phosphor-icons/react'
-import { ExplorerPane } from './ExplorerPane'
+
+/**
+ * Loaded when the popover first opens, not at launch.
+ *
+ * The tree widget behind the explorer is the single heaviest thing the app
+ * imports — around a third of a megabyte of source, for a surface an author
+ * touches occasionally and never before the window has painted. Everything
+ * else in this file is one button.
+ */
+const ExplorerPane = lazy(() =>
+  import('./ExplorerPane').then((module) => ({ default: module.ExplorerPane })),
+)
 
 interface FilesPopoverProps {
   docName: string
@@ -51,12 +62,17 @@ export function FilesPopover({
         <Popover.Portal>
           <Popover.Positioner side="bottom" align="start" sideOffset={6}>
             <Popover.Popup className="essay-pop z-50 flex h-[380px] w-[300px] flex-col overflow-hidden rounded-xl border border-[var(--essay-border)] bg-[var(--essay-surface)] shadow-[var(--essay-shadow-palette)] outline-none">
-              <ExplorerPane
-                onOpenFile={(path) => {
-                  setOpen(false)
-                  onOpenFile(path)
-                }}
-              />
+              {/* The popup has its own fixed size, so an empty frame for the
+                  moment the chunk loads is steadier than a spinner that
+                  resizes it. Off local disk that moment is imperceptible. */}
+              <Suspense fallback={null}>
+                <ExplorerPane
+                  onOpenFile={(path) => {
+                    setOpen(false)
+                    onOpenFile(path)
+                  }}
+                />
+              </Suspense>
             </Popover.Popup>
           </Popover.Positioner>
         </Popover.Portal>

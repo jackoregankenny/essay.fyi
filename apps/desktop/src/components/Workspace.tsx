@@ -1,4 +1,6 @@
 import {
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useRef,
@@ -49,7 +51,7 @@ import {
 import { documentDir, usePreview } from '#/lib/usePreview'
 import { AgentPanel } from './AgentPanel'
 import { CommandPalette } from './CommandPalette'
-import { DiffReview, type ReviewRequest } from './DiffReview'
+import type { ReviewRequest } from './DiffReview'
 import { DocumentTabs, type OpenTab } from './DocumentTabs'
 import { FilesPopover } from './FilesPopover'
 import { ManuscriptEditor } from './ManuscriptEditor'
@@ -57,11 +59,28 @@ import { MeasureSelect } from './MeasureSelect'
 import { DocName, Notice } from './Notice'
 import { SelectionToolbar } from './SelectionToolbar'
 import { Sidebar } from './Sidebar'
-import { PrintPane } from './PrintPane'
 import { UpdateButton } from './UpdateButton'
 import { IconButton } from './ui/icon-button'
 import { Tip, TooltipProvider } from './ui/tooltip'
 import { WindowControls } from './ui/window-controls'
+
+/**
+ * Surfaces that are absent until the author asks for one, so they are absent
+ * from the chunk the window parses at launch too.
+ *
+ * The rule for what belongs here is narrow: a component that renders only
+ * behind an explicit action, and that holds no state anyone needs while it is
+ * closed. `AgentPanel` deliberately fails the second half — it stays mounted
+ * so a running turn survives the pane being shut, and so the count of
+ * decisions waiting can reach the header while it is. Making it lazy would
+ * trade a real guarantee for a smaller number.
+ */
+const PrintPane = lazy(() =>
+  import('./PrintPane').then((module) => ({ default: module.PrintPane })),
+)
+const DiffReview = lazy(() =>
+  import('./DiffReview').then((module) => ({ default: module.DiffReview })),
+)
 
 const UNTITLED: DocumentRef = { path: null, name: 'untitled.md' }
 
@@ -888,18 +907,27 @@ export function Workspace() {
                 />
                 {editor && <SelectionToolbar editor={editor} />}
               </div>
-              {mode === 'preview' && <PrintPane preview={preview} />}
+              {mode === 'preview' && (
+                // No fallback: the pane already has a "rendering…" state of
+                // its own, and a second one flashing in front of it for the
+                // length of a disk read would read as two loads, not one.
+                <Suspense fallback={null}>
+                  <PrintPane preview={preview} />
+                </Suspense>
+              )}
               {/* Over the manuscript rather than instead of it: the editor
                   stays mounted with its selection and scroll intact, so Esc
                   puts the author back exactly where they were typing. A side
                   pane would be too narrow for prose lines, and a modal would
                   make a reading task feel like an interruption. */}
               {review && (
-                <DiffReview
-                  className="absolute inset-0 z-20"
-                  {...review}
-                  onClose={closeReview}
-                />
+                <Suspense fallback={null}>
+                  <DiffReview
+                    className="absolute inset-0 z-20"
+                    {...review}
+                    onClose={closeReview}
+                  />
+                </Suspense>
               )}
             </div>
           </main>
