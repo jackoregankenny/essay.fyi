@@ -43,7 +43,18 @@ impl RecoveryStore {
             source,
         })?;
         let conn = Connection::open(dir.join("recovery.sqlite"))?;
+        // WAL and a relaxed fsync policy, for the reason set out at the top of
+        // `snapshot.rs` — and more sharply here than anywhere else in Essay.
+        // This store rides the typing cadence directly: a row every 600ms
+        // after the last keystroke, on a connection an author is holding down
+        // a key in front of. A full fsync per journal write is a stall the
+        // author feels as a dropped character, and invariant 5 says typing
+        // never blocks. NORMAL lets the OS decide when the bytes land; a power
+        // cut costs the last few hundred milliseconds of a buffer that only
+        // exists to survive a crash, which is a far better trade than making
+        // every keystroke wait on the disk.
         conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.execute_batch(SCHEMA)?;
         Ok(Self {
             conn: Mutex::new(conn),

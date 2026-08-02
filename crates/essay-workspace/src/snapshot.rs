@@ -11,14 +11,51 @@
 use crate::file::hash_source;
 use crate::{Result, WorkspaceError};
 use essay_revisions::{
-    now_millis, Revision, RevisionAuthor, RevisionId, RevisionOrigin, SourceHash,
+    now_millis, Revision, RevisionAuthor, RevisionId, RevisionOrigin, SourceHash, Timestamp,
 };
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// A run of human typing with no long pause collapses into one revision —
 /// "a focused human editing session", not one row per autosave.
 const SESSION_GAP_MS: i64 = 5 * 60 * 1000;
+
+/// Milliseconds in a day. Also the unit the thinning groups by:
+/// `created_at / DAY_MS` is the UTC day a revision belongs to. UTC rather than
+/// local time because the grouping only ever decides which of a day's
+/// autosaves survives three months later, and a store that thinned differently
+/// depending on the machine's timezone would be the harder thing to reason
+/// about.
+const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// Ordinary typing is kept in full for this long. Past it the timeline is
+/// history rather than working memory, and one revision a day is the shape
+/// somebody actually reads.
+const PRUNE_HORIZON_MS: i64 = 90 * DAY_MS;
+
+/// At most one pruning attempt a day per sidecar. `for_document` is called on
+/// every save, not just when a document opens, so the common path has to be a
+/// single primary-key lookup that says "already done today".
+const PRUNE_INTERVAL_MS: i64 = DAY_MS;
+
+/// Below this a VACUUM costs more than it reclaims, and VACUUM rewrites the
+/// whole file — exactly the stall this store must never cause on an open.
+const VACUUM_ROWS: usize = 50;
+
+/// What thinning is allowed to touch: a human typing, with nothing recorded
+/// about why.
+///
+/// Everything else carries provenance and is kept forever — an agent patch, an
+/// edit the watcher caught from outside Essay, the import that starts a
+/// timeline, a checkpoint, a restore. Those are the revisions somebody goes
+/// looking for a year later ("what did the agent do to chapter three?"); a
+/// Tuesday afternoon's autosaves are not. Where the author is anything but
+/// plainly human, or an instruction was recorded, keep the row: an unfamiliar
+/// revision is one whose value we cannot judge, and the conservative answer is
+/// always to keep.
+const PLAIN_TYPING: &str =
+    "origin = 'human_session' AND author_kind = 'human' AND instruction IS NULL";
 
 pub fn sidecar_dir(document: &Path) -> Option<PathBuf> {
     document.parent().map(|dir| dir.join(".essay"))
@@ -57,10 +94,27 @@ impl SnapshotStore {
         }
 
         let conn = Connection::open(dir.join("history.sqlite"))?;
+        // WAL and a relaxed fsync policy, deliberately. Both sidecar stores
+        // ride the typing cadence — this one on every autosave, the recovery
+        // journal 600ms after the last keystroke — and a full fsync stall on
+        // the SQLite connection is a keystroke the author feels. WAL keeps
+        // readers off the writer's back; NORMAL hands the decision about when
+        // bytes reach the platter to the OS instead of blocking this thread on
+        // it. The risk it buys is bounded and acceptable: a power cut can cost
+        // the last transaction or two of *history*, and history is not the
+        // document. The Markdown file is, and it is written separately through
+        // a temp file plus `sync_all` (see `file.rs`).
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.execute_batch(SCHEMA)?;
-        Ok(Self { conn, doc })
+
+        let store = Self { conn, doc };
+        // Housekeeping is opportunistic and best effort. A store that cannot
+        // tidy itself must still open: refusing to hand back a timeline
+        // because a maintenance query failed would trade the author's history
+        // for tidiness, which is the wrong way round.
+        store.tidy();
+        Ok(store)
     }
 
     /// Record `source` as the document's current state.
@@ -219,14 +273,160 @@ impl SnapshotStore {
     }
 
     /// Rewriting a session's revision orphans the source it used to point at.
-    fn prune_orphan_blobs(&self) -> Result<()> {
-        self.conn.execute(
+    ///
+    /// Blobs are content-addressed and therefore shared: two revisions that
+    /// arrived at the same text point at one row. Deleting by "nothing
+    /// references this" rather than by "the revision I just changed used to
+    /// reference this" is what keeps a shared source alive for its other
+    /// referent.
+    fn prune_orphan_blobs(&self) -> Result<usize> {
+        Ok(self.conn.execute(
             "DELETE FROM blobs
               WHERE hash NOT IN (SELECT source_hash FROM revisions)",
             [],
+        )?)
+    }
+
+    /// Housekeeping, run when the store opens: at most once a day, silent, and
+    /// unable to fail the open.
+    fn tidy(&self) {
+        let now = now_millis();
+        match self.last_pruned() {
+            Ok(Some(last)) if now.saturating_sub(last) < PRUNE_INTERVAL_MS => return,
+            Ok(_) => {}
+            // A store too broken to answer this is too broken to prune.
+            Err(_) => return,
+        }
+        let _ = self.prune();
+        let _ = self.note_pruned(now);
+    }
+
+    /// Thin ordinary typing older than the horizon to the last revision per
+    /// document per calendar day, then drop any source no surviving revision
+    /// needs. Returns how many rows went.
+    ///
+    /// The newest revision of a document is always the last one of its own
+    /// calendar day, so it always survives — a manuscript nobody has touched
+    /// in a year still opens onto the state it was left in.
+    pub fn prune(&self) -> Result<usize> {
+        let cutoff = now_millis() - PRUNE_HORIZON_MS;
+        let doomed = self.thinnable(cutoff)?;
+        if doomed.is_empty() {
+            return Ok(0);
+        }
+
+        let removed = {
+            let tx = self.conn.unchecked_transaction()?;
+            relink_parents(&tx, &doomed)?;
+            // The ids came out of this table a moment ago, so interpolating
+            // them is safe; SQLite has no list parameter and binding a
+            // variable number of placeholders is the same string-building with
+            // more ceremony.
+            let list = id_list(&doomed);
+            let revisions =
+                tx.execute(&format!("DELETE FROM revisions WHERE id IN ({list})"), [])?;
+            // Same rule as everywhere else in this file: a source goes only
+            // when nothing at all still points at it, so a text two revisions
+            // arrived at independently survives for whichever one stays.
+            let blobs = self.prune_orphan_blobs()?;
+            tx.commit()?;
+            revisions + blobs
+        };
+
+        if removed > VACUUM_ROWS {
+            // Only once a long timeline actually collapses. VACUUM rewrites
+            // the file, and paying that on every open is the stall the daily
+            // interval and the row threshold exist to avoid.
+            self.conn.execute_batch("VACUUM")?;
+        }
+        Ok(removed)
+    }
+
+    /// Revisions the thinning may take: plain typing past the horizon that is
+    /// not the last of its document's day.
+    fn thinnable(&self, cutoff: Timestamp) -> Result<Vec<i64>> {
+        let sql = format!(
+            "SELECT id FROM revisions
+              WHERE created_at < ?1 AND {PLAIN_TYPING}
+                AND id NOT IN (
+                  SELECT MAX(id) FROM revisions
+                   WHERE created_at < ?1 AND {PLAIN_TYPING}
+                   GROUP BY doc, created_at / {DAY_MS}
+                )
+              ORDER BY id"
+        );
+        let mut statement = self.conn.prepare(&sql)?;
+        let rows = statement.query_map(params![cutoff], |row| row.get::<_, i64>(0))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    fn last_pruned(&self) -> Result<Option<Timestamp>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT value FROM housekeeping WHERE key = 'pruned_at'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    fn note_pruned(&self, at: Timestamp) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO housekeeping (key, value) VALUES ('pruned_at', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![at],
         )?;
         Ok(())
     }
+}
+
+/// Close the gaps the thinning is about to leave in the parent chain.
+///
+/// A survivor whose parent is going away inherits the nearest ancestor that
+/// stays. Without this the timeline would show a revision with nothing behind
+/// it purely because housekeeping ran, and `parent_source` — which is how a
+/// continuing session works out its word counts — would find a dangling id.
+/// It has to happen before the delete, because afterwards there is nothing
+/// left to ask who the deleted row's own parent was.
+fn relink_parents(conn: &Connection, doomed: &[i64]) -> Result<()> {
+    let going: HashSet<i64> = doomed.iter().copied().collect();
+    let parents: HashMap<i64, Option<i64>> = {
+        let mut statement = conn.prepare("SELECT id, parent_id FROM revisions")?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
+        })?;
+        rows.collect::<std::result::Result<HashMap<_, _>, _>>()?
+    };
+
+    for (id, parent) in &parents {
+        if going.contains(id) {
+            continue;
+        }
+        let Some(parent) = parent else { continue };
+        if !going.contains(parent) {
+            continue;
+        }
+        let mut ancestor = Some(*parent);
+        while let Some(candidate) = ancestor {
+            if !going.contains(&candidate) {
+                break;
+            }
+            ancestor = parents.get(&candidate).copied().flatten();
+        }
+        conn.execute(
+            "UPDATE revisions SET parent_id = ?1 WHERE id = ?2",
+            params![ancestor, id],
+        )?;
+    }
+    Ok(())
+}
+
+fn id_list(ids: &[i64]) -> String {
+    ids.iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 const SCHEMA: &str = "
@@ -248,6 +448,11 @@ CREATE TABLE IF NOT EXISTS revisions (
   words_removed  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS revisions_by_doc ON revisions (doc, id);
+CREATE INDEX IF NOT EXISTS revisions_by_age ON revisions (created_at);
+CREATE TABLE IF NOT EXISTS housekeeping (
+  key   TEXT PRIMARY KEY,
+  value INTEGER NOT NULL
+);
 ";
 
 const SELECT_REVISION: &str = "SELECT id, parent_id, source_hash, author_kind, author_name,
@@ -309,6 +514,56 @@ mod tests {
         let doc = dir.path().join("essay.md");
         let store = SnapshotStore::for_document(&doc).expect("store");
         (dir, store)
+    }
+
+    /// A UTC midnight long past the pruning horizon, so a test can place a
+    /// revision on a chosen calendar day exactly rather than on "roughly
+    /// ninety days ago", which would straddle a day boundary depending on the
+    /// hour the suite happened to run.
+    const LONG_AGO: Timestamp = 18_500 * DAY_MS;
+
+    /// A revision written straight into the table at a chosen instant.
+    ///
+    /// The public path folds a run of typing into a single revision and stamps
+    /// it `now`, which is exactly the history these tests need to reconstruct:
+    /// several separate saves, months old. `parent_id` chains to the newest
+    /// row for the document, the same shape `snapshot` builds.
+    fn revision_at(
+        store: &SnapshotStore,
+        source: &str,
+        at: Timestamp,
+        origin: RevisionOrigin,
+        author_kind: &str,
+    ) -> i64 {
+        let hash = hash_source(source);
+        store
+            .conn
+            .execute(
+                "INSERT OR IGNORE INTO blobs (hash, content) VALUES (?1, ?2)",
+                params![hash, source],
+            )
+            .expect("blob");
+        store
+            .conn
+            .execute(
+                "INSERT INTO revisions
+                   (doc, parent_id, source_hash, author_kind, author_name,
+                    instruction, origin, created_at, words_inserted, words_removed)
+                 VALUES (?1, (SELECT MAX(id) FROM revisions WHERE doc = ?1),
+                         ?2, ?3, 'jack', NULL, ?4, ?5, 0, 0)",
+                params![store.doc, hash, author_kind, origin.as_str(), at],
+            )
+            .expect("revision");
+        store.conn.last_insert_rowid()
+    }
+
+    /// Ordinary typing: the only thing pruning is allowed to touch.
+    fn autosave(store: &SnapshotStore, source: &str, at: Timestamp) -> i64 {
+        revision_at(store, source, at, RevisionOrigin::HumanSession, "human")
+    }
+
+    fn agent_patch(store: &SnapshotStore, source: &str, at: Timestamp) -> i64 {
+        revision_at(store, source, at, RevisionOrigin::AgentPatch, "agent")
     }
 
     #[test]
@@ -428,5 +683,163 @@ mod tests {
         let ignore = dir.path().join(".essay").join(".gitignore");
         assert!(ignore.exists());
         assert!(std::fs::read_to_string(ignore).unwrap().contains('*'));
+    }
+
+    // ——— Pruning ———
+
+    #[test]
+    fn pruning_keeps_every_revision_that_carries_provenance() {
+        let (_dir, store) = store();
+        // All on one long-past day, so age and grouping would take every one
+        // of them: provenance is the only thing keeping these alive.
+        let carriers = [
+            (RevisionOrigin::Import, "human"),
+            (RevisionOrigin::AgentPatch, "agent"),
+            (RevisionOrigin::ExternalEdit, "unknown"),
+            (RevisionOrigin::Checkpoint, "human"),
+            (RevisionOrigin::Restore, "human"),
+            // A human session an agent authored is still not plain typing.
+            (RevisionOrigin::HumanSession, "agent"),
+        ];
+        for (index, (origin, kind)) in carriers.iter().enumerate() {
+            let source = format!("# Version {index}\n");
+            revision_at(
+                &store,
+                &source,
+                LONG_AGO + index as i64 * 60_000,
+                *origin,
+                kind,
+            );
+        }
+
+        assert_eq!(store.prune().unwrap(), 0);
+        assert_eq!(store.revisions(20).unwrap().len(), carriers.len());
+    }
+
+    #[test]
+    fn pruning_thins_old_autosaves_to_one_a_day() {
+        let (_dir, store) = store();
+        for day in 0..2 {
+            for save in 0..4 {
+                let source = format!("day {day}, save {save}");
+                autosave(&store, &source, LONG_AGO + day * DAY_MS + save * 60_000);
+            }
+        }
+        // This week's work is not history yet and must not be touched.
+        let recent = autosave(&store, "still writing", now_millis() - 60_000);
+
+        assert_eq!(
+            store.prune().unwrap(),
+            12,
+            "six revisions, and the six sources nothing referenced afterwards"
+        );
+
+        let left = store.revisions(20).unwrap();
+        assert_eq!(left.len(), 3, "one for each old day, plus this week's");
+        assert_eq!(row_id(&left[0].id), recent);
+        assert_eq!(
+            store.source(&left[1].source_hash.0).unwrap().as_deref(),
+            Some("day 1, save 3"),
+            "the last save of a day is the one worth keeping"
+        );
+        assert_eq!(
+            store.source(&left[2].source_hash.0).unwrap().as_deref(),
+            Some("day 0, save 3")
+        );
+    }
+
+    #[test]
+    fn pruning_never_orphans_a_source_a_surviving_revision_needs() {
+        let (_dir, store) = store();
+        // The same text saved twice and then patched by an agent: content
+        // addressing means all three revisions point at one row in `blobs`.
+        autosave(&store, "shared text", LONG_AGO);
+        agent_patch(&store, "shared text", LONG_AGO + 60_000);
+        autosave(&store, "the last save of the day", LONG_AGO + 120_000);
+
+        assert_eq!(
+            store.prune().unwrap(),
+            1,
+            "one revision, and no blob with it"
+        );
+
+        assert_eq!(
+            store
+                .source(&hash_source("shared text"))
+                .unwrap()
+                .as_deref(),
+            Some("shared text"),
+            "the agent's revision still needs this source"
+        );
+        assert_eq!(store.revisions(10).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn pruning_relinks_the_timeline_around_what_it_removed() {
+        let (_dir, store) = store();
+        let agent = agent_patch(&store, "the agent's version", LONG_AGO);
+        autosave(&store, "typing one", LONG_AGO + 60_000);
+        autosave(&store, "typing two", LONG_AGO + 120_000);
+        let last = autosave(&store, "typing three", LONG_AGO + 180_000);
+
+        store.prune().unwrap();
+
+        let left = store.revisions(10).unwrap();
+        assert_eq!(left.len(), 2);
+        assert_eq!(row_id(&left[0].id), last);
+        assert_eq!(
+            left[0].parent.as_ref().map(row_id),
+            Some(agent),
+            "the survivor inherits the nearest ancestor that stayed, rather \
+             than pointing at a row housekeeping deleted"
+        );
+    }
+
+    #[test]
+    fn a_fresh_store_has_nothing_to_prune() {
+        let (_dir, store) = store();
+        store
+            .snapshot("# One\n", RevisionOrigin::Import, author(), None)
+            .unwrap();
+        for draft in ["# One\nA", "# One\nAb", "# One\nAbc"] {
+            store
+                .snapshot(draft, RevisionOrigin::HumanSession, author(), None)
+                .unwrap();
+        }
+
+        assert_eq!(store.prune().unwrap(), 0);
+        assert_eq!(store.revisions(10).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_store_thins_its_own_history_when_it_opens() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let doc = dir.path().join("essay.md");
+        let store = SnapshotStore::for_document(&doc).expect("store");
+        autosave(&store, "day one", LONG_AGO);
+        autosave(&store, "day one, later", LONG_AGO + 60_000);
+        // As though the last housekeeping pass were more than a day ago.
+        store.conn.execute("DELETE FROM housekeeping", []).unwrap();
+        drop(store);
+
+        let reopened = SnapshotStore::for_document(&doc).expect("reopen");
+        assert_eq!(reopened.revisions(10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn opening_a_store_prunes_at_most_once_a_day() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let doc = dir.path().join("essay.md");
+        let store = SnapshotStore::for_document(&doc).expect("store");
+        autosave(&store, "day one", LONG_AGO);
+        autosave(&store, "day one, later", LONG_AGO + 60_000);
+        drop(store);
+
+        // `for_document` runs on every save, not only when a document opens,
+        // so the second one must cost a primary-key lookup and stop there.
+        let reopened = SnapshotStore::for_document(&doc).expect("reopen");
+        assert_eq!(reopened.revisions(10).unwrap().len(), 2);
+        // …and asking outright still does the work.
+        assert_eq!(reopened.prune().unwrap(), 2);
     }
 }

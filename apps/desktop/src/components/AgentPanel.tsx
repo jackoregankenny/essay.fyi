@@ -142,6 +142,44 @@ const STICK_SLACK = 32
 /** The agent the author used last, so opening the panel can warm it up. */
 const LAST_AGENT_KEY = 'essay.agent.v1'
 
+/** Knobs the author has tuned, per agent: `{ agentId: { optionId: value } }`.
+    An agent advertises its defaults fresh on every session, so a preference
+    that is not written down is a preference the author re-enters daily. */
+const TUNING_KEY = 'essay.agent.tune.v1'
+
+type Tuning = Record<string, Record<string, string>>
+
+/** Storage is shared with the author's own hands and with older builds, so
+    nothing here trusts its shape — a corrupt blob loses a preference, which is
+    one extra click, and must never take the panel down with it. */
+function readTuning(): Tuning {
+  try {
+    const raw = localStorage.getItem(TUNING_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const clean: Tuning = {}
+    for (const [agentId, knobs] of Object.entries(parsed as object)) {
+      if (!knobs || typeof knobs !== 'object' || Array.isArray(knobs)) continue
+      clean[agentId] = Object.fromEntries(
+        Object.entries(knobs as object).filter(
+          ([, value]) => typeof value === 'string',
+        ),
+      ) as Record<string, string>
+    }
+    return clean
+  } catch {
+    return {}
+  }
+}
+
+function writeTuning(tuning: Tuning) {
+  try {
+    localStorage.setItem(TUNING_KEY, JSON.stringify(tuning))
+  } catch {
+    // Forgetting a knob costs one adjustment next session.
+  }
+}
+
 /**
  * Whether this machine is running on battery, best effort.
  *
@@ -313,14 +351,30 @@ export function AgentPanel({
   }, [entries])
 
   const start = useCallback(
-    async (agent: AgentInfo) => {
+    // `warmed` marks the session the panel started on its own. It changes
+    // nothing about the connection and everything about how it reads: an
+    // author who opened the pane and found an agent already connected is owed
+    // a sentence saying why, or the panel looks like it started talking to
+    // something on their behalf.
+    async (agent: AgentInfo, warmed = false) => {
       if (!documentPath) return
       setFailure(null)
       setStarting(agent.id)
       try {
         const summary = await startAgentSession(agent.id, documentPath)
         setSession(summary)
-        setEntries([])
+        setEntries(
+          warmed
+            ? [
+                {
+                  id: nextId(),
+                  kind: 'note',
+                  tone: 'quiet',
+                  text: `Warmed up ${agent.name} — your last agent, connected while you were composing.`,
+                },
+              ]
+            : [],
+        )
         try {
           localStorage.setItem(LAST_AGENT_KEY, agent.id)
         } catch {
@@ -362,7 +416,7 @@ export function AgentPanel({
     if (!agent) return
     prewarmed.current = true
     void onBattery().then((draining) => {
-      if (!draining) void start(agent)
+      if (!draining) void start(agent, true)
     })
   }, [open, session, starting, documentPath, agents, start])
 
@@ -420,12 +474,61 @@ export function AgentPanel({
           entry.id === option.id ? { ...entry, currentValue: value } : entry,
         ),
       )
+      // Per agent, not per session: choosing a model is a standing preference
+      // about how the author works, and the agent forgets it every launch.
+      const tuning = readTuning()
+      writeTuning({
+        ...tuning,
+        [session.agentId]: { ...tuning[session.agentId], [option.id]: value },
+      })
       void setSessionOption(session.sessionId, option.id, value).catch(
         (error) => setFailure(String(error)),
       )
     },
     [session],
   )
+
+  /** The session whose knobs have already been re-applied. Once per session:
+      the author is free to change their mind mid-conversation, and a panel
+      that kept dragging them back to a remembered value would be fighting
+      them. */
+  const retuned = useRef<string | null>(null)
+
+  // Put the author's remembered knobs back, the moment the agent has said what
+  // it advertises. Deliberately not optimistic — the `options` event confirms
+  // each one, so a value the agent quietly refuses shows the agent's answer
+  // rather than ours.
+  useEffect(() => {
+    if (!session || options.length === 0) return
+    if (retuned.current === session.sessionId) return
+    retuned.current = session.sessionId
+
+    const tuning = readTuning()
+    const remembered = tuning[session.agentId]
+    if (!remembered) return
+
+    const stale: string[] = []
+    for (const [optionId, value] of Object.entries(remembered)) {
+      const option = options.find((entry) => entry.id === optionId)
+      // A knob the agent no longer advertises, or a choice it has retired —
+      // a model withdrawn between releases is the ordinary case. Drop it
+      // rather than send it: the agent would only reject it, and the author
+      // would be reading an error about a preference they set months ago.
+      if (!option || !option.choices.some((choice) => choice.value === value)) {
+        stale.push(optionId)
+        continue
+      }
+      if (option.currentValue === value) continue
+      void setSessionOption(session.sessionId, optionId, value).catch(() => {})
+    }
+
+    if (stale.length > 0) {
+      const kept = Object.fromEntries(
+        Object.entries(remembered).filter(([id]) => !stale.includes(id)),
+      )
+      writeTuning({ ...tuning, [session.agentId]: kept })
+    }
+  }, [session, options])
 
   const answer = useCallback(
     (request: PermissionRequest, optionId: string | null) => {
