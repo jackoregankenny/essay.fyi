@@ -79,14 +79,14 @@ summaries of it.
 | `essay-revisions` | The vocabulary of editorial history — `Revision`, `RevisionAuthor`, `RevisionOrigin`, timestamps. Types only; `essay-workspace` owns the store. |
 | `essay-diff` | Line hunks and a structural `SectionChange` list, plus `churn` and `looks_like_a_rewrite()`. The only place a diff is computed, so the panel, the CLI and any future surface cannot disagree. |
 | `essay-render` | Markdown → Typst markup → embedded compiler → SVG pages, PDF, and (behind a feature) PNG. See [rendering](./rendering.md). |
-| `essay-workspace` | Durable file IO, the `.essay` sidecar, revision capture, and external-edit watching. See [durability](./durability.md). |
+| `essay-workspace` | Durable file IO, the `.essay` sidecar, revision capture, external-edit watching, and the workspace folder walk plus its own `RootWatcher`. See [durability](./durability.md). |
 | `essay-agents` | The ACP client host: launching agents, intercepting their writes as change sets, normalising session options, skills. See [agents-acp](./agents-acp.md) and [agent-launching](./agent-launching.md). |
-| `essay-search` | A stub. Project and document search; nothing implemented yet. |
+| `essay-search` | Document and project search: a straight scan, no index, offsets in UTF-16. The only place a match is decided. See [search](./search.md). |
 | `essay-cli` | The `essay` binary. Three working verbs; see [cli](../reference/cli.md). |
 
 `apps/desktop/src-tauri` is the shell: it owns the app data directory, wires
-the stores and the host together, and exposes 27 IPC commands. It holds no
-logic of its own beyond that wiring and the explorer's directory walk.
+the stores and the host together, and exposes 32 IPC commands. It holds no
+logic of its own beyond that wiring.
 
 ## Package map
 
@@ -106,8 +106,10 @@ an author wrote on purpose.
 ## Where the tests are
 
 - `cargo test --workspace --exclude essay-desktop` — `essay-markdown`,
-  `essay-diff`, `essay-workspace` and `essay-agents` have real coverage,
-  including the durability and launch-resolution edge cases.
+  `essay-diff`, `essay-workspace`, `essay-search` and `essay-agents` have real
+  coverage, including the durability, offset and launch-resolution edge cases.
+  `essay-desktop` itself is compiled on Linux by the `desktop-linux` CI job; see
+  [release](./release.md).
 - `bun test` — the round-trip suite. This is the one that guards an invariant
   directly.
 - `bun run typecheck` — `tsc` over `apps/desktop` and the packages it imports.

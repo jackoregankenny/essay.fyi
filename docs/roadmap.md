@@ -142,10 +142,6 @@ mentions.
   restored byte-for-byte on save, because the editor's parser would otherwise
   destroy it. The proper fix is a non-prose block in the manuscript. See
   [writing](./guide/writing.md#front-matter-is-held-aside-not-shown).
-- **`Ctrl+B` does two things.** It bolds the selection *and* toggles the
-  sidebar, because the window keydown handler runs on the same event the
-  editor already handled. `Ctrl+Shift+B` and `Ctrl+Shift+S` collide the same
-  way. See [shortcuts](./reference/shortcuts.md#three-bindings-fire-twice).
 - **Code blocks highlight on the printed page but not in the editor.** The
   print pane runs Typst's syntect-backed highlighting; the manuscript surface
   shows the same block unstyled.
@@ -158,11 +154,20 @@ mentions.
   fixed; a tag inside a sentence is intercepted by `@tiptap/markdown` before
   Essay is consulted. See
   [markdown](./reference/markdown.md#tier-3--destroyed).
+- **Essay has never been run on macOS or Linux.** Both now build in CI and
+  both have their own window chrome, but nobody has launched either. What is
+  unverified is named in [release](./internals/release.md#what-is-not-verified):
+  a Linux-only *link* error, macOS traffic lights over the transparent header,
+  and whether Linux `decorations: true` reads as a double titlebar.
+- **Search has no find bar.** Finding a phrase goes through the palette, which
+  is one match at a time. No find-and-replace, no next/previous, no
+  highlighting of every match in the manuscript. See
+  [search](./internals/search.md#what-is-deliberately-out).
 
 Fixed since this page was written: the revision timeline (a History pane over
 `list_revisions`/`revision_source`, with restore and checkpoint), Typst
 warnings in the print pane, the three shortcut collisions, block-level raw
-HTML, and citations.
+HTML, citations, search, and macOS/Linux packaging.
 
 ## Everything Essay ships and does not use
 
@@ -192,10 +197,10 @@ so none of this can be gated without patching upstream. Sizes are `.text` from
 | `list_revisions`, `revision_source` | Tauri commands | **In use** by the History pane, alongside `restore_revision` and `checkpoint_document` |
 | `PreviewState.warnings` | `usePreview.ts` | **Rendered** above the pages in the print pane, grouped by message |
 | `SkillScope::Section` | `essay-agents` | Recorded on a skill and **never checked against the diff**, though its doc comment is the argument for having it |
-| `essay-search` | crate | A doc comment and nothing else |
-| `essay inspect / read / search / propose / status` | `essay-cli` | Print "not implemented yet" and exit 1 |
+| `essay-search` | crate | **In use.** `search_text` over the open buffer and `search_project` across the workspace folders, both behind `Ctrl+F`. See [search](./internals/search.md) |
+| `essay inspect / read / search / propose / status` | `essay-cli` | Print "not implemented yet" and exit 1. `search` now has a crate API behind it — the verb was deliberately not added with it |
 | `templates/memo`, `report`, `rfc` | templates | README stubs saying "planned" |
-| `templates/skills/*.md` | templates | Two usable preference skills **referenced by no code and no doc** until recently |
+| `templates/skills/*.md` | templates | Two usable preference skills, now documented in [configuring an agent](./guide/configuring-agents.md). Still **read by no code** — `load_skills` looks in the document's `.essay/skills/`, so these are copied by hand |
 | `@essay/document-ui`, `@essay/typst-preview` | packages | Boundary stubs |
 | `essay-render/png` feature | crate | Used by the CLI only, deliberately not by the desktop binary |
 

@@ -35,8 +35,8 @@ that covers it says so rather than leaving you to find out.
 
 - [Command line](./reference/cli.md) — every `essay` verb, with output from
   real runs.
-- [Keyboard shortcuts](./reference/shortcuts.md) — every binding, including
-  the one collision.
+- [Keyboard shortcuts](./reference/shortcuts.md) — every binding, and how they
+  are spelled on each platform.
 - [Where Essay stores things](./reference/storage.md) — every path and browser
   key it writes, and what deleting each costs.
 - [Markdown support](./reference/markdown.md) — supported syntax, and the
@@ -56,7 +56,10 @@ For contributors.
   install, the two Windows launch traps, the probe.
 - [Rendering](./internals/rendering.md) — the embedded Typst world, the
   debounce contract, the PNG feature gate.
-- [Release](./internals/release.md) — CI jobs, signing, and the tag rule.
+- [Search](./internals/search.md) — why there is no index, UTF-16 offsets,
+  sentence excerpts, and the two coordinate systems a match can live in.
+- [Release](./internals/release.md) — the three-platform matrix, signing, the
+  tag rule, and what CI does not check.
 - [Artifact size](./internals/size.md) — what the binaries and the bundle
   weigh, the size budget, and which levers have been pulled.
 

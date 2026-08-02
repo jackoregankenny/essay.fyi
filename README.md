@@ -12,10 +12,16 @@ without you deciding: every agent change arrives as a reviewable, structural
 diff with provenance.
 
 This is a working pre-1.0 development build, not a finished product. Core
-mechanics — editing, rendering, durability, diffs, agent sessions — are built
-and exercised, but the interface is still the scaffolding it was built on top
-of. A UI overhaul is planned; expect the chrome to change more than the
+mechanics — editing, rendering, durability, diffs, search, agent sessions — are
+built and exercised, but the interface is still the scaffolding it was built on
+top of. A UI overhaul is planned; expect the chrome to change more than the
 underlying model does.
+
+Windows is the platform Essay has actually been run on. It now builds and
+bundles for macOS and Linux too, and both have their own window chrome, but
+neither has been launched by anyone yet — see
+[release](docs/internals/release.md#what-is-not-verified) for exactly what that
+leaves unverified.
 
 ## What works today
 
@@ -46,8 +52,15 @@ underlying model does.
   accept or reject; edits agents make directly on disk are caught by the
   same file watcher and shown the same way. No agent writes the manuscript
   without you seeing what changed.
+- **Search across the manuscript and your folders.** `Ctrl+F` finds a phrase in
+  the document you are editing and in every Markdown file in your workspace
+  folders, grouped by document and titled by its first heading. No index to
+  build and nothing to go stale.
+- **A multi-root file explorer.** Any number of folders, never a single vault.
+  It remembers what you left open, lists what you opened recently, and updates
+  itself when files appear, disappear or are renamed outside Essay.
 - **Auto-update.** Signed release checks, background download, restart only
-  when you say so.
+  when you say so. Installers build for Windows, macOS and Linux.
 
 Full documentation — guides, reference, and internals — is in
 [docs/README.md](docs/README.md).
@@ -96,7 +109,7 @@ cargo run -p essay-cli -- render <file.md> --format pdf    # or svg, png
 ```text
 apps/desktop/     Tauri 2 app — React chrome + Rust shell (src-tauri/)
 packages/         editor (Tiptap surface), theme, commands, document-ui, typst-preview
-crates/           Rust core — markdown index, revisions, diff, render, workspace/durability, agents, CLI
+crates/           Rust core — markdown index, revisions, diff, render, workspace/durability, search, agents, CLI
 templates/        Typst document modes (essay, memo, report, rfc)
 fixtures/         Test corpus for parsing, diffing and rendering
 docs/             Product brief, architecture, document model, agent protocol, research
@@ -107,8 +120,9 @@ docs/             Product brief, architecture, document model, agent protocol, r
 Milestones 0–4 are in: manuscript editing, Typst rendering, the durability
 layer, structural diffs, and the ACP agent host — plus citations with a
 bibliography, a revision timeline with restore over the existing snapshot
-history, and fonts the author installs. Next up: search / quick-open, maths,
-packaging, and the planned UI overhaul.
+history, fonts the author installs, document and project search, and three
+platforms' worth of installers. Next up: maths, a proper find bar with
+replace, filename quick-open, and the planned UI overhaul.
 
 The full build list, with what each item would actually cost, is in
 [docs/roadmap.md](docs/roadmap.md).

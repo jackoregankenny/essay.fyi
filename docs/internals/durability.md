@@ -90,6 +90,33 @@ document, and files the revision as `AgentPatch` by that agent if so. The
 attribution is circumstantial — it names the session that was running, not a
 request that was made — and the code says so.
 
+## `RootWatcher` is a second watcher, not a generalisation of the first
+
+`roots.rs` watches whole workspace folders so the explorer's tree stays right
+when files appear, disappear or are renamed outside Essay. It is deliberately
+separate from `DocumentWatcher` because the two answer different questions.
+`DocumentWatcher` asks "did the bytes of this one file change?" and hashes to
+decide. `RootWatcher` asks "is the listing still right?", where content is
+irrelevant and a rename is the entire event.
+
+The discipline is the same, though: **an event is never trusted.** It marks a
+root as worth re-reading, and a re-walk of that one root decides by comparing
+listings. That is what stops Essay's own autosave redrawing the explorer every
+1.5 seconds — a save fires events, the root is re-walked, the listing is
+identical, nothing is reported — and it makes Windows' remove+create rename
+pairs, whose ordering is not guaranteed, a non-issue rather than a special case.
+
+Quiet period 400ms, longer than the document watcher's 200ms because the work
+behind it is a directory walk rather than one small read, and because an author
+who has just created a file is not watching the millisecond it appears. Events
+under hidden and build directories are dropped before they wake the thread, or
+`.git` churn would dominate. The new listing travels with the `RootChange`
+event, so nothing asks for the tree again.
+
+`markdown_tree` — the walk itself — lives in this crate rather than in the
+shell, so the explorer and the watcher cannot disagree about what a folder
+contains.
+
 ## Two stores, and why they are separate
 
 | | `SnapshotStore` | `RecoveryStore` |

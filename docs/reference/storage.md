@@ -50,6 +50,7 @@ fyi.essay.app/
 ├── recovery.sqlite
 ├── recovery.sqlite-wal
 ├── recovery.sqlite-shm
+├── fonts/                created empty on first run
 └── adapters/
     └── claude-agent-acp/
         └── 0.64.0/
@@ -62,6 +63,7 @@ fyi.essay.app/
 | Path | Holds | Deleting it costs |
 | --- | --- | --- |
 | `recovery.sqlite` (+ `-wal`, `-shm`) | The in-progress buffer of every document open when Essay last ran, journalled 600ms after your last keystroke | Unsaved work from a session that crashed. Nothing if Essay exited cleanly. |
+| `fonts/` | Font files you put there yourself. Scanned *before* the system's, so a face you installed deliberately wins a name collision | Those faces. Documents that named them typeset in whatever the system has instead. |
 | `adapters/<name>/<version>/` | A pinned copy of an agent's ACP adapter, installed from npm once | Nothing permanent — the next launch falls back to `npx -y` and re-installs in the background, but that needs the network once. |
 
 Recovery lives here rather than in `.essay/` for two reasons: it is state about
@@ -91,6 +93,8 @@ Clearing it loses only preferences.
 | --- | --- | --- |
 | `essay.measure.v1` | Your writing width | Back to Auto |
 | `essay.workspace.folders.v1` | The folders in the file explorer, as a JSON array of `{path, name}` | Your folder list. No files are touched. |
+| `essay.workspace.expanded.v1` | Which directories you left open in the explorer, as `{rootPath: [relativeDir]}`, up to 250 per folder | Each folder opens on its first level again, as it did the first time you added it. |
+| `essay.recent.files.v1` | The last 12 documents you opened, as `{path, name, openedAt}` | The recent list in the explorer and the palette. No files are touched. |
 | `essay.agent.v1` | The id of the agent you used last, so opening the panel can pre-warm it | One extra click, and no pre-warm on the next launch |
 | `essay.agent.tune.v1` | Your session-option choices per agent, as `{agentId: {optionId: value}}` | Re-choosing model and effort once |
 | `essay.welcomed` | Whether the welcome document has been shown | The welcome document appears again on the next new buffer |
@@ -99,7 +103,11 @@ Every one of these is read defensively. A corrupt or hand-edited value loses a
 preference; it never takes the app down.
 
 Workspace folders are stored here as an interim measure and are expected to
-move into application state later.
+move into application state later. `essay.workspace.expanded.v1` is pruned
+whenever the folder list is saved, so removing a folder takes its remembered
+shape with it rather than leaving a record behind for ever. A recent file that
+no longer opens is dropped from its list at the moment you click it — Essay does
+not check the disk for twelve files every time the list is drawn.
 
 ## What is not stored anywhere
 
@@ -108,4 +116,6 @@ move into application state later.
   [updates](../guide/updates.md).
 - Pending agent proposals are held in memory only. A proposal nobody accepted
   leaves nothing behind, which is what keeps `.essay/` deletable.
-- Fonts are embedded in the binary, so there is no font cache.
+- There is no font cache. Essay embeds no fonts at all — it typesets with the
+  machine's own, plus anything in the `fonts/` directory above, and reads them
+  from where they already are.

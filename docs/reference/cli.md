@@ -39,6 +39,12 @@ Three verbs work: `outline`, `diff`, `render`. The five marked `(planned)`
 exit `1` with a note; `propose` in particular is unlikely to arrive — see
 [agents-acp.md](../internals/agents-acp.md#what-was-dropped-and-why).
 
+`search` is the odd one of the five: the engine behind it exists and the app
+uses it, but no verb was wired up with it. The crate API — `search_text` and
+`search_project` in `essay-search`, described in
+[search](../internals/search.md) — is shaped for this to be a small piece of
+work rather than a design question.
+
 ## `essay outline`
 
 Every heading, with the line it starts on and indentation by depth.

@@ -26,9 +26,24 @@ manual dispatch. Concurrent runs for the same ref cancel each other.
 
 `essay-desktop` is excluded because it needs webkit2gtk system libraries on
 Linux and needs `apps/desktop/dist` to exist at compile time —
-`tauri::generate_context!` embeds it. Neither is set up on that job. The Tauri
-shell is still compiled in the `size` job, on Windows, where the frontend is
-built first.
+`tauri::generate_context!` embeds it. Neither is set up on that job;
+`desktop-linux` sets up both.
+
+### `desktop-linux` (ubuntu)
+
+Installs the Tauri Linux dependencies, builds the frontend, then
+`cargo check -p essay-desktop`.
+
+This job exists because until it did, **the Tauri shell had never been compiled
+on anything but Windows.** The `rust` job excludes it and the `size` job runs on
+Windows, so a change that broke the shell on Linux could reach a tag with every
+check green.
+
+`check` rather than `build`: the point is to catch source and dependency
+breakage on a platform nobody develops on, and that surfaces in typeck and macro
+expansion. A full link is minutes of Typst codegen for a binary that is thrown
+away, and the `size` job already links the real thing. The gap is worth stating
+plainly — **a Linux-only *link* error still slips through this.**
 
 ### `size` (windows)
 
@@ -48,13 +63,22 @@ and does not currently enforce, and which size levers have been pulled are in
 
 ## Releasing
 
-`.github/workflows/release.yml`, triggered by pushing a `v*` tag. It builds
-the Windows NSIS installer, signs the updater artifacts, and publishes a
-GitHub release.
+`.github/workflows/release.yml`, triggered by pushing a `v*` tag. It builds an
+installer on each desktop platform, signs the updater artifacts, and publishes
+them all as one GitHub release.
+
+Three jobs, in order:
+
+| Job | Runs on | Does |
+| --- | --- | --- |
+| `guard` | ubuntu | Checks the tag against `tauri.conf.json`, and nothing else |
+| `bundle` | matrix | Builds, signs and uploads each platform's installer into a **draft** release |
+| `announce` | ubuntu | Flips that draft to published |
 
 ### The tag must match `tauri.conf.json`
 
-The first step of the job, and it fails the run if it does not:
+Its own job, so a mismatch costs seconds rather than three platform builds. It
+fails the run if the two disagree:
 
 ```bash
 TAG="${GITHUB_REF_NAME#v}"
@@ -83,6 +107,12 @@ commit.
 The private key lives outside this repository, under `%USERPROFILE%\.tauri\`
 on the maintainer's machine. It is not in Git and must not be.
 
+**That key is Essay's own update signature and is all the updater checks. It is
+not an Apple Developer ID.** There are no Apple secrets here, so the macOS
+`.app` and `.dmg` are unsigned and unnotarised: a first launch needs
+right-click → Open rather than a double-click. Auto-updates after that are
+unaffected, because they are verified with minisign rather than by the OS.
+
 `plugins.updater.pubkey` in `tauri.conf.json` is the public half of that same
 key. **If the two ever stop matching, every installed copy of Essay rejects
 the update as unsigned and says nothing about why** — so rotate both together
@@ -94,23 +124,84 @@ accept. That failure is silent on the release side and total on the client
 side, which is why it is worth checking that a release actually produced
 signatures before announcing it.
 
-### Published, not drafted
+### The matrix is deliberately serial
 
-`releaseDraft: false`. The updater reads
-`releases/latest/download/latest.json`, and a draft release is not `latest` to
-anyone but the maintainer.
+`max-parallel: 1`, and it must stay that way until something regenerates
+`latest.json` wholesale.
+
+Each run of `tauri-action` builds `latest.json` by downloading the release's
+existing copy, merging its own platform in, and re-uploading it — a
+read-modify-write. Two jobs finishing at once lose one platform's entry, and a
+lost entry **is not an error anywhere**: it is simply an operating system that
+quietly stops being offered updates.
+
+`fail-fast: false` for the opposite reason: one platform failing should not
+cancel installers that already built. The draft keeps whatever landed, and the
+tag can be re-run.
+
+### Drafted, then published
+
+`releaseDraft: true` in `bundle`, and the `announce` job flips it afterwards.
+
+The updater reads `releases/latest/download/latest.json`, so the moment the
+release stops being a draft it is what every installed copy checks. Publishing
+when the first platform finishes would offer everyone else an update that does
+not list their platform yet. A draft is invisible to the updater, which is
+exactly what is wanted until every platform has merged its entry.
+
+`announce` finds the release by listing rather than by `releases/tags/<tag>`,
+because that endpoint 404s on drafts, and sets `make_latest=true` explicitly —
+that is what makes `releases/latest/download/latest.json` resolve here.
 
 `createUpdaterArtifacts: true` in `tauri.conf.json` and
 `includeUpdaterJson: true` in the workflow are what produce and publish
 `latest.json`.
 
+### Why `ubuntu-24.04` and not `ubuntu-latest`
+
+The build host sets the glibc floor of every artifact it produces. Letting
+GitHub move the image moves the oldest distro Essay runs on without anyone
+deciding to. 24.04 is the oldest image still supported through 2026 that ships
+`libwebkit2gtk-4.1`.
+
+macOS builds one universal binary (`--target universal-apple-darwin`) rather
+than two: it covers Apple Silicon and Intel, and `tauri-action` writes both
+`darwin-aarch64` and `darwin-x86_64` into `latest.json` from it.
+
+### What is not verified
+
+Stated because CI going green is not the same claim as the app working.
+
+- **A Linux-only link error still slips through.** `desktop-linux` runs
+  `cargo check`, not `build`.
+- **Essay has never been launched on macOS or Linux.** The window chrome for
+  both is config that has been parsed and reasoned about, not run: whether
+  `titleBarStyle: Overlay` really draws the traffic lights over the transparent
+  header, whether the 78px reservation is right (macOS has moved this between
+  versions), and whether Linux `decorations: true` reads as acceptable chrome or
+  as a double titlebar on GNOME/KDE.
+- **No macOS or Linux bundle has been produced yet.** The first tag after this
+  landed is the first time the bundlers run at all.
+
 ## Current bundle configuration
 
-- Targets: `nsis` (Windows) only. macOS and Linux bundles are not built.
+- Targets: `nsis`, `app`, `dmg`, `deb`, `appimage`. One list for every platform
+  — `tauri-bundler` filters the configured types against the host and silently
+  drops the rest, so Windows produces the NSIS installer and ignores the other
+  four.
+  - `app` is not decorative: the macOS updater artifact is `Essay.app.tar.gz`,
+    and it only exists when that target is bundled.
+  - `appimage` is there because `.deb` is not an updatable format.
 - Identifier: `fyi.essay.app` — this is what determines the app data directory
   in [storage](../reference/storage.md), so changing it orphans every existing
   installation's recovery journal and adapter install.
-- The window is `decorations: false`; the chrome draws its own controls.
+- The window is configured per platform. `tauri.conf.json` keeps
+  `decorations: false` and the chrome draws its own controls, which is the
+  Windows build unchanged; `tauri.macos.conf.json` turns decorations on with
+  `titleBarStyle: Overlay` and `hiddenTitle`, and `tauri.linux.conf.json` turns
+  them on and lets the window manager draw the frame. Tauri merges these with
+  RFC 7396, which **replaces arrays wholesale** — so `app.windows` cannot be
+  partially overridden and each platform file repeats the window geometry.
 - `security.csp` is `null`. Worth revisiting before a public 1.0.
 
 ## Release checklist
@@ -119,5 +210,10 @@ anyone but the maintainer.
 2. Bump `version` in `apps/desktop/src-tauri/tauri.conf.json`. Commit.
 3. Confirm the two signing secrets still exist on the repository.
 4. Tag `v<same version>` and push the tag.
-5. Check the release has both an installer and a `latest.json` with a
-   non-empty signature.
+5. Wait for all three `bundle` jobs. `announce` only runs when they have
+   finished, and until it does the release is a draft nobody's updater sees.
+6. Check the published release has an installer for each platform, and a
+   `latest.json` listing `windows-x86_64`, `darwin-aarch64`,
+   `darwin-x86_64` and `linux-x86_64`, each with a non-empty signature. A
+   missing platform entry is the failure this workflow is arranged to prevent,
+   and it is silent everywhere else.

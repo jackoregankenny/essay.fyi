@@ -48,6 +48,15 @@ it takes **any number of workspace folders** — Essay has no single-vault
 notion. Add a folder and it lists the Markdown under it, skipping hidden
 directories and `node_modules`, `target`, `dist`, `build` and `out`.
 
+The explorer remembers which folders you left open, and keeps up on its own:
+create, delete or rename a file in another program and the tree follows, without
+a refresh. Above the folders it lists the last twelve documents you opened,
+including ones that live outside every folder you have added.
+
+`Ctrl+F` finds a phrase — in the document you are editing, and in every Markdown
+file in those folders. Results open in the command palette, grouped under each
+document's own title.
+
 The sidebar (`Ctrl+B`) is a different thing: it is about navigating *this*
 document — the outline, and your `==come back to this==` marks.
 

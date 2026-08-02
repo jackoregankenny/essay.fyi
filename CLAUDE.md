@@ -282,10 +282,110 @@ not and cannot from here: `@tiptap/markdown` intercepts inline `html` tokens
 before extensions are consulted. Table re-padding and list renumbering are
 fixed; `awkward-syntax.md` has a golden.
 
-Next: search / quick-open (`essay-search` is still a doc comment and nothing
-else — the one place where no backend exists), packaging. A **UI overhaul is
-planned** (Jack, 2026-07-31: the current chrome was derived from the text
-editor and that is not the direction). Jack's framing (2026-08-02): the
+**Search is in: `essay-search`.** `search_text` over the open buffer,
+`search_project` across the workspace roots, no new third-party dependency — no
+regex engine, no index, no directory walker. An index would buy a writer no time they could
+perceive and would add a thing that can be stale when an agent rewrites a file
+behind Essay's back. Four decisions carry weight. **Offsets are UTF-16**,
+because the only consumer that turns an offset into a caret is ProseMirror,
+which counts that way; a byte offset lands mid-character on any em dash. For
+the same reason the case fold is one char to one char rather than
+`to_lowercase`, which changes length on `ß` and shifts every offset after it.
+**The excerpt is the sentence, not the line** — a Markdown paragraph is usually
+one very long line, so quoting the line is quoting the paragraph; block markers
+are stripped as marker-*plus-space* so `**bold**` opening a paragraph is not
+mistaken for a bullet. **The open document is searched flattened, not as
+Markdown** (`manuscriptText` in `@essay/editor` flattens with a run map, and
+`positionAtOffset` is a lookup, not a second search) because an author looking
+for "the quick brown" expects to find it whether or not "quick" is bold, and
+does not expect a hit inside a link's URL. And **`.essay/` is skipped** — not
+tidiness: the sidecar holds every snapshot of every document, so searching it
+would answer with every draft that ever contained the phrase. Ctrl+F opens the
+command palette and typing runs the search (180ms debounce, min 2 chars, stale
+answers dropped); results are *appended* below the commands rather than
+re-scored, because the command scorer drops most case-insensitive hits.
+Project hits carry a file line number, in-document hits deliberately do not —
+the buffer is searched by block, so its "line 4" is not the file's line 4.
+Clicking a project hit opens the file and re-finds the phrase in the loaded
+buffer, since a file offset says nothing about a ProseMirror position.
+Deliberately out: regex, find-and-replace, a persistent find bar, in-editor
+highlighting of every match, filename quick-open, and an `essay search` CLI
+verb (the crate API is shaped for that last one).
+
+**Essay builds for all three desktops now.** `bundle.targets` is `nsis`, `app`,
+`dmg`, `deb`, `appimage` — one list, because tauri-bundler filters configured
+types against the host and silently drops the rest. `app` is not decorative:
+the macOS updater artifact is `Essay.app.tar.gz` and only exists when that
+target is bundled; `appimage` is there because `.deb` is not an updatable
+format. `release.yml` is guard → bundle (matrix) → announce, and two things in
+it are load-bearing: the matrix is `max-parallel: 1` because tauri-action
+builds `latest.json` by read-modify-write on the release's copy and two jobs
+finishing together lose a platform's entry — which is not an error anywhere,
+just an OS that quietly stops being offered updates — and the release is
+**drafted, then published by a final job**, because the updater reads
+`releases/latest/download/latest.json` and publishing after the first platform
+finishes offers everyone else an update that does not list them. `ubuntu-24.04`
+is pinned, not `ubuntu-latest`: the build host sets the glibc floor of every
+artifact. macOS builds are unsigned and unnotarised (no Apple secrets), so a
+first launch needs right-click → Open; auto-updates are unaffected, since the
+minisign key is Essay's own. CI gained a `desktop-linux` job — apt deps,
+frontend build (`generate_context!` embeds `dist`), `cargo check -p
+essay-desktop` — because until it existed the Tauri shell had never been
+compiled on anything but Windows. `check`, not `build`: a Linux-only *link*
+error still slips through, and that gap is stated in the comment.
+
+**Window chrome is per-platform, by config file, not at runtime.**
+`tauri.macos.conf.json` (decorations on, `titleBarStyle: Overlay`,
+`hiddenTitle`) and `tauri.linux.conf.json` (decorations on, the WM draws the
+frame); `tauri.conf.json` is untouched so Windows is bit-for-bit what it was.
+The reason it is config: `set_decorations` and `set_title_bar_style` have
+runtime setters but **`hidden_title` is builder-only** — a window fixed up
+after creation would paint the macOS title string across the document tabs with
+no way to turn it off. Cost, stated in the `lib.rs` comment: Tauri merges these
+with RFC 7396, which replaces arrays wholesale, so `app.windows` cannot be
+partially overridden and the platform files repeat the window geometry.
+`WindowControls` renders on Windows only, and the header reserves
+`TRAFFIC_LIGHT_INSET` (78px) on macOS so the sidebar toggle is not under the
+close button. `lib/platform.ts` reads the UA once, synchronously, at module
+load — `@tauri-apps/plugin-os` is more authoritative but answers a promise, and
+chrome that decides where the buttons go a frame late visibly jumps — and
+`shortcut()` translates labels at the point a binding is *declared*: `Ctrl+B`
+displays as `⌘B` and `Ctrl+Shift+S` as `⇧⌘S`, in macOS's fixed modifier order.
+Nothing there branches on behaviour; the handler always accepted `metaKey`, so
+only the labels were lying. Not verified without the hardware: that Overlay
+really renders traffic lights over the transparent header, that 78px is right
+(macOS has moved it), and whether Linux `decorations: true` reads as a double
+titlebar on GNOME/KDE.
+
+**The explorer is finished.** Expansion state persists per root
+(`essay.workspace.expanded.v1`, 250 dirs, pruned when folders are saved) — it
+had been resetting constantly because the pane is lazy-loaded and unmounts with
+its popover. The trap: `initialExpansion` and `initialExpandedPaths` are
+*additive* in `@pierre/trees` and `resetPaths` keeps the former, so leaving
+`initialExpansion: 1` would silently re-open every top-level folder the author
+collapsed, on first render and on every live refresh; the tree is now
+`'closed'` plus an explicit set. `loadExpandedDirs` returns `null`, not `[]`,
+for an unseen root — "never recorded" and "collapsed on purpose" are different
+answers. **Recent files** (12, `essay.recent.files.v1`) are recorded inside
+`openDocumentByPath`, the one funnel every open goes through, so no surface can
+forget to call it; an entry that fails to open is dropped there rather than
+stat-ing every row on render. **`RootWatcher`** (`essay-workspace::roots`) is
+deliberately not a generalisation of `DocumentWatcher`: that one asks "did
+these bytes change?" and hashes, this asks "is the listing still right?", where
+content is irrelevant and a rename is the whole event. Same discipline though —
+an event only marks a root dirty, and a re-walk decides by comparing listings,
+which is what stops autosave redrawing the explorer every 1.5s and makes
+Windows' remove+create rename pairs a non-issue. 400ms quiet period; events
+under hidden and build directories are dropped before they wake the thread, or
+`.git` churn would dominate. `walk_markdown` moved out of the shell into the
+crate as `markdown_tree`, so the explorer and the watcher cannot disagree about
+what a folder contains.
+
+Next: maths, in-editor find affordances beyond the palette (a find bar,
+find-and-replace, match highlighting), filename quick-open, and the `essay
+inspect / read / search / propose / status` CLI verbs, which still print "not
+implemented yet". A **UI overhaul is planned** (Jack, 2026-07-31: the current
+chrome was derived from the text editor and that is not the direction). Jack's framing (2026-08-02): the
 current UI is a **POC for evaluating features** — build the feature roughly,
 end to end, and the style pass makes it good — so features are worth taking
 to a usable surface now, and polish is not.
