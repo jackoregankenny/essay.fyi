@@ -89,12 +89,48 @@ pub fn render_png_page(
     .map_err(|err| RenderError::Compilation(err.to_string()))
 }
 
+/// Bibliography sources Essay will find on its own, in the order it prefers
+/// them. Hayagriva's own YAML format first, then BibTeX — both are what Typst
+/// reads natively, so this costs nothing beyond the lookup.
+///
+/// A fixed list rather than a setting, because the point is that citing works
+/// without configuring anything: put `references.bib` beside the manuscript
+/// and `[@key]` starts typesetting. `docs/document-model.md` already places
+/// the file exactly there.
+const BIBLIOGRAPHY_NAMES: [&str; 4] = [
+  "references.yml",
+  "references.yaml",
+  "references.bib",
+  "bibliography.bib",
+];
+
+/// The document's bibliography file, relative to its folder.
+///
+/// Returns the bare filename: Typst resolves it through `World::file`, which
+/// resolves against the same root as an image, so a relative name is what
+/// keeps the reference working wherever the folder is moved to.
+fn find_bibliography(root: &std::path::Path) -> Option<&'static str> {
+  BIBLIOGRAPHY_NAMES
+    .into_iter()
+    .find(|name| root.join(name).is_file())
+}
+
 fn compile(
   markdown_source: &str,
   root: Option<PathBuf>,
 ) -> Result<(PagedDocument, Vec<String>), RenderError> {
-  let converted = markdown_to_typst(markdown_source);
-  let main = build_main_source(&converted);
+  // Looked for before converting, not after, because it decides whether
+  // `[@key]` may become a citation at all: Typst treats a `#cite` with no
+  // `#bibliography` as a compile error, so a draft with nowhere to resolve
+  // has to keep its citations as the plain text the author typed.
+  //
+  // An unsaved manuscript has no folder to look in. That is the ordinary
+  // case, not a failure: citations start resolving when the file has a home
+  // and a `references.bib` beside it.
+  let bibliography = root.as_deref().and_then(find_bibliography);
+  let converted = markdown_to_typst(markdown_source, bibliography.is_some());
+  // A stray `.bib` must not give an uncited document a References section.
+  let main = build_main_source(&converted, bibliography.filter(|_| converted.has_citations));
   let world = EssayWorld::new(main, ESSAY_TEMPLATE, root);
   let result = typst::compile::<PagedDocument>(&world);
   let warnings = result
@@ -108,7 +144,7 @@ fn compile(
   }
 }
 
-fn build_main_source(converted: &Converted) -> String {
+fn build_main_source(converted: &Converted, bibliography: Option<&str>) -> String {
   let fm = &converted.front_matter;
   let mut main = String::from("#import \"/template.typ\": essay\n#show: essay.with(");
   if let Some(title) = &fm.title {
@@ -122,6 +158,14 @@ fn build_main_source(converted: &Converted) -> String {
   }
   main.push_str(")\n\n");
   main.push_str(&converted.body);
+  // After the body, because a bibliography is what follows an essay. Typst
+  // renders the heading and the entries; the template's heading rules style
+  // it like any other section, so it needs nothing there.
+  if let Some(path) = bibliography {
+    main.push_str("\n\n#bibliography(\"");
+    main.push_str(&escape_str(path));
+    main.push_str("\")\n");
+  }
   main
 }
 
@@ -161,5 +205,71 @@ mod tests {
     // A degenerate doc must still compile (empty body is valid).
     let pages = render_svg_pages("", None).expect("empty compiles");
     assert_eq!(pages.svgs.len(), 1);
+  }
+
+  fn citations_fixture() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/citations")
+  }
+
+  /// The end-to-end claim: `[@key]` beside a `references.bib` typesets.
+  ///
+  /// Compiling *is* the assertion, and it is a strong one. Typst rejects a
+  /// `#cite` whose key is not in the bibliography, and rejects one with no
+  /// bibliography at all — both are compile errors, not missing references.
+  /// So a document this size that renders has necessarily found the file and
+  /// resolved every key in it.
+  ///
+  /// Not asserted on the SVG text: typst-svg emits glyphs as paths, so the
+  /// rendered words are not there to search for.
+  #[test]
+  fn a_cited_manuscript_typesets_with_its_bibliography() {
+    let dir = citations_fixture();
+    let source = std::fs::read_to_string(dir.join("cited-essay.md")).expect("fixture");
+
+    let pages = render_svg_pages(&source, Some(dir)).expect("compiles with bibliography");
+
+    assert!(!pages.svgs.is_empty());
+  }
+
+  /// The same manuscript with nowhere to resolve its sources — an unsaved
+  /// draft, which is where most citations get typed in the first place.
+  ///
+  /// This is the case that fails loudly if citations are emitted
+  /// unconditionally: the document does not lose its bibliography, it stops
+  /// compiling, and the author gets a blank preview for typing `[@key]`.
+  #[test]
+  fn citing_without_a_folder_still_prints() {
+    let source =
+      std::fs::read_to_string(citations_fixture().join("cited-essay.md")).expect("fixture");
+    let pages = render_svg_pages(&source, None).expect("compiles without bibliography");
+    assert!(!pages.svgs.is_empty());
+  }
+
+  #[test]
+  fn finds_the_bibliography_beside_the_manuscript() {
+    assert_eq!(find_bibliography(&citations_fixture()), Some("references.bib"));
+    assert_eq!(
+      find_bibliography(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/diffs")),
+      None
+    );
+  }
+
+  #[test]
+  fn a_stray_bib_does_not_give_an_uncited_document_a_reference_section() {
+    let converted = markdown_to_typst("# Plain\n\nNo sources here.\n", true);
+    assert!(!converted.has_citations);
+
+    let main = build_main_source(&converted, Some("references.bib").filter(|_| converted.has_citations));
+    assert!(!main.contains("#bibliography("));
+
+    // …and it still typesets with the fixture folder as its root.
+    render_svg_pages("# Plain\n\nNo sources here.\n", Some(citations_fixture())).expect("compiles");
+  }
+
+  #[test]
+  fn a_cited_document_gets_the_bibliography_call() {
+    let converted = markdown_to_typst("Old advice [@strunk1918].\n", true);
+    let main = build_main_source(&converted, Some("references.bib"));
+    assert!(main.contains("#bibliography(\"references.bib\")"));
   }
 }
