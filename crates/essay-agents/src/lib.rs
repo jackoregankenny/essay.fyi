@@ -23,6 +23,7 @@
 
 mod acp;
 mod changeset;
+mod install;
 mod registry;
 mod session;
 mod skills;
@@ -32,9 +33,12 @@ pub use changeset::{
     excerpt, provenance, AcceptOutcome, ChangeSet, ChangeSetError, ChangeSetStore, ChangeStatus,
     Provenance,
 };
-pub use registry::{list_agents, AgentDefinition, AgentInfo, LaunchError, KNOWN_AGENTS};
-pub use skills::{compose_prompt, house_skill, load_skills, skills_dir, Skill, SkillScope};
-pub use session::{
-    AgentCommand, AgentEvent, HostObserver, PermissionBroker, PermissionDecision,
-    PermissionOption, PermissionRequest, PlanEntry, SessionChoice, SessionOption, SessionSummary,
+pub use install::{adapter_root, prepare_adapters, Adapter, InstallError, CLAUDE_ADAPTER};
+pub use registry::{
+    list_agents, AgentDefinition, AgentInfo, LaunchError, LaunchPath, LaunchPlan, KNOWN_AGENTS,
 };
+pub use session::{
+    AgentCommand, AgentEvent, HostObserver, PermissionBroker, PermissionDecision, PermissionOption,
+    PermissionRequest, PlanEntry, SessionChoice, SessionOption, SessionSummary,
+};
+pub use skills::{compose_prompt, house_skill, load_skills, skills_dir, Skill, SkillScope};

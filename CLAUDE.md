@@ -156,9 +156,14 @@ newest pending proposal for a path if there is one, or the agent reads back
 its own edit missing and writes again. Accepting goes through the hash-guarded
 `write_document` and snapshots as `AgentPatch`/`Agent{name}`; on `Conflict`
 the change set stays `Pending` rather than vanishing. Registry covers
-`opencode acp` (native) and `npx -y @agentclientprotocol/claude-agent-acp`
-(`CreateProcess` only appends `.exe`, so `.cmd` scripts are re-launched via
-`cmd /c`). Commands and `essay://agent-event` / `change-set` /
+`opencode acp` (native) and the Claude Code adapter — `node <pinned install>`
+where `install.rs` has one, `npx -y @agentclientprotocol/claude-agent-acp`
+until then (`CreateProcess` only appends `.exe`, so `.cmd` scripts are
+re-launched via `cmd /c`; `node.exe` needs neither). `available` follows the
+same rule, so the picker's "not on PATH" line stays true when the launcher is
+missing but the install is not. `prepare_adapters(app_data_dir)` in the shell's
+setup does the install on a background thread — never a gate in front of a
+launch. Commands and `essay://agent-event` / `change-set` /
 `permission-request` events are registered in `lib.rs`.
 
 Two Windows launch traps live in `registry.rs::which()`, both earned: PATH
@@ -248,6 +253,6 @@ the model, keep new UI minimal, and expect the panel/chrome to be redrawn.
 Inline agent presence (highlight where the agent is reading/editing, section
 markers for pending proposals) is designed for that pass: `toolCall` events
 already carry `locations`, and `SectionChange` names the touched headings.
-Claude adapter startup is dominated by `npx -y` resolving against the
-registry every launch; the known fix is a one-time install under the app data
-dir run via `node` directly — not yet built.
+Claude adapter startup used to be dominated by `npx -y` resolving against the
+registry every launch; it is now a one-time pinned install under the app data
+dir run via `node` directly (`install.rs`, measured 1.3s vs 2.7s to handshake).

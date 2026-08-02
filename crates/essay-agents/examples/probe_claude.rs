@@ -1,8 +1,15 @@
 //! Probe: launch the Claude Code ACP adapter exactly the way the app does,
 //! and print every event. Diagnostic, not a test — run with
 //! `cargo run -p essay-agents --example probe_claude`.
+//!
+//! It also answers the startup-cost question: set `ESSAY_ADAPTER_ROOT` (or let
+//! it default to the app data directory the shell uses) and the probe prepares
+//! the pinned local install first, so the handshake it times is the one the
+//! app will do. `ESSAY_NO_LOCAL_ADAPTER=1` skips that, timing the `npx -y`
+//! path instead — the two numbers side by side are the whole argument.
 
 use essay_agents::{AgentEvent, AgentHost, ChangeSet, HostObserver, PermissionRequest};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -39,6 +46,18 @@ impl HostObserver for Printer {
 async fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
+    // The app data directory the desktop shell would hand over. Doing it here
+    // too is what makes this probe a probe of the app's behaviour rather than
+    // of a configuration only the probe has.
+    if std::env::var("ESSAY_NO_LOCAL_ADAPTER").is_err() {
+        if let Some(root) = adapter_root() {
+            eprintln!("preparing adapters under {}", root.display());
+            let started = std::time::Instant::now();
+            essay_agents::prepare_adapters(&root).join().ok();
+            eprintln!("adapters ready in {:.2}s", started.elapsed().as_secs_f64());
+        }
+    }
+
     for agent in essay_agents::list_agents() {
         eprintln!(
             "agent {}: available={} ({})",
@@ -56,11 +75,14 @@ async fn main() {
         .unwrap_or_else(|| "claude-code".to_string());
     let printer = Arc::new(Printer::default());
     let host = AgentHost::new(Arc::clone(&printer) as Arc<dyn HostObserver>);
+    let started = std::time::Instant::now();
     let session = match host.start_session(&agent_id, &path).await {
         Ok(session) => {
             eprintln!(
-                "STARTED: session={} acp={}",
-                session.session_id, session.acp_session_id
+                "STARTED in {:.2}s: session={} acp={}",
+                started.elapsed().as_secs_f64(),
+                session.session_id,
+                session.acp_session_id
             );
             session
         }
@@ -106,4 +128,24 @@ async fn main() {
 
     host.stop(&session.session_id).ok();
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+}
+
+/// Where the desktop shell keeps adapters, worked out without Tauri — the
+/// crate stays free of it, and this is a diagnostic, so the bundle identifier
+/// is spelled here rather than plumbed through.
+fn adapter_root() -> Option<PathBuf> {
+    if let Some(explicit) = std::env::var_os("ESSAY_ADAPTER_ROOT") {
+        return Some(PathBuf::from(explicit));
+    }
+    #[cfg(windows)]
+    let base = std::env::var_os("APPDATA").map(PathBuf::from);
+    #[cfg(target_os = "macos")]
+    let base = std::env::var_os("HOME").map(|home| {
+        PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+    });
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let base = std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"));
+    base.map(|base| base.join("fyi.essay.app"))
 }

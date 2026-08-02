@@ -633,6 +633,14 @@ pub fn run() {
         app.handle().plugin(tauri_plugin_process::init())?;
       }
 
+      // Claude Code's ACP adapter is an npm package, and `npx -y` asks the
+      // registry about it every launch — seconds of the author's time per
+      // session, and nothing at all on a machine that is offline. Essay keeps
+      // its own pinned copy here and runs it with `node`. Started in the
+      // background and never waited on: until it lands, launching falls back
+      // to the launcher exactly as before.
+      essay_agents::prepare_adapters(&app.path().app_data_dir()?);
+
       let host = Arc::new(AgentHost::new(Arc::new(AppObserver {
         handle: app.handle().clone(),
       })));
