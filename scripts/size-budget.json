@@ -1,0 +1,8 @@
+{
+  "tolerancePercent": 5,
+  "target/release/essay.exe": null,
+  "target/release/essay-desktop.exe": null,
+  "apps/desktop/dist": null,
+  "_note": "All baselines are null: record-on-next-run. After the `size` job runs on a push to main, copy the measured byte counts out of the job's GITHUB_STEP_SUMMARY table into the fields above to establish a baseline. Once a baseline is set, the check fails when a build exceeds baseline * (1 + tolerancePercent / 100).",
+  "_binaryNameNote": "essay-cli's [[bin]] is named `essay`, not `essay-cli` (see crates/essay-cli/Cargo.toml) -- `cargo build -p essay-cli` produces target/release/essay.exe. essay-desktop has no [[bin]] override, so its binary matches the package name: target/release/essay-desktop.exe."
+}

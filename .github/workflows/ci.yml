@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: web (typecheck + build)
+    runs-on: ubuntu-latest
+    outputs:
+      dist-size-bytes: ${{ steps.dist-size.outputs.bytes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Build frontend
+        run: bun run build
+
+      - name: Report dist size
+        id: dist-size
+        shell: bash
+        run: |
+          set -eu
+          SIZE_BYTES=$(du -sb apps/desktop/dist | cut -f1)
+          SIZE_HUMAN=$(du -sh apps/desktop/dist | cut -f1)
+          echo "bytes=$SIZE_BYTES" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Frontend build size"
+            echo ""
+            echo "\`apps/desktop/dist\`: **$SIZE_HUMAN** ($SIZE_BYTES bytes)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  rust:
+    name: rust (cargo test)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo test (workspace, excluding essay-desktop)
+        # essay-desktop needs webkit2gtk system libs on Linux and needs
+        # apps/desktop/dist to exist at compile time (tauri::generate_context!
+        # embeds it) -- neither is set up on this job, so it is excluded here.
+        # The Tauri shell still gets compiled and exercised in the `size` job
+        # on Windows, where the frontend is built first.
+        run: cargo test --workspace --exclude essay-desktop
+
+  size:
+    name: size (release build budget)
+    runs-on: windows-latest
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        run: bun run build
+
+      - name: Build release binaries
+        # Release builds embed Typst plus its fonts and are slow (~5-10 min
+        # cold); Swatinem/rust-cache above is what keeps repeat runs fast.
+        run: cargo build --release -p essay-cli -p essay-desktop
+
+      - name: Check size budget
+        run: bun scripts/check-size.mjs
