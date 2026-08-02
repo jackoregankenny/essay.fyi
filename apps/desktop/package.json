@@ -22,12 +22,11 @@
     "@phosphor-icons/react": "^2.1.10",
     "@pierre/trees": "^1.0.0-beta.6",
     "@tailwindcss/vite": "^4.1.18",
-    "@tanstack/react-devtools": "latest",
-    "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-router": "latest",
-    "@tanstack/react-router-devtools": "latest",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.2",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "@tiptap/core": "^3.29.2",
     "@tiptap/extension-bubble-menu": "^3.29.2",
     "@tiptap/react": "^3.29.2",
@@ -38,8 +37,6 @@
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
-    "@tanstack/devtools-vite": "latest",
-    "@tanstack/react-query-devtools": "^5.101.4",
     "@tanstack/router-cli": "^1.132.0",
     "@tanstack/router-plugin": "latest",
     "@tauri-apps/cli": "^2.11.4",

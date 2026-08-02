@@ -621,6 +621,18 @@ pub fn run() {
         )?;
       }
 
+      // Updates: checked and downloaded by the WebView (see `UpdateButton`),
+      // and installed only when the author presses restart. `process` is what
+      // that restart goes through — Essay never relaunches itself out from
+      // under a manuscript.
+      #[cfg(desktop)]
+      {
+        app
+          .handle()
+          .plugin(tauri_plugin_updater::Builder::new().build())?;
+        app.handle().plugin(tauri_plugin_process::init())?;
+      }
+
       let host = Arc::new(AgentHost::new(Arc::new(AppObserver {
         handle: app.handle().clone(),
       })));

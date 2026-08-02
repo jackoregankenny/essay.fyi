@@ -58,6 +58,7 @@ import { DocName, Notice } from './Notice'
 import { SelectionToolbar } from './SelectionToolbar'
 import { Sidebar } from './Sidebar'
 import { PrintPane } from './PrintPane'
+import { UpdateButton } from './UpdateButton'
 import { IconButton } from './ui/icon-button'
 import { Tip, TooltipProvider } from './ui/tooltip'
 import { WindowControls } from './ui/window-controls'
@@ -755,6 +756,12 @@ export function Workspace() {
           <ModeSwitch mode={mode} onChange={setMode} />
 
           <div data-tauri-drag-region className="flex items-center justify-end gap-0.5">
+            {/* Saved means everything typed has reached disk: autosave clears
+                `dirty` for documents with a path, and an untitled buffer with
+                anything in it stays dirty by construction — it has nowhere to
+                be saved to. An unanswered disk conflict is unfinished business
+                of the same kind, so it counts as unsaved too. */}
+            <UpdateButton documentsSaved={!dirty && !conflict} />
             <Tip
               label="Agent"
               shortcut="Ctrl+Shift+A"
