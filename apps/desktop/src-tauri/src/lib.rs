@@ -186,6 +186,82 @@ fn revision_source(path: String, hash: String) -> Result<Option<String>, String>
   store.source(&hash).map_err(|err| err.to_string())
 }
 
+/// What a restore did, and the text it put back.
+///
+/// The contents travel with the outcome so the editor can adopt the restored
+/// version without reading the file again — and so a `Conflict` still tells
+/// the author what they were trying to restore.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Restored {
+  outcome: WriteOutcome,
+  contents: String,
+}
+
+/// Put an earlier revision back, as a new state rather than by rewinding.
+///
+/// Restoring goes through the same guard as any other write: if the file
+/// moved since the editor last read it, this returns `Conflict` and the
+/// author gets the conversation they would get for any other collision,
+/// rather than a restore quietly overwriting an edit they had not seen.
+///
+/// Nothing is lost in either direction. The version being replaced is itself
+/// in the timeline, which is what makes this an undo with a record instead of
+/// a rewind — and why the new state is recorded as `Restore` rather than as
+/// ordinary typing.
+#[tauri::command]
+fn restore_revision(
+  path: String,
+  hash: String,
+  base_hash: Option<String>,
+  workspace: tauri::State<'_, Workspace>,
+) -> Result<Restored, String> {
+  let file = Path::new(&path);
+  let store = SnapshotStore::for_document(file).map_err(|err| err.to_string())?;
+  let contents = store
+    .source(&hash)
+    .map_err(|err| err.to_string())?
+    .ok_or_else(|| "that revision is no longer in this document's history".to_string())?;
+
+  // Same rule as `write_document`: announce before writing, or the watcher
+  // reports Essay's own restore back to the author as somebody else's edit.
+  workspace
+    .watcher
+    .expect(essay_workspace::hash_source(&contents));
+
+  let outcome = essay_workspace::write_document(file, &contents, base_hash.as_deref())
+    .map_err(|err| err.to_string())?;
+
+  if let WriteOutcome::Written { hash } = &outcome {
+    log_sidecar_error(store.snapshot(
+      &contents,
+      RevisionOrigin::Restore,
+      workspace.author.clone(),
+      None,
+    ));
+    let _ = workspace.recovery.clear(&path);
+    if workspace.watcher.watching().as_deref() != Some(file) {
+      let _ = workspace.watcher.watch(file, hash.clone());
+    }
+  }
+
+  Ok(Restored { outcome, contents })
+}
+
+/// Mark the document as it stands as a state the author chose to keep.
+///
+/// Deliberately does not write: a checkpoint is a claim about history, not
+/// about the file, and autosave has almost certainly put these bytes on disk
+/// already. See `SnapshotStore::checkpoint` for why this is not just a
+/// snapshot call.
+#[tauri::command]
+fn checkpoint_document(path: String, contents: String) -> Result<Revision, String> {
+  let store = SnapshotStore::for_document(Path::new(&path)).map_err(|err| err.to_string())?;
+  store
+    .checkpoint(&contents, local_author())
+    .map_err(|err| err.to_string())
+}
+
 /// Stop watching — the document was closed, or replaced by an untitled buffer.
 #[tauri::command]
 fn close_document(workspace: tauri::State<'_, Workspace>) {
@@ -594,6 +670,8 @@ pub fn run() {
       diff_documents,
       list_revisions,
       revision_source,
+      restore_revision,
+      checkpoint_document,
       list_markdown_tree,
       render_document,
       export_pdf,

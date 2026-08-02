@@ -221,6 +221,35 @@ impl SnapshotStore {
         Ok(revision)
     }
 
+    /// Mark the document's current state as one the author chose to keep.
+    ///
+    /// Not an ordinary snapshot, because of the one case that matters:
+    /// autosave has usually already recorded these exact bytes, so
+    /// `snapshot` would find its own hash at the head of the timeline and
+    /// return it unchanged. A state the author deliberately marked would then
+    /// be indistinguishable from a pause in typing.
+    ///
+    /// Relabelling that revision is the honest reading of what a checkpoint
+    /// is: the author is annotating a state, not creating one. Only when the
+    /// bytes are genuinely new — marked before autosave caught up — does this
+    /// insert.
+    pub fn checkpoint(&self, source: &str, author: RevisionAuthor) -> Result<Revision> {
+        let hash = hash_source(source);
+        if let Some(latest) = self.latest()? {
+            if latest.source_hash.0 == hash {
+                self.conn.execute(
+                    "UPDATE revisions SET origin = ?1 WHERE id = ?2",
+                    params![RevisionOrigin::Checkpoint.as_str(), row_id(&latest.id)],
+                )?;
+                return Ok(Revision {
+                    origin: RevisionOrigin::Checkpoint,
+                    ..latest
+                });
+            }
+        }
+        self.snapshot(source, RevisionOrigin::Checkpoint, author, None)
+    }
+
     pub fn latest(&self) -> Result<Option<Revision>> {
         Ok(self
             .conn
@@ -578,6 +607,65 @@ mod tests {
 
         assert_eq!(first.id, again.id);
         assert_eq!(store.revisions(10).unwrap().len(), 1);
+    }
+
+    /// The case a plain `snapshot` call gets wrong: autosave has already
+    /// recorded these bytes, so idempotence would swallow the mark entirely.
+    #[test]
+    fn a_checkpoint_marks_the_revision_autosave_already_wrote() {
+        let (_dir, store) = store();
+        let saved = store
+            .snapshot("# Draft\n", RevisionOrigin::HumanSession, author(), None)
+            .unwrap();
+
+        let marked = store.checkpoint("# Draft\n", author()).unwrap();
+
+        assert_eq!(marked.id, saved.id, "the state was already recorded");
+        assert_eq!(marked.origin, RevisionOrigin::Checkpoint);
+        assert_eq!(
+            store.revisions(10).unwrap()[0].origin,
+            RevisionOrigin::Checkpoint,
+            "the mark has to survive a read, not just the return value"
+        );
+        assert_eq!(store.revisions(10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_checkpoint_ahead_of_autosave_records_the_state() {
+        let (_dir, store) = store();
+        store
+            .snapshot("# Draft\n", RevisionOrigin::HumanSession, author(), None)
+            .unwrap();
+
+        let marked = store.checkpoint("# Draft\nSent.\n", author()).unwrap();
+
+        assert_eq!(marked.origin, RevisionOrigin::Checkpoint);
+        assert_eq!(store.revisions(10).unwrap().len(), 2);
+    }
+
+    /// A checkpoint is a boundary, so the typing either side of it must not
+    /// fold across it — otherwise marking a draft and carrying on would carry
+    /// the mark forward onto text the author never marked.
+    #[test]
+    fn typing_after_a_checkpoint_starts_a_new_revision() {
+        let (_dir, store) = store();
+        store
+            .snapshot("# Draft\n", RevisionOrigin::HumanSession, author(), None)
+            .unwrap();
+        store.checkpoint("# Draft\n", author()).unwrap();
+
+        store
+            .snapshot("# Draft\nMore.\n", RevisionOrigin::HumanSession, author(), None)
+            .unwrap();
+
+        let timeline = store.revisions(10).unwrap();
+        assert_eq!(timeline.len(), 2);
+        assert_eq!(timeline[0].origin, RevisionOrigin::HumanSession);
+        assert_eq!(
+            timeline[1].origin,
+            RevisionOrigin::Checkpoint,
+            "the marked state is still there, unchanged"
+        );
     }
 
     #[test]

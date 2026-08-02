@@ -48,6 +48,15 @@ import {
   saveMeasure,
   type MeasureId,
 } from '#/lib/measure'
+import {
+  authorLabel,
+  checkpointDocument,
+  originLabel,
+  restoreRevision,
+  revisionSource,
+  revisionTime,
+  type Revision,
+} from '#/lib/revisions'
 import { documentDir, usePreview } from '#/lib/usePreview'
 import { AgentPanel } from './AgentPanel'
 import { CommandPalette } from './CommandPalette'
@@ -171,6 +180,8 @@ export function Workspace() {
   /** Edits an agent wrote to the file itself, which the watcher caught. Not
       proposals: these are already on disk. */
   const [appliedEdits, setAppliedEdits] = useState<AppliedEdit[]>([])
+  /** Bumped whenever something happened that the timeline should show. */
+  const [historyVersion, setHistoryVersion] = useState(0)
 
   /** Journal key for the open buffer: its path once saved, a per-launch id
       before that. A ref, not state, so loading a document can retire the old
@@ -421,6 +432,101 @@ export function Workspace() {
     setReview(null)
     editor?.commands.focus()
   }, [editor])
+
+  // ——— The document's own history ———
+
+  /**
+   * Every new state on disk is a new revision, and `baseHash` is the one
+   * thing that changes exactly when that happens — a save, a restore, taking
+   * the file after a conflict, accepting an agent's patch. Watching it means
+   * the timeline never has to be refreshed by hand from four call sites that
+   * would each have to remember to.
+   */
+  useEffect(() => {
+    setHistoryVersion((version) => version + 1)
+  }, [baseHash])
+
+  /**
+   * Put an earlier version back.
+   *
+   * Guarded by the hash the editor believes is on disk, so a restore decided
+   * while reading a diff cannot silently overwrite an edit that landed during
+   * the reading. A collision here is the same conversation as any other, so
+   * it goes through the same bar.
+   */
+  const restoreTo = useCallback(
+    async (revision: Revision) => {
+      if (!editor || !docRef.path) return
+      const result = await restoreRevision(
+        docRef.path,
+        revision.sourceHash,
+        baseHash,
+      )
+      if (!result) return
+      if (result.outcome.status === 'conflict') {
+        setReview(null)
+        setConflict({
+          diskHash: result.outcome.diskHash,
+          diskContents: result.outcome.diskContents,
+          unsaved: dirty,
+          byAgent: false,
+        })
+        return
+      }
+      const key = docKeyRef.current
+      loadIntoEditor(editor, result.contents, docRef, result.outcome.hash, {
+        key,
+      })
+      void clearJournal(key)
+    },
+    [editor, docRef, baseHash, dirty, loadIntoEditor],
+  )
+
+  /**
+   * Show what a revision says, against the document as it stands.
+   *
+   * Old is the revision and new is now, so the diff reads forwards — "this is
+   * what has happened since" — and restoring is the way back from it. That
+   * direction is deliberate: a timeline is read to find out what changed, and
+   * a diff that ran backwards would report every addition as a deletion.
+   */
+  const compareRevision = useCallback(
+    async (revision: Revision) => {
+      if (!editor || !docRef.path) return
+      const source = await revisionSource(docRef.path, revision.sourceHash)
+      if (source === null) return
+      const diff = await diffDocuments(source, getManuscript(editor))
+      if (!diff) return
+      setReview({
+        diff,
+        title: docRef.name,
+        provenance: `${originLabel(revision.origin)} by ${authorLabel(revision.author)}, ${revisionTime(revision.createdAt)}`,
+        oldLabel: 'Then',
+        newLabel: 'Now',
+        actions: [
+          {
+            label: 'Restore this version',
+            onClick: () => void restoreTo(revision),
+          },
+        ],
+      })
+    },
+    [editor, docRef, restoreTo],
+  )
+
+  /**
+   * Mark the document as it stands as a state worth keeping.
+   *
+   * Saves first when there is anything unsaved: a mark names a state, and an
+   * unsaved buffer would put the author's name on the version *before* the
+   * edit they are looking at.
+   */
+  const checkpoint = useCallback(async () => {
+    if (!editor || !docRef.path) return
+    if (dirty && !(await saveDocument())) return
+    await checkpointDocument(docRef.path, getManuscript(editor))
+    setHistoryVersion((version) => version + 1)
+  }, [editor, docRef.path, dirty, saveDocument])
 
   // ——— Reconciling with an agent ———
 
@@ -686,6 +792,7 @@ export function Workspace() {
       { id: 'file.save', title: 'Save', group: 'File', shortcut: 'Ctrl+S', run: () => void saveDocument() },
       { id: 'file.saveAs', title: 'Save as…', group: 'File', shortcut: 'Ctrl+Shift+S', run: () => void saveDocument(true) },
       { id: 'file.exportPdf', title: 'Export PDF…', group: 'File', keywords: 'typeset print render', run: () => void exportPdf() },
+      { id: 'file.checkpoint', title: 'Mark this version', group: 'File', keywords: 'checkpoint history revision snapshot milestone draft sent', run: () => void checkpoint() },
       { id: 'view.preview', title: 'Toggle preview', group: 'View', shortcut: 'Ctrl+J', keywords: 'typeset pages print render', run: () => setMode((m) => (m === 'write' ? 'preview' : 'write')) },
       { id: 'view.sidebar', title: 'Toggle sidebar', group: 'View', shortcut: 'Ctrl+B', run: () => setSidebarOpen((open) => !open) },
       { id: 'view.agent', title: 'Toggle agent panel', group: 'View', shortcut: 'Ctrl+Shift+A', keywords: 'ai assistant opencode claude propose changes review', run: () => setAgentOpen((open) => !open) },
@@ -709,7 +816,7 @@ export function Workspace() {
     ]
     const unregister = commands.map(registerCommand)
     return () => unregister.forEach((fn) => fn())
-  }, [editor, newDocument, openDocument, saveDocument, exportPdf, measure, setMeasure])
+  }, [editor, newDocument, openDocument, saveDocument, exportPdf, checkpoint, measure, setMeasure])
 
   useEffect(() => {
     const title = `${docRef.name}${dirty ? ' •' : ''} — Essay`
@@ -840,6 +947,11 @@ export function Workspace() {
                 setMode('write')
                 if (editor) revealPosition(editor, mark.pos)
               }}
+              documentPath={docRef.path}
+              historyVersion={historyVersion}
+              currentHash={baseHash}
+              onCompareRevision={(revision) => void compareRevision(revision)}
+              onCheckpoint={() => void checkpoint()}
             />
           )}
           <main className="relative flex min-h-0 flex-col overflow-hidden bg-[var(--essay-editor-bg)]">

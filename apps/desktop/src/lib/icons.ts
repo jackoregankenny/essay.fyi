@@ -17,11 +17,13 @@ import {
   ArrowUUpLeft,
   ArrowsClockwise,
   ArrowsDownUp,
+  BookmarkSimple,
   Brain,
   CaretDown,
   CaretRight,
   CheckCircle,
   CircleNotch,
+  ClockCounterClockwise,
   DotsThree,
   Faders,
   FileText,
@@ -85,6 +87,11 @@ export const ExpandIcon = CaretRight
 export const CollapseIcon = CaretDown
 /** Dismiss a panel, a tab, a notice. */
 export const CloseIcon = X
+
+/** The document's history, and the pane that shows it. */
+export const HistoryIcon = ClockCounterClockwise
+/** A state the author marked as one worth keeping. */
+export const CheckpointIcon = BookmarkSimple
 
 /** A section that moved rather than changed. */
 export const MovedIcon = ArrowsDownUp

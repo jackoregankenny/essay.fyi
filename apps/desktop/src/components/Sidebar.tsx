@@ -1,5 +1,7 @@
 import type { DocumentMark, OutlineItem } from '@essay/editor'
 import { HighlighterCircle } from '@phosphor-icons/react'
+import type { Revision } from '#/lib/revisions'
+import { HistoryPane } from './HistoryPane'
 import { OutlinePane } from './OutlinePane'
 
 interface SidebarProps {
@@ -8,15 +10,30 @@ interface SidebarProps {
   marks: DocumentMark[]
   onSelectOutline: (item: OutlineItem) => void
   onSelectMark: (mark: DocumentMark) => void
+  documentPath: string | null
+  historyVersion: number
+  currentHash: string | null
+  onCompareRevision: (revision: Revision) => void
+  onCheckpoint: () => void
 }
 
-/** Outline-first: the sidebar is about navigating THIS document. */
+/**
+ * Outline-first: the sidebar is about navigating THIS document — where its
+ * sections are, what the author flagged to come back to, and how it got here.
+ * All three answer questions about the manuscript on screen, which is why
+ * history lives beside the outline rather than in a surface of its own.
+ */
 export function Sidebar({
   outline,
   activePos,
   marks,
   onSelectOutline,
   onSelectMark,
+  documentPath,
+  historyVersion,
+  currentHash,
+  onCompareRevision,
+  onCheckpoint,
 }: SidebarProps) {
   return (
     <aside className="flex h-full min-h-0 flex-col border-r border-[var(--essay-border)]">
@@ -26,6 +43,13 @@ export function Sidebar({
         onSelect={onSelectOutline}
       />
       {marks.length > 0 && <MarksPane marks={marks} onSelect={onSelectMark} />}
+      <HistoryPane
+        documentPath={documentPath}
+        version={historyVersion}
+        currentHash={currentHash}
+        onCompare={onCompareRevision}
+        onCheckpoint={onCheckpoint}
+      />
     </aside>
   )
 }
