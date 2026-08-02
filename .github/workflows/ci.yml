@@ -72,9 +72,59 @@ jobs:
         # essay-desktop needs webkit2gtk system libs on Linux and needs
         # apps/desktop/dist to exist at compile time (tauri::generate_context!
         # embeds it) -- neither is set up on this job, so it is excluded here.
-        # The Tauri shell still gets compiled and exercised in the `size` job
-        # on Windows, where the frontend is built first.
+        # The `desktop-linux` job below sets both up and compiles it.
         run: cargo test --workspace --exclude essay-desktop
+
+  desktop-linux:
+    name: desktop shell (linux compile)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux system dependencies
+        # Tauri links the system WebKitGTK on Linux rather than vendoring a
+        # webview, so without these the shell does not compile at all. Same set
+        # as the release workflow, minus the AppImage packaging tools -- this
+        # job never bundles.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential \
+            curl wget file
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        # tauri::generate_context! embeds apps/desktop/dist at compile time, so
+        # the shell will not build until the frontend has.
+        run: bun run build
+
+      - name: cargo check (essay-desktop)
+        # `check`, not `build`: this job exists to catch src-tauri source and
+        # dependency breakage on a platform nobody develops on, and the type
+        # and macro expansion work is where that shows up. A full link is
+        # minutes of Typst codegen for a binary that is then thrown away, and
+        # the `size` job already links the real thing on Windows. The gap is
+        # honest: a Linux-only link error would slip through this.
+        run: cargo check -p essay-desktop
 
   size:
     name: size (release build budget)

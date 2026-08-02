@@ -1,8 +1,9 @@
 name: Release
 
-# Tagging `v0.2.0` builds the Windows installer, signs the updater artifacts,
-# and publishes them as a GitHub release. The running app finds them through
-# `latest.json` at the endpoint in `apps/desktop/src-tauri/tauri.conf.json`.
+# Tagging `v0.2.0` builds an installer on each desktop platform, signs the
+# updater artifacts, and publishes them all as one GitHub release. The running
+# app finds them through `latest.json` at the endpoint in
+# `apps/desktop/src-tauri/tauri.conf.json`.
 #
 # Two repository secrets must exist for this to sign anything:
 #
@@ -17,6 +18,11 @@ name: Release
 # same key. If they ever stop matching, every installed copy of Essay rejects
 # the update as unsigned and says nothing about why — so rotate both together
 # or not at all.
+#
+# That key is Essay's own update signature and is all the updater checks. It is
+# not an Apple Developer ID: there are no Apple secrets here, so the macOS
+# artifacts are unsigned and unnotarised, and a first launch needs the
+# right-click → Open dance. Auto-updates after that are unaffected.
 
 on:
   push:
@@ -31,9 +37,66 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: windows installer + updater artifacts
-    runs-on: windows-latest
+  guard:
+    name: tag matches app version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check the tag matches the app version
+        shell: bash
+        # The updater compares the version in `latest.json` — which comes from
+        # tauri.conf.json, not from the tag — against the version each
+        # installed copy is running. Tagging v0.2.0 without bumping the config
+        # publishes an update that no one is ever offered, silently. Its own
+        # job so a mismatch costs seconds rather than three platform builds.
+        run: |
+          set -eu
+          TAG="${GITHUB_REF_NAME#v}"
+          APP=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
+          if [ "$TAG" != "$APP" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match tauri.conf.json version $APP"
+            exit 1
+          fi
+
+  bundle:
+    name: ${{ matrix.label }}
+    needs: guard
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      # One platform failing should not cancel installers that already built:
+      # the draft release keeps whatever landed, and the tag can be re-run.
+      fail-fast: false
+      # Deliberately serial. Each run of tauri-action builds `latest.json` by
+      # downloading the release's existing copy, merging its own platform in
+      # and re-uploading — a read-modify-write. Two jobs finishing at once lose
+      # one platform's entry, and a missing entry is not an error anywhere: it
+      # is simply an OS that stops being offered updates. Restore parallelism
+      # only alongside a final job that regenerates the whole file.
+      max-parallel: 1
+      matrix:
+        include:
+          - platform: windows-latest
+            label: windows (nsis installer)
+            args: ''
+            rust-targets: ''
+          # One universal binary rather than two builds: it covers Apple
+          # Silicon and Intel, and tauri-action writes both darwin-aarch64 and
+          # darwin-x86_64 into `latest.json` from it.
+          - platform: macos-latest
+            label: macos (universal .app + .dmg)
+            args: '--target universal-apple-darwin'
+            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          # Pinned, not `ubuntu-latest`. The build host sets the glibc floor of
+          # everything it produces, so letting GitHub move the image moves the
+          # oldest distro Essay runs on without anyone deciding to. 24.04 is the
+          # oldest image still supported through 2026 that ships
+          # libwebkit2gtk-4.1.
+          - platform: ubuntu-24.04
+            label: linux (deb + appimage)
+            args: ''
+            rust-targets: ''
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,29 +108,33 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Check the tag matches the app version
-        shell: bash
-        # The updater compares the version in `latest.json` — which comes from
-        # tauri.conf.json, not from the tag — against the version each
-        # installed copy is running. Tagging v0.2.0 without bumping the config
-        # publishes an update that no one is ever offered, silently.
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        # Tauri does not vendor a webview on Linux — it links the system
+        # WebKitGTK — and the AppImage bundler shells out to patchelf and
+        # xdg-utils. Absent any of these the bundle step fails at link or at
+        # package time, not at `cargo check`.
         run: |
-          set -eu
-          TAG="${GITHUB_REF_NAME#v}"
-          APP=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
-          if [ "$TAG" != "$APP" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match tauri.conf.json version $APP"
-            exit 1
-          fi
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential \
+            curl wget file patchelf xdg-utils
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build, sign and publish
+      - name: Build, sign and upload
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -78,12 +145,41 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
+          args: ${{ matrix.args }}
           tagName: ${{ github.ref_name }}
           releaseName: Essay ${{ github.ref_name }}
-          releaseBody: 'Download the installer below. Existing installations update themselves.'
-          # Published, not drafted: the updater reads
-          # `releases/latest/download/latest.json`, and a draft release is not
-          # `latest` to anyone but the maintainer.
-          releaseDraft: false
+          releaseBody: 'Download the installer for your platform below. Existing installations update themselves.'
+          # Drafted here and published by the `announce` job below. The updater
+          # reads `releases/latest/download/latest.json`, so the moment this
+          # release stops being a draft it is what every installed copy checks
+          # — and if that happens after the first platform finishes, the other
+          # two are offered an update that does not list them yet. A draft is
+          # invisible to the updater, which is exactly what is wanted until
+          # every platform has merged its entry.
+          releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
+
+  announce:
+    name: publish the release
+    needs: bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Flip the draft to published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        # Looked up by listing rather than by `releases/tags/<tag>`, because
+        # that endpoint 404s on drafts. `make_latest` is set explicitly: it is
+        # what makes `releases/latest/download/latest.json` — the updater's
+        # only endpoint — resolve here.
+        run: |
+          set -eu
+          TAG="$GITHUB_REF_NAME"
+          ID=$(gh api "repos/$GH_REPO/releases" --paginate \
+            --jq "[.[] | select(.tag_name == \"$TAG\")][0].id")
+          if [ -z "$ID" ] || [ "$ID" = "null" ]; then
+            echo "::error::no release found for tag $TAG"
+            exit 1
+          fi
+          gh api -X PATCH "repos/$GH_REPO/releases/$ID" -F draft=false -f make_latest=true
