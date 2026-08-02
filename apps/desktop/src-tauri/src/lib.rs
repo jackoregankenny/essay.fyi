@@ -719,6 +719,18 @@ pub fn run() {
       // to the launcher exactly as before.
       essay_agents::prepare_adapters(&app.path().app_data_dir()?);
 
+      // Essay embeds no fonts, so the machine's own are all a document gets
+      // unless the author adds to them. Created rather than merely named:
+      // a directory that does not exist is not somewhere anyone can put a
+      // file. Failing here costs the feature, never the launch.
+      if let Ok(data_dir) = app.path().app_data_dir() {
+        let fonts = data_dir.join("fonts");
+        if let Err(err) = std::fs::create_dir_all(&fonts) {
+          log::warn!("no font directory at {}: {err}", fonts.display());
+        }
+        essay_render::use_font_dir(fonts);
+      }
+
       let host = Arc::new(AgentHost::new(Arc::new(AppObserver {
         handle: app.handle().clone(),
       })));

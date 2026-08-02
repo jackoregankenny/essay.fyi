@@ -16,6 +16,11 @@ use typst_layout::PagedDocument;
 use world::EssayWorld;
 
 pub use convert::{markdown_to_typst, Converted, FrontMatter};
+/// Faces the author supplied, on top of the machine's own. Essay embeds no
+/// fonts (see `world.rs`), so this is how a document gets a face the system
+/// does not ship — and the answer to the same manuscript setting differently
+/// on two computers.
+pub use world::{font_dir, rescan_fonts, use_font_dir};
 
 /// The default Essay template, embedded so rendering works with zero
 /// filesystem setup. Authors will be able to override it per project.

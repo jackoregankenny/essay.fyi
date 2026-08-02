@@ -730,6 +730,17 @@ export function Workspace() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey)) return
+      // The editor gets the keystroke first — it is nested, and this listener
+      // is on `window`, the outermost target — and ProseMirror calls
+      // preventDefault on every shortcut it handles. Without this check the
+      // chrome acts on keys the manuscript has already consumed: Ctrl+B both
+      // bolds and toggles the sidebar, Ctrl+Shift+B quotes and toggles it,
+      // and Ctrl+Shift+S strikes through and opens Save As.
+      //
+      // Deliberately not a "did this come from the editor?" test. What
+      // matters is whether the keystroke was *used*, not where it landed, so
+      // Ctrl+B from the agent composer still reaches the sidebar.
+      if (event.defaultPrevented) return
       const key = event.key.toLowerCase()
       if (key === 'o') {
         event.preventDefault()

@@ -10,8 +10,8 @@
 //! than a family so the fallback is a decision rather than an accident.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 
 use typst::diag::{FileError, FileResult};
 use typst::foundations::{Bytes, Datetime};
@@ -39,22 +39,29 @@ struct FontSlot {
   loaded: OnceLock<Option<Font>>,
 }
 
-struct SystemFonts {
+struct FontSet {
   book: LazyHash<FontBook>,
   /// Parallel to the book: `slots[i]` is the face `book.info(i)` describes.
   slots: Vec<FontSlot>,
   db: fontdb::Database,
 }
 
-/// Scan the machine's fonts once per process.
-///
-/// A face whose metadata cannot be read is skipped rather than fatal — a
-/// broken font somewhere in a system directory must not stop a manuscript
-/// printing. Skipping in step keeps `slots` aligned with the book.
-fn system_fonts() -> &'static SystemFonts {
-  static FONTS: OnceLock<SystemFonts> = OnceLock::new();
-  FONTS.get_or_init(|| {
+impl FontSet {
+  /// Every face this machine can typeset with.
+  ///
+  /// A face whose metadata cannot be read is skipped rather than fatal — a
+  /// broken font somewhere in a system directory must not stop a manuscript
+  /// printing. Skipping in step keeps `slots` aligned with the book.
+  fn scan() -> Self {
     let mut db = fontdb::Database::new();
+
+    // The author's own faces go in first, and that order is the decision:
+    // Typst resolves a family name to the earliest matching face, so a font
+    // installed deliberately wins against the system's copy of the same
+    // family. Someone who installs Libertinus Serif means theirs.
+    if let Some(dir) = FONT_DIR.get() {
+      db.load_fonts_dir(dir);
+    }
     db.load_system_fonts();
 
     let mut book = FontBook::new();
@@ -72,12 +79,65 @@ fn system_fonts() -> &'static SystemFonts {
       }
     }
 
-    SystemFonts {
+    FontSet {
       book: LazyHash::new(book),
       slots,
       db,
     }
-  })
+  }
+}
+
+/// Where the author's own fonts live, if the shell has said.
+///
+/// Set once by the desktop shell, which is the only part of Essay that knows
+/// about app data directories. The CLI and the tests leave it unset, and that
+/// is not a degraded mode — it means "typeset with what the machine has",
+/// which is what happens either way.
+static FONT_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Point the typesetter at a directory of faces the author installed.
+///
+/// Read when the font set is next scanned rather than immediately, so calling
+/// this during startup — before any document opens — costs nothing.
+pub fn use_font_dir(dir: PathBuf) {
+  let _ = FONT_DIR.set(dir);
+}
+
+/// The author's font directory, for whoever needs to put a file in it.
+pub fn font_dir() -> Option<&'static Path> {
+  FONT_DIR.get().map(PathBuf::as_path)
+}
+
+/// The scanned set, kept behind a lock rather than a `OnceLock` so that
+/// installing a face does not mean relaunching the app to use it.
+static FONTS: RwLock<Option<Arc<FontSet>>> = RwLock::new(None);
+
+/// Forget the scanned faces; the next render picks up whatever is on disk now.
+pub fn rescan_fonts() {
+  *FONTS.write().unwrap_or_else(PoisonError::into_inner) = None;
+}
+
+/// The current font set, scanning on first use.
+///
+/// Handed out as an `Arc` and captured for the life of one `EssayWorld`, so a
+/// render sees a consistent set of faces even if fonts are installed while it
+/// is running.
+fn fonts() -> Arc<FontSet> {
+  if let Some(set) = FONTS
+    .read()
+    .unwrap_or_else(PoisonError::into_inner)
+    .as_ref()
+  {
+    return Arc::clone(set);
+  }
+  let mut guard = FONTS.write().unwrap_or_else(PoisonError::into_inner);
+  // Another thread may have scanned while this one waited for the write lock.
+  if let Some(set) = guard.as_ref() {
+    return Arc::clone(set);
+  }
+  let set = Arc::new(FontSet::scan());
+  *guard = Some(Arc::clone(&set));
+  set
 }
 
 fn library() -> &'static LazyHash<Library> {
@@ -91,6 +151,9 @@ pub struct EssayWorld {
   /// Directory that relative file references (images…) resolve against —
   /// the document's folder when the document has been saved.
   root: Option<PathBuf>,
+  /// Captured at construction, so one render typesets against one set of
+  /// faces even if fonts are installed while it runs.
+  fonts: Arc<FontSet>,
 }
 
 impl EssayWorld {
@@ -100,7 +163,12 @@ impl EssayWorld {
     let mut sources = HashMap::new();
     sources.insert(main, Source::new(main, main_source));
     sources.insert(template, Source::new(template, template_source.to_string()));
-    Self { main, sources, root }
+    Self {
+      main,
+      sources,
+      root,
+      fonts: fonts(),
+    }
   }
 }
 
@@ -110,7 +178,7 @@ impl World for EssayWorld {
   }
 
   fn book(&self) -> &LazyHash<FontBook> {
-    &system_fonts().book
+    &self.fonts.book
   }
 
   fn main(&self) -> FileId {
@@ -138,12 +206,12 @@ impl World for EssayWorld {
   }
 
   fn font(&self, index: usize) -> Option<Font> {
-    let fonts = system_fonts();
-    let slot = fonts.slots.get(index)?;
+    let slot = self.fonts.slots.get(index)?;
     slot
       .loaded
       .get_or_init(|| {
-        fonts
+        self
+          .fonts
           .db
           .with_face_data(slot.id, |data, index| {
             Font::new(Bytes::new(data.to_vec()), index)
