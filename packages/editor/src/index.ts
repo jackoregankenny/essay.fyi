@@ -19,12 +19,23 @@ import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import StarterKit from '@tiptap/starter-kit'
 import { Markdown } from '@tiptap/markdown'
-import { TableKit } from '@tiptap/extension-table'
-import { TaskItem, TaskList } from '@tiptap/extension-list'
+import { Table, TableKit } from '@tiptap/extension-table'
+
 import Highlight from '@tiptap/extension-highlight'
 import Image from '@tiptap/extension-image'
 import Typography from '@tiptap/extension-typography'
 import { CharacterCount, Placeholder } from '@tiptap/extensions'
+
+import { ManuscriptCodeBlock } from './markdown-code'
+import { MinimalEscaping } from './markdown-escapes'
+import {
+  ManuscriptBulletList,
+  ManuscriptListItem,
+  ManuscriptOrderedList,
+  ManuscriptTaskItem,
+  ManuscriptTaskList,
+} from './markdown-lists'
+import { renderManuscriptTable } from './markdown-tables'
 
 export type { Editor } from '@tiptap/core'
 
@@ -155,7 +166,15 @@ export interface ManuscriptOptions {
   placeholder?: string
 }
 
-/** The extension set every Essay manuscript uses, regardless of host. */
+/**
+ * The extension set every Essay manuscript uses, regardless of host.
+ *
+ * Three of the stock nodes are replaced by variants that serialize back to the
+ * author's Markdown rather than to a normalised form of it — see
+ * `markdown-lists.ts` and `markdown-tables.ts` for what each one stops the
+ * serializer from rewriting, and `markdown-escapes.ts` for the text-level
+ * equivalent. All of it exists to hold invariant 2.
+ */
 export function manuscriptExtensions(
   options: ManuscriptOptions = {},
 ): AnyExtension[] {
@@ -163,16 +182,31 @@ export function manuscriptExtensions(
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4, 5, 6] },
       link: { openOnClick: false },
+      bulletList: false,
+      orderedList: false,
+      listItem: false,
+      codeBlock: false,
     }),
+    ManuscriptCodeBlock,
+    ManuscriptBulletList,
+    ManuscriptOrderedList,
+    ManuscriptListItem,
     Markdown,
     TableKit.configure({
-      table: { resizable: false },
+      table: false,
+      // The stock table serializer pads every cell to its column width and
+      // wraps the block in its own newlines; ours does neither.
+      tableCell: {},
+      tableHeader: {},
+      tableRow: {},
     }),
-    TaskList,
-    TaskItem.configure({ nested: true }),
+    Table.extend({ renderMarkdown: renderManuscriptTable }).configure({ resizable: false }),
+    ManuscriptTaskList,
+    ManuscriptTaskItem.configure({ nested: true }),
     Image,
     Typography,
     Highlight,
+    MinimalEscaping,
     MarkdownLinkTyping,
     CharacterCount,
     Placeholder.configure({

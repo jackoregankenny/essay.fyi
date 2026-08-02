@@ -25,6 +25,8 @@
 
 import type { Editor } from '@tiptap/core'
 
+import { serializeBody } from './markdown-escapes'
+
 /**
  * Opening `---` on the first line, a body, and a closing `---` on its own
  * line. Anchored to the start of the document — a `---` further down is a
@@ -54,6 +56,9 @@ export function splitFrontMatter(source: string): SplitManuscript {
  * Per-editor store. A WeakMap so a discarded editor takes its metadata with
  * it, and so nothing has to be threaded through the host's state.
  */
+/** The blank lines a file ends with, held aside like the front matter. */
+const TRAILING_NEWLINES = /(?:[ \t]*\r?\n)+$/
+
 interface Held {
   frontMatter: string
   /** Whether the file ended with a newline. The serializer does not emit one,
@@ -67,21 +72,32 @@ interface Held {
 
 const held = new WeakMap<Editor, Held>()
 
-/** Load a manuscript, keeping any front matter out of the editor. */
+/**
+ * Load a manuscript, keeping any front matter — and the file's trailing blank
+ * lines — out of the editor.
+ *
+ * The trailing newlines are held aside for the same reason the front matter
+ * is: round-tripping them through the parser destroys them. Blank lines at the
+ * end of a file parse into empty paragraphs, which serialize back as more
+ * blank lines and eventually as a literal `&nbsp;`, so a document that ended
+ * in a list or a table grew a little on *every* autosave. Holding them aside
+ * and restoring them verbatim is what makes such a file byte-stable.
+ */
 export function setManuscript(
   editor: Editor,
   source: string,
   options: { emitUpdate?: boolean } = {},
 ): void {
   const { frontMatter, body } = splitFrontMatter(source)
+  const trailingNewline = body.match(TRAILING_NEWLINES)?.[0] ?? ''
   held.set(editor, {
     frontMatter,
-    trailingNewline: body.match(/(\r?\n)+$/)?.[0] ?? '',
+    trailingNewline,
     // Decided on the body alone: the front matter is restored verbatim and
     // has no say in how the prose after it is written.
     crlf: /\r\n/.test(body),
   })
-  editor.commands.setContent(body, {
+  editor.commands.setContent(body.slice(0, body.length - trailingNewline.length), {
     contentType: 'markdown',
     emitUpdate: options.emitUpdate ?? false,
   })
@@ -96,7 +112,9 @@ export function setManuscript(
  */
 export function getManuscript(editor: Editor): string {
   const kept = held.get(editor)
-  const serialized = editor.getMarkdown()
+  // Blank lines the serializer adds at the end are its own, not the author's;
+  // the author's are in `trailingNewline` and go back on below.
+  const serialized = serializeBody(editor).replace(TRAILING_NEWLINES, '')
   if (!kept) return serialized
   const body = kept.crlf ? serialized.replace(/\r?\n/g, '\r\n') : serialized
   // Only restore the trailing newline onto a body that still has content;

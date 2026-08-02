@@ -32,6 +32,12 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Round-trip and serializer tests
+        # Golden-file tests over fixtures/: the manuscript surface must write
+        # an author's Markdown back byte-for-byte (invariant 2). A failure here
+        # means a save would rewrite a document nobody edited.
+        run: bun test
+
       - name: Build frontend
         run: bun run build
 

@@ -26,8 +26,82 @@ indented code, raw HTML, footnotes defined out of order, MDX-ish and custom
 fenced blocks, and a file that ends without a trailing newline.
 
 Invariant 2 says saving must not gratuitously rewrite the author's Markdown.
-This file is how that claim gets tested. It has no golden-file test attached
-yet — writing one is the next piece of work it exists for.
+This file is how that claim gets tested. The tests live in
+`packages/editor/test/roundtrip.test.ts` and run under `bun test`; the other
+three manuscripts here are asserted **byte-identical** after a save, and this
+one is compared against a recorded golden (see `roundtrip/` below).
+
+### What a save still does to `awkward-syntax.md`
+
+Ranked by how much an author would mind. Everything below is pinned by a test,
+so none of it can get quietly worse.
+
+**Destroyed — content or syntax does not survive at all.**
+
+| Construct | What happens |
+| --- | --- |
+| `<!-- an HTML comment -->` | Deleted. Nothing is written back. |
+| `<div class="callout">…</div>` | Wrapper and every attribute dropped; only the Markdown-ish content inside survives (`**Raw HTML block.**`). |
+| `<abbr title="…">HTML</abbr>` | Unwrapped to its text; the tag and title are gone. |
+| `[ref]: https://…` definitions | Dropped. Every `[text][ref]` is rewritten as an inline `[text](url)`. |
+
+The HTML row is the serious one, and it is the clearest place the invariant's
+"unknown syntax must survive" is not yet held. The cause is structural: the
+schema has no node for raw HTML, so the parser keeps what it recognises and
+discards the rest. The fix is a real block node in the manuscript that holds
+its source verbatim — a product decision, not a serializer tweak. Note that
+syntax the parser does *not* recognise as HTML is fine: `:::note` blocks,
+`{{< shortcode >}}`, `$$…$$` math and `==highlight==` all round-trip exactly.
+MDX-style `<Callout>` survives only as `&lt;Callout&gt;`, because anything that
+looks like a tag is read as HTML on the way in.
+
+**Normalised — the meaning survives, the bytes do not.**
+
+| Construct | Becomes |
+| --- | --- |
+| `Setext Heading\n===` | `# Setext Heading` |
+| `_emphasis_`, `__strong__` | `*emphasis*`, `**strong**` |
+| `<https://example.com>`, bare URLs | `[https://example.com](https://example.com)` |
+| A backslash hard break | Two trailing spaces |
+| `- [X]` | `- [x]` (the schema stores a boolean) |
+| `&amp;` | `&` (entities are decoded on the way in and not re-encoded) |
+| `\\` before a space | `\` (a backslash only escapes punctuation) |
+| Three trailing spaces | Two — the shortest hard break |
+| `> a\n> > b` | Gains a `>` line between the levels |
+| A loose list | Tightened: the blank line between items goes |
+| Two ordered lists separated by a blank line | Merged into one and renumbered — `marked` reads them as a single list, so `1./1./1.` followed by `7./8.` comes back `1.`…`5.` |
+| A task list nested two columns in | Re-indented to the six-column checkbox column |
+
+**Still drifting — rewritten again on every save.** Two remain, both upstream,
+both pinned by name in the test suite:
+
+- Inline code that contains a backtick (`` ``code with a ` backtick`` ``) comes
+  back with a single-backtick delimiter, which no longer closes where it
+  should. The serializer derives a mark's delimiter without seeing its content,
+  so there is no seam to widen it from.
+- A fenced block **inside an ordered list item** gains one space of indent per
+  save. The upstream list tokenizer dedents an item's nested blocks by the
+  width of the number rather than of the whole `1. ` marker.
+
+Everything else that used to drift now does not: a document ending in a list no
+longer grows blank lines (and eventually an `&nbsp;`) on every autosave, a task
+item whose text wrapped no longer accumulates a pair of code fences, and a
+four-backtick fence keeps its width.
+
+## `roundtrip/`
+
+Golden outputs — what the serializer produces **today**, not what it ought to
+produce. They exist so that drift is loud: a change to any construct the round
+trip cannot yet preserve shows up as a failing diff rather than as a quiet
+change to somebody's manuscript.
+
+- `awkward-syntax.golden.md` — one save of `manuscripts/awkward-syntax.md`.
+
+Regenerate deliberately, and read the diff:
+
+```bash
+UPDATE_GOLDEN=1 bun test
+```
 
 ## `diffs/`
 
