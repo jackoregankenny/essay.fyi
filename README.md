@@ -42,6 +42,9 @@ underlying model does.
 - **Auto-update.** Signed release checks, background download, restart only
   when you say so.
 
+Full documentation — guides, reference, and internals — is in
+[docs/README.md](docs/README.md).
+
 ## Quickstart
 
 Prerequisites:
@@ -95,10 +98,14 @@ docs/             Product brief, architecture, document model, agent protocol, r
 ## Status and roadmap
 
 Milestones 0–4 are in: manuscript editing, Typst rendering, the durability
-layer, structural diffs, and the ACP agent host. Next up: hardening the
-Markdown round-trip serializer (table padding and list renumbering on save
-are known rough edges), a revision timeline over the existing snapshot
-history, search / quick-open, packaging, and the planned UI overhaul.
+layer, structural diffs, and the ACP agent host. Next up: citations and
+bibliography, maths, hardening the Markdown round-trip serializer (table
+padding and list renumbering on save are known rough edges), a revision
+timeline over the existing snapshot history, search / quick-open, packaging,
+and the planned UI overhaul.
+
+The full build list, with what each item would actually cost, is in
+[docs/roadmap.md](docs/roadmap.md).
 
 ## License
 
