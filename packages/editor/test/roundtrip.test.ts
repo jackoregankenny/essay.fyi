@@ -142,6 +142,30 @@ describe('a save that changes nothing writes the file back unchanged', () => {
     keeps('Literal \\*not emphasis\\* and a literal \\_here\\_.\n')
     keeps('Literal \\[a\\](b) brackets that must not become a link.\n')
   })
+
+  /**
+   * Raw HTML, which used to be the worst loss in the suite: the schema had no
+   * node for it, so a block came back as whatever the parser recognised
+   * *inside* it and a comment came back as nothing at all.
+   */
+  test('keeps a raw HTML block, wrapper and attributes and all', () => {
+    keeps(
+      '<div class="callout" data-note="unknown to the editor">\n  <strong>Raw HTML block.</strong> Nothing here is Markdown.\n</div>\n',
+    )
+  })
+
+  test('keeps an HTML comment', () => {
+    keeps('<!-- An HTML comment that must not be eaten. -->\n')
+  })
+
+  test('keeps raw HTML sitting between prose', () => {
+    keeps('Before.\n\n<figure>\n  <img src="a.png">\n  <figcaption>A caption.</figcaption>\n</figure>\n\nAfter.\n')
+  })
+
+  test('keeps a self-closing tag and an unclosed one', () => {
+    keeps('<hr class="fancy" />\n')
+    keeps('<br>\n')
+  })
 })
 
 describe('the corpus manuscripts survive a save untouched', () => {
@@ -186,7 +210,6 @@ describe('a file that cannot be preserved is at least not eroded', () => {
       'An <https://example.com/autolink>.\n',
       'This line ends with a backslash\\\nand continues here.\n',
       '> A block quote\n> > containing a nested block quote\n',
-      '<div class="callout">\n  <strong>Raw HTML block.</strong>\n</div>\n',
     ]
     for (const source of rewritten) {
       const once = roundTrip(source)
@@ -206,19 +229,6 @@ describe('what a save still loses, recorded so it cannot get quietly worse', () 
     expect(
       roundTrip('A [reference link][ref].\n\n[ref]: https://example.com/one "With a title"\n'),
     ).toBe('A [reference link](https://example.com/one "With a title").\n')
-  })
-
-  test('a raw HTML block loses its wrapper and every attribute on it', () => {
-    // The most serious loss in the list: the schema has no node for unknown
-    // HTML, so the parser keeps whatever it recognises inside the block and
-    // drops the rest. `unknown syntax must survive` is not held here.
-    expect(
-      roundTrip('<div class="callout" data-note="unknown to the editor">\n  <strong>Raw HTML block.</strong> Nothing here is Markdown.\n</div>\n'),
-    ).toBe('**Raw HTML block.** Nothing here is Markdown.\n')
-  })
-
-  test('an HTML comment is deleted outright', () => {
-    expect(roundTrip('<!-- An HTML comment that must not be eaten. -->\n')).toBe('')
   })
 
   test('an inline HTML tag is unwrapped to its text', () => {

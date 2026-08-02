@@ -28,6 +28,7 @@ import { CharacterCount, Placeholder } from '@tiptap/extensions'
 
 import { ManuscriptCodeBlock } from './markdown-code'
 import { MinimalEscaping } from './markdown-escapes'
+import { ManuscriptHtmlBlock } from './markdown-html'
 import {
   ManuscriptBulletList,
   ManuscriptListItem,
@@ -188,6 +189,7 @@ export function manuscriptExtensions(
       codeBlock: false,
     }),
     ManuscriptCodeBlock,
+    ManuscriptHtmlBlock,
     ManuscriptBulletList,
     ManuscriptOrderedList,
     ManuscriptListItem,

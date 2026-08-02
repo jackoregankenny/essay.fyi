@@ -94,13 +94,15 @@ Inline `code`, `code with a ` backtick`, and `triple ` inside`.
 
 ## HTML must pass through untouched
 
-**Raw HTML block.** Nothing here is Markdown.
+<div class="callout" data-note="unknown to the editor">
+  <strong>Raw HTML block.</strong> Nothing here is Markdown.
+</div>
 
 Inline HTML too, and a
 self-closing   
  tag.
 
-
+<!-- An HTML comment that must not be eaten. -->
 
 ## Tables that are not tidy
 
@@ -141,9 +143,9 @@ $$
 
 Inline math $a^2 + b^2 = c^2$ and a currency amount $50 that is not math.
 
-&lt;Callout type="warning"&gt;
+<Callout type="warning">
   Tolerated MDX-style syntax.
-&lt;/Callout&gt;
+</Callout>
 
 ## Highlights
 

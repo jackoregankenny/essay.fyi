@@ -40,20 +40,23 @@ so none of it can get quietly worse.
 
 | Construct | What happens |
 | --- | --- |
-| `<!-- an HTML comment -->` | Deleted. Nothing is written back. |
-| `<div class="callout">…</div>` | Wrapper and every attribute dropped; only the Markdown-ish content inside survives (`**Raw HTML block.**`). |
 | `<abbr title="…">HTML</abbr>` | Unwrapped to its text; the tag and title are gone. |
 | `[ref]: https://…` definitions | Dropped. Every `[text][ref]` is rewritten as an inline `[text](url)`. |
 
-The HTML row is the serious one, and it is the clearest place the invariant's
-"unknown syntax must survive" is not yet held. The cause is structural: the
-schema has no node for raw HTML, so the parser keeps what it recognises and
-discards the rest. The fix is a real block node in the manuscript that holds
-its source verbatim — a product decision, not a serializer tweak. Note that
-syntax the parser does *not* recognise as HTML is fine: `:::note` blocks,
-`{{< shortcode >}}`, `$$…$$` math and `==highlight==` all round-trip exactly.
-MDX-style `<Callout>` survives only as `&lt;Callout&gt;`, because anything that
-looks like a tag is read as HTML on the way in.
+**Block-level raw HTML used to head this table and no longer does.**
+`<div class="callout">…</div>`, `<!-- a comment -->`, `<figure>`, a bare
+`<br>` and MDX-style `<Callout type="warning">` now all come back byte for
+byte, held by a `htmlBlock` node that keeps its own source verbatim
+(`packages/editor/src/markdown-html.ts`). Syntax the parser does not read as
+HTML was always fine and still is: `:::note` blocks, `{{< shortcode >}}`,
+`$$…$$` math and `==highlight==` round-trip exactly.
+
+What remains is **inline** HTML — a tag inside a sentence rather than a block
+of its own. That one is not fixable from here: `@tiptap/markdown` intercepts
+inline `html` tokens before any extension is consulted, pairing opening and
+closing tags and turning what it recognises into marks, so `<abbr>` mid
+sentence still loses its tag. Fixing it means changing the library's inline
+path rather than adding a node.
 
 **Normalised — the meaning survives, the bytes do not.**
 

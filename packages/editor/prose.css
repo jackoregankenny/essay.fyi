@@ -221,6 +221,19 @@
   font-size: 1em;
 }
 
+/* Raw HTML: source the editor is keeping rather than rendering.
+
+   A code block in every visual respect but one — the dashed rule says this is
+   not something the author asked to typeset as code, it is something Essay
+   does not understand and is holding on to verbatim. Muted, because it is
+   markup rather than prose and should not compete with the sentence above
+   it. */
+.essay-prose pre[data-essay-html] {
+  border-style: dashed;
+  background: none;
+  color: var(--essay-text-muted);
+}
+
 /* ——— Tables: book style — horizontal rules only, no grid ——— */
 
 .essay-prose table {
