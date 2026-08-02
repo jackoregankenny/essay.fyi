@@ -81,14 +81,32 @@ that scopes `--essay-measure` to the manuscript so the print pane keeps the
 template's geometry.
 
 **Milestone 2 core is in: Typst rendering.** `essay-render` embeds Typst
-0.15 (manual `World` in `world.rs`, embedded fonts via typst-assets,
-mdast→Typst emitter in `convert.rs` with escaping + `==highlight==` +
-booktabs tables + front-matter lift; template embedded from
-`templates/essay/essay.typ`). Outputs: SVG pages (live preview), PDF
-(export), PNG (tests/CLI eyeballing). Tauri commands `render_document` /
-`export_pdf` run on blocking threads; the frontend debounces (500ms,
-latest-wins) in `usePreview.ts` — typing never waits. Ctrl+J toggles the
-print pane; `essay render doc.md --format pdf|svg|png` works headless.
+0.15 (manual `World` in `world.rs`, mdast→Typst emitter in `convert.rs` with
+escaping + `==highlight==` + `[@key]` citations + booktabs tables +
+front-matter lift; template embedded from `templates/essay/essay.typ`).
+Outputs: SVG pages (live preview), PDF (export), PNG (tests/CLI eyeballing).
+Tauri commands `render_document` / `export_pdf` run on blocking threads; the
+frontend debounces (500ms, latest-wins) in `usePreview.ts` — typing never
+waits. Ctrl+J toggles the print pane; `essay render doc.md --format
+pdf|svg|png` works headless. Compiler warnings reach the print pane, grouped
+by message (Typst reports per occurrence).
+
+**Fonts are the machine's, not the binary's.** `typst-assets`' `fonts`
+feature is off — it was an all-or-nothing 9.23 MB and Essay reached two of
+four families. `world.rs` scans via `fontdb`, loading `<app data>/fonts`
+*before* the system's so an author's deliberate install wins a name
+collision; `use_font_dir` is a `OnceLock` the shell sets, keeping the crate
+free of Tauri. The set is an `Arc` behind an `RwLock` (not a `OnceLock`) so
+`rescan_fonts()` works without a relaunch. The cost is real and stated:
+a document no longer typesets identically on every machine, which is why
+`essay.typ` names a font *stack*.
+
+**Citations: `[@key]` → `#cite`, `references.bib` → `#bibliography`.** Only
+the bracketed form — a bare `@key` would swallow email addresses. The trap
+worth remembering: **`#cite` with no `#bibliography` is a Typst compile
+error**, so the bibliography is looked for *before* conversion and decides
+whether citations fire at all; otherwise an unsaved draft goes blank the
+moment its author types one. `fixtures/citations/` covers both.
 
 **The durability layer is in: `essay-workspace`.** Every read returns a
 blake3 content hash; every write hands it back as `base_hash`. A save whose
@@ -243,13 +261,34 @@ but a structured transcript, session control, and provenance for watcher-caught
 edits. A writer is not the audience for an embedded terminal; that, not
 enforcement, is the argument for the panel.
 
-Next: the round-trip serializer is the real invariant violation and it is
-*ours*, not an agent's — `@tiptap/markdown` re-pads table cells and renumbers
-ordered lists on every save. Golden tests over `awkward-syntax.md` belong with
-that fix. Then the revision timeline on `SnapshotStore`, search / quick-open,
-packaging. A **UI overhaul is planned** (Jack, 2026-07-31: the current chrome
-was derived from the text editor and that is not the direction) — so harden
-the model, keep new UI minimal, and expect the panel/chrome to be redrawn.
+**The revision timeline is in.** A History pane in the sidebar over
+`list_revisions`/`revision_source`, with `restore_revision` and
+`checkpoint_document` added — which is what finally produces
+`RevisionOrigin::Restore` and `::Checkpoint`. Clicking a row opens the
+existing `DiffReview` (its `provenance` prop always anticipated "a
+revision"); old is the revision, new is now, so the diff reads forwards and
+restoring is the way back. Restore is hash-guarded like any write, so it
+cannot clobber an edit that landed while the author was reading. Checkpoint
+is a *store* method, not a `snapshot()` call: autosave has usually already
+recorded those bytes, so idempotence would swallow the mark — relabelling the
+existing revision is the honest reading. The pane queries only while open;
+the timeline refreshes off `baseHash` rather than from four call sites.
+
+Round-trip: **block-level raw HTML now survives** (`markdown-html.ts`, a
+`code: true` node holding its source verbatim, routed by
+`markdownTokenName: 'html'`) — `<div>` with attributes, comments, `<figure>`,
+`<br>`, and MDX `<Callout>` as a free consequence. **Inline** HTML still does
+not and cannot from here: `@tiptap/markdown` intercepts inline `html` tokens
+before extensions are consulted. Table re-padding and list renumbering are
+fixed; `awkward-syntax.md` has a golden.
+
+Next: search / quick-open (`essay-search` is still a doc comment and nothing
+else — the one place where no backend exists), packaging. A **UI overhaul is
+planned** (Jack, 2026-07-31: the current chrome was derived from the text
+editor and that is not the direction). Jack's framing (2026-08-02): the
+current UI is a **POC for evaluating features** — build the feature roughly,
+end to end, and the style pass makes it good — so features are worth taking
+to a usable surface now, and polish is not.
 Inline agent presence (highlight where the agent is reading/editing, section
 markers for pending proposals) is designed for that pass: `toolCall` events
 already carry `locations`, and `SectionChange` names the touched headings.

@@ -34,6 +34,13 @@ underlying model does.
 - **Structural diffs.** Changes are reported by section, not just by line —
   edited, moved, added, removed — with a churn score that distinguishes a
   scoped edit from a wholesale rewrite.
+- **A revision timeline.** Every save, agent patch and edit made outside
+  Essay is snapshotted; the History pane lists them, diffs any of them against
+  the document now, and restores one through the same hash guard as any other
+  write — so going back is itself undoable.
+- **Citations and a bibliography.** Write `[@key]` and put `references.bib`
+  beside the manuscript; it typesets with a numbered bibliography. Nothing to
+  configure, and no LaTeX.
 - **Reviewable AI agent sessions.** Talk to opencode or Claude Code over ACP
   from a side panel. Proposed file writes become an explicit change set you
   accept or reject; edits agents make directly on disk are caught by the
@@ -98,11 +105,10 @@ docs/             Product brief, architecture, document model, agent protocol, r
 ## Status and roadmap
 
 Milestones 0–4 are in: manuscript editing, Typst rendering, the durability
-layer, structural diffs, and the ACP agent host. Next up: citations and
-bibliography, maths, hardening the Markdown round-trip serializer (table
-padding and list renumbering on save are known rough edges), a revision
-timeline over the existing snapshot history, search / quick-open, packaging,
-and the planned UI overhaul.
+layer, structural diffs, and the ACP agent host — plus citations with a
+bibliography, a revision timeline with restore over the existing snapshot
+history, and fonts the author installs. Next up: search / quick-open, maths,
+packaging, and the planned UI overhaul.
 
 The full build list, with what each item would actually cost, is in
 [docs/roadmap.md](docs/roadmap.md).

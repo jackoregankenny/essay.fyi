@@ -9,11 +9,15 @@ toolchain, no network.
 ## The pipeline
 
 ```text
-markdown_to_typst(source)     convert.rs — mdast → Typst markup
+find_bibliography(root)       references.yml|yaml|bib, bibliography.bib
+        │                     decides whether [@key] may fire at all
+        ▼
+markdown_to_typst(source, …)  convert.rs — mdast → Typst markup
         │                     front matter lifted out, not emitted as body
         ▼
 build_main_source(converted)  #import "/template.typ": essay
         │                     #show: essay.with(title: …, author: …, date: …)
+        │                     #bibliography("references.bib") after the body
         ▼
 EssayWorld::new(main, ESSAY_TEMPLATE, root)
         ▼
@@ -26,8 +30,16 @@ The template is `templates/essay/essay.typ`, pulled in with `include_str!` so
 rendering works with zero filesystem setup. Per-project template overrides are
 planned, not built.
 
-`convert.rs` handles escaping, `==highlight==`, booktabs tables and the
-front-matter lift. It parses with the same `parse_options()` shape that
+`convert.rs` handles escaping, `==highlight==`, `[@key]` citations, booktabs
+tables and the front-matter lift.
+
+**Why the bibliography lookup happens first.** Typst treats a `#cite` with no
+`#bibliography` as a *compile error*, not a missing reference — so whether a
+bibliography exists has to be known before conversion, because it decides
+whether `[@key]` becomes a citation or stays the text the author typed. Emit
+citations unconditionally and an unsaved draft, which has no folder to resolve
+against, goes blank the moment its author types one. That is what the `Ctx`
+threaded through the emitters carries. It parses with the same `parse_options()` shape that
 `essay-markdown` uses. **Those two must agree.** They did not once: front
 matter was not enabled in `essay-markdown::index()`, so a YAML block's closing
 `---` turned the line above into a setext heading and the whole block landed in
@@ -42,11 +54,24 @@ about a hundred lines and it is deliberately small.
 
 - **Two in-memory sources**, `/main.typ` and `/template.typ`. Nothing else is
   a source, so a document cannot `#import` an arbitrary file.
-- **The machine's own fonts**, scanned once per process through `fontdb` into
-  a `OnceLock`. `typst-assets`' `fonts` feature is deliberately off: it is an
+- **The author's fonts, then the machine's own**, scanned through `fontdb`.
+  `typst-assets`' `fonts` feature is deliberately off: it is an
   all-or-nothing 9.23 MB of Libertinus, New Computer Modern and DejaVu, and no
   other crate in the Typst tree asks for it, so leaving it off keeps those
   megabytes out of every artifact.
+
+  `<app data>/fonts` is loaded **before** the system directories, and the
+  order is the decision: Typst resolves a family name to the earliest matching
+  face, so someone who installs Libertinus Serif gets theirs rather than the
+  system's copy. `essay-render` learns the path through `use_font_dir`, a
+  `OnceLock` the desktop shell sets — the crate itself stays free of Tauri,
+  and the CLI simply leaves it unset.
+
+  The scanned set lives behind an `RwLock<Option<Arc<FontSet>>>` rather than a
+  `OnceLock`, so `rescan_fonts()` can drop it and the next render picks up a
+  newly installed face without a relaunch. `EssayWorld` captures the `Arc` at
+  construction, so one render still typesets against one consistent set of
+  faces even if fonts arrive while it is running.
 
   Metadata and bytes are loaded separately, and that split is the point.
   Building the `FontBook` needs every installed face's *info*, so every font

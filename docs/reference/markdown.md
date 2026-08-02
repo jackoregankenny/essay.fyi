@@ -24,6 +24,21 @@ Two beyond that:
 
 - `==highlight==` — Essay's come-back-to-this mark, in the Obsidian form, so
   it survives in other editors.
+- `[@key]` — a citation, in Pandoc's form. Put `references.bib` (or
+  `references.yml`) beside the manuscript and it typesets as a numbered
+  citation with a bibliography after the body. `[@one; @two]` cites both.
+
+  Only the bracketed form counts. A bare `@key` mid-sentence is **not** a
+  citation, deliberately: `@` is too common in ordinary prose — addresses,
+  handles, `10 @ £4` — for an unbracketed match to be anything but a trap.
+  `[see @smith, p. 33]` is not one either; prefixes and locators are not
+  supported yet, so that stays literal text.
+
+  With no bibliography file to resolve against, `[@key]` stays exactly as
+  typed and the document still typesets. That is why an unsaved draft — which
+  has no folder to look in — prints its citations as plain text rather than
+  failing to print.
+
 **Maths is not supported.** `$…$` and `$$…$$` survive a save byte-for-byte,
 but only because nothing recognises them: the parser runs with GFM
 constructs, where maths is off, so they are ordinary paragraph text all the
@@ -60,6 +75,9 @@ regression here is a bug, full stop.
 - Syntax the editor has no extension for: `:::note` blocks,
   `{{< shortcode >}}`, `$$…$$` and inline `$…$`, and a bare `$50` that is not
   math.
+- Block-level raw HTML, with every attribute: a `<div>`, an HTML comment, a
+  `<figure>` between two paragraphs, a bare `<br>`, a self-closing `<hr />`,
+  and MDX-style `<Callout type="warning">`.
 - Escaped punctuation stays escaped. An underscore inside `snake_case` is not
   emphasis. A bare `&`, `<` and `>` stay bare. `[1]` and `[note]` are not
   links.
@@ -90,24 +108,27 @@ That last one is the least obvious: the parser reads them as a single list, so
 
 ## Tier 3 — destroyed
 
-Say it plainly: **raw HTML does not survive a save.** The schema has no node
-for it, so the parser keeps whatever Markdown it recognises inside and
-discards the rest.
-
 | You wrote | What is left |
 | --- | --- |
-| `<!-- a comment -->` | Nothing. It is deleted. |
-| `<div class="callout">…</div>` | The wrapper and every attribute are gone; only Markdown-ish content inside survives |
-| `<abbr title="…">HTML</abbr>` | `HTML` — the tag and its title are gone |
+| `<abbr title="…">HTML</abbr>` mid-sentence | `HTML` — the tag and its title are gone |
 | `[ref]: https://…` definitions | Dropped, and every `[text][ref]` is rewritten as an inline link |
-| `<Callout>` (MDX-style) | `&lt;Callout&gt;` — anything that looks like a tag is read as HTML on the way in |
 
-This is where "unknown syntax must survive" is not held. The cause is
-structural, and the fix is a real block node in the manuscript that holds its
-source verbatim — a product decision, not a serializer tweak.
+**Block-level raw HTML used to be the whole of this section and is now in
+tier 1.** A `<div>` with arbitrary attributes, an HTML comment, a `<figure>`
+between two paragraphs, a bare `<br>`, a self-closing `<hr />` and MDX-style
+`<Callout type="warning">` all come back byte for byte. Essay holds them in a
+block that keeps its own source verbatim; in the editor they appear as
+markup behind a dashed rule, which is Essay saying it does not understand
+this and is keeping it exactly as written. You can edit it there.
 
-**If your document contains HTML you cannot afford to lose, do not open it in
-Essay yet.**
+What is left is **inline** HTML — a tag inside a sentence rather than a block
+of its own. `@tiptap/markdown` intercepts inline HTML before Essay is
+consulted, pairing tags and converting what it recognises into marks, so the
+tag itself does not come back. This one needs a change to that library rather
+than to Essay.
+
+**If your documents lean on inline HTML tags you cannot afford to lose, that
+part is still unsafe.**
 
 ## Two constructs that still drift
 

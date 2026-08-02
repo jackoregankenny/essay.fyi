@@ -8,39 +8,35 @@ behaviour; for that, start at [the docs index](./README.md).
 
 ## Already paid for, not yet shipped
 
-Both of these have their engine compiled into every Essay binary today,
-because Typst brings it whether or not Essay calls it. The work is wiring, not
-dependency selection — see [artifact size](./internals/size.md) for the
-measurements.
+These have their engine compiled into every Essay binary today, because Typst
+brings it whether or not Essay calls it. The work is wiring, not dependency
+selection — see [artifact size](./internals/size.md) for the measurements.
 
-### Citations and bibliography
+### ~~Citations and bibliography~~ — shipped
 
-**Cost already borne: ~2.4 MiB of code (`hayagriva`, `citationberg`) plus
-roughly 3.8 MB of CSL style data.** Currently unreached — nothing in
-`essay-render/src/convert.rs` emits `#cite` or `#bibliography`.
+`[@key]` emits `#cite`, and a `references.bib` beside the manuscript emits
+`#bibliography` after the body. See
+[markdown](./reference/markdown.md#supported-syntax) for the syntax and
+`fixtures/citations/` for the corpus.
 
-For the documents Essay is aimed at — essays, RFCs, board papers, technical
-proposals — this is the largest capability available for the least new
-dependency, which is none. [`docs/document-model.md`](./document-model.md)
-already places `references.bib` beside the manuscript in the intended folder
-layout.
+One finding worth keeping, because it shapes anything built on top: **`#cite`
+with no `#bibliography` is a compile error in Typst, not a missing
+reference.** So the bibliography is looked for *before* conversion and decides
+whether `[@key]` may fire at all — otherwise an unsaved draft, which has no
+folder to resolve against, would go blank the moment its author typed a
+citation.
 
-What it needs:
-
-1. A citation syntax in the manuscript that survives the round trip. Pandoc's
-   `[@key]` is the obvious candidate and is plain text, so it costs the
-   serializer nothing.
-2. `convert.rs` emitting `#cite(<key>)` and a `#bibliography` call, with the
-   `.bib` or `.yml` resolved against the document's folder — the same root
-   `EssayWorld` already uses for images.
-3. A `World::file` path for the bibliography source. This already works;
-   relative reads resolve against the document directory.
-4. Golden tests over a fixture manuscript with references.
-
-The editor can stay ignorant at first: `[@key]` is ordinary text to it, so
-citations would typeset without any change to the manuscript surface.
+Still open: prefixes and locators (`[see @smith, p. 33]`), which stay literal
+today, and a way to pick a CSL style.
 
 ### Fonts the author installs
+
+**Step 1 is done.** `<app data>/fonts` is scanned alongside the machine's own,
+learned through a `OnceLock` the desktop shell sets. The author's faces load
+first, so a font installed deliberately wins a name collision with the
+system's copy, and the scanned set sits behind an `RwLock` rather than a
+`OnceLock` so installing a face does not mean relaunching to use it. The rest
+of this section is unbuilt.
 
 Since [fonts moved to the system](./internals/size.md), Essay typesets in
 whatever the machine has, and the same Markdown can set differently on two
@@ -54,10 +50,7 @@ costs **approximately zero additional bytes** — it is wiring, not dependencies
 
 Three parts, in the order they are worth building:
 
-1. **Load a font directory.** `world.rs` calls `load_fonts_dir` on
-   `<app data>/fonts` alongside `load_system_fonts`. `essay-render` learns the
-   path the same way `install.rs` learns the adapter root — a `OnceLock` the
-   desktop shell sets, so the crate stays free of Tauri.
+1. ~~**Load a font directory.**~~ Done, as above.
 2. **Add fonts from disk.** A file picker that copies faces into that
    directory. No network at all, and it is the half that matters for an author
    with licensed fonts they already own.
@@ -153,21 +146,23 @@ mentions.
   sidebar, because the window keydown handler runs on the same event the
   editor already handled. `Ctrl+Shift+B` and `Ctrl+Shift+S` collide the same
   way. See [shortcuts](./reference/shortcuts.md#three-bindings-fire-twice).
-- **The revision timeline has no UI.** `list_revisions` and `revision_source`
-  are registered Tauri commands with no frontend caller; the store beneath
-  them has been recording since the first document was opened. See
-  [history](./guide/history.md).
-- **Typst warnings are collected and never shown.** They travel from the
-  compiler into `PreviewState.warnings` and stop there.
 - **Code blocks highlight on the printed page but not in the editor.** The
   print pane runs Typst's syntect-backed highlighting; the manuscript surface
   shows the same block unstyled.
-- **The size budget is unarmed.** Every baseline in
-  `scripts/size-budget.json` is `null`, so the CI job reports and never fails.
-  Recording baselines is a one-line change once the current numbers settle.
-- **Raw HTML does not survive a save.** The most serious round-trip loss, and
-  structural: the schema has no node for it. See
+- **A wrapped bullet breaks out of its list on the printed page.** `emit_list`
+  in `essay-render/src/convert.rs` passes an embedded newline through
+  unindented, and Typst ends the list item at it — so a bullet whose text
+  wraps in the source typesets as a bullet followed by a stray paragraph.
+  Affects any real manuscript with wrapped bullets.
+- **Inline raw HTML still does not survive a save.** The block-level case is
+  fixed; a tag inside a sentence is intercepted by `@tiptap/markdown` before
+  Essay is consulted. See
   [markdown](./reference/markdown.md#tier-3--destroyed).
+
+Fixed since this page was written: the revision timeline (a History pane over
+`list_revisions`/`revision_source`, with restore and checkpoint), Typst
+warnings in the print pane, the three shortcut collisions, block-level raw
+HTML, and citations.
 
 ## Everything Essay ships and does not use
 
@@ -182,7 +177,7 @@ so none of this can be gated without patching upstream. Sizes are `.text` from
 
 | Capability | Cost | Status |
 | --- | --- | --- |
-| Bibliography and citations | ~2.4 MiB (`hayagriva`, `citationberg`) + CSL data | Nothing emits `#cite` or `#bibliography` — **top of this list to use** |
+| Bibliography and citations | ~2.4 MiB (`hayagriva`, `citationberg`) + CSL data | **In use.** `[@key]` emits `#cite`; a `references.bib` beside the manuscript emits `#bibliography` |
 | WebAssembly plugins | ~1.3 MiB (`wasmi`, `wasmparser`) | Essay never calls `plugin()`; no plan to |
 | PDF reading and embedding | ~2.0 MiB (`hayro_*`, incl. JBIG2 and JPEG 2000 codecs) | Only needed to place an existing PDF as an image |
 | Typst scripting for authors | 351 KiB (`typst_eval`) | Per-project template overrides are planned, not built |
@@ -193,9 +188,9 @@ so none of this can be gated without patching upstream. Sizes are `.text` from
 | Thing | Where | Status |
 | --- | --- | --- |
 | `DocumentIndex.blocks`, `.links`, `.references` | `essay-markdown` | Declared on the struct, **never populated** — `index()` returns headings only |
-| `RevisionOrigin::Checkpoint`, `::Restore` | `essay-revisions` | Defined and round-tripped, but **never produced** outside tests |
-| `list_revisions`, `revision_source` | Tauri commands | Registered, **no frontend caller** — the timeline UI does not exist |
-| `PreviewState.warnings` | `usePreview.ts` | Carried from the compiler, **never rendered** |
+| `RevisionOrigin::Checkpoint`, `::Restore` | `essay-revisions` | **Produced**: `Restore` by restoring a revision, `Checkpoint` by marking one |
+| `list_revisions`, `revision_source` | Tauri commands | **In use** by the History pane, alongside `restore_revision` and `checkpoint_document` |
+| `PreviewState.warnings` | `usePreview.ts` | **Rendered** above the pages in the print pane, grouped by message |
 | `SkillScope::Section` | `essay-agents` | Recorded on a skill and **never checked against the diff**, though its doc comment is the argument for having it |
 | `essay-search` | crate | A doc comment and nothing else |
 | `essay inspect / read / search / propose / status` | `essay-cli` | Print "not implemented yet" and exit 1 |

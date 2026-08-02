@@ -24,24 +24,24 @@ Handled by the window, so they work wherever the focus is.
 `Ctrl+Shift+A` is shifted deliberately: `Ctrl+A` is select-all, and someone
 reaching for it mid-sentence must never lose their selection to a panel.
 
-### Three bindings fire twice
+### Three bindings used to fire twice
 
-The application handler runs on the window and looks only at the letter, so
-the editor's formatting shortcut and the application's own both take effect on
-the same keypress:
+Worth recording, because the shape of the bug recurs whenever a binding is
+added. The application handler runs on the window and looked only at the
+letter, so the editor's formatting shortcut and the application's own both
+took effect on one keypress: `Ctrl+B` bolded *and* toggled the sidebar,
+`Ctrl+Shift+B` quoted and toggled it, and `Ctrl+Shift+S` struck through and
+opened Save as.
 
-| Shortcut | Formats | And also |
-| --- | --- | --- |
-| `Ctrl+B` | Bold | Toggles the sidebar |
-| `Ctrl+Shift+B` | Quote | Toggles the sidebar |
-| `Ctrl+Shift+S` | Strikethrough | Opens Save as |
+The handler now ignores a keystroke the editor already consumed. It tests
+whether the event was *used*, not where it landed — ProseMirror marks
+anything it handles, and the editor sees the key first because the
+application listener is on `window`, the outermost target. So `Ctrl+B` typed
+in the manuscript bolds, and `Ctrl+B` typed in the agent composer still
+reaches the sidebar.
 
-`Ctrl+B` was confirmed by pressing it: the selection came back bold and the
-sidebar collapsed. The other two follow from the same handler.
-
-These are collisions, not features. Until they are resolved, use the selection
-toolbar for bold, quote and strikethrough if you do not want the second
-effect, and the palette's `Toggle sidebar` if you do not want the first.
+Any new application binding that an editor extension also claims will behave
+the same way without further work.
 
 ## Formatting
 

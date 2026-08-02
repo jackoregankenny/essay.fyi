@@ -108,8 +108,25 @@ offers **Revert**, which writes your version back over the agent's. It writes
 the buffer as it stands now, not a snapshot from when the edit landed — you
 may have kept typing, and "mine" means what is on the screen.
 
-**Anything older.** There is no interface for this yet. The data is in
-`.essay/history.sqlite`, and it is plain SQLite with two tables:
+**Anything older.** The **History** pane in the sidebar (`Ctrl+B` if it is
+closed) lists the document's revisions newest first, each saying what kind of
+event it was, who did it, when, and how many words moved. Click one to see it
+compared with the document as it stands — old is the revision and new is now,
+so the diff reads forwards, as *what has happened since*. **Restore this
+version** in that review puts it back.
+
+Restoring is a new state, not a rewind. It goes through the same guard as any
+save, so if the file moved while you were reading you get the ordinary
+conflict conversation rather than a silent overwrite; and the version you
+replaced stays in the timeline, so restoring is itself undoable.
+
+**Mark this version** (in the pane, or the palette) records the document as it
+stands as one worth keeping — the draft you sent, the version you read aloud.
+It saves first if anything is unsaved, so the mark lands on what you are
+looking at.
+
+**By hand.** The data is in `.essay/history.sqlite`, and it is plain SQLite
+with two tables:
 
 ```bash
 sqlite3 .essay/history.sqlite \
