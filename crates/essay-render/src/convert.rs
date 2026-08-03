@@ -90,7 +90,10 @@ fn emit_block(node: &Node, out: &mut String, ctx: Ctx) {
       out.push('\n');
       out.push_str(&"=".repeat(h.depth as usize));
       out.push(' ');
-      emit_inline_children(node, out, ctx);
+      // A setext heading may span source lines; a Typst heading ends at the
+      // first newline, so fold them or the tail falls out of the heading and
+      // lands in the body as a stray paragraph.
+      emit_inline_children_wrapped(node, " ", out, ctx);
       out.push_str("\n\n");
     }
     Node::Paragraph(_) => {
@@ -149,6 +152,9 @@ fn emit_block(node: &Node, out: &mut String, ctx: Ctx) {
 fn emit_list(node: &Node, ordered: bool, depth: usize, out: &mut String, ctx: Ctx) {
   let Some(children) = node.children() else { return };
   let indent = "  ".repeat(depth);
+  // Where a line inside an item has to resume: past the marker, so Typst
+  // reads it as more of the item rather than as the paragraph after the list.
+  let continuation = format!("\n{indent}  ");
   for item in children {
     let Node::ListItem(li) = item else { continue };
     out.push_str(&indent);
@@ -161,9 +167,9 @@ fn emit_list(node: &Node, ordered: bool, depth: usize, out: &mut String, ctx: Ct
       match child {
         Node::Paragraph(_) => {
           if !first {
-            out.push_str(&format!("\n{indent}  "));
+            out.push_str(&continuation);
           }
-          emit_inline_children(child, out, ctx);
+          emit_inline_children_wrapped(child, &continuation, out, ctx);
           first = false;
         }
         Node::List(nested) => {
@@ -172,7 +178,7 @@ fn emit_list(node: &Node, ordered: bool, depth: usize, out: &mut String, ctx: Ct
           first = false;
         }
         other => {
-          emit_inline_children(other, out, ctx);
+          emit_inline_children_wrapped(other, &continuation, out, ctx);
           first = false;
         }
       }
@@ -206,7 +212,7 @@ fn emit_table(rows: &[Node], align: &[AlignKind], out: &mut String, ctx: Ctx) {
       out.push_str("  table.header(");
       for cell in cells {
         out.push_str("[*");
-        emit_inline_children(cell, out, ctx);
+        emit_inline_children_wrapped(cell, " ", out, ctx);
         out.push_str("*], ");
       }
       out.push_str("),\n  table.hline(stroke: 0.05em),\n");
@@ -214,7 +220,10 @@ fn emit_table(rows: &[Node], align: &[AlignKind], out: &mut String, ctx: Ctx) {
       out.push_str("  ");
       for cell in cells {
         out.push('[');
-        emit_inline_children(cell, out, ctx);
+        // A whole row shares one line of the emitted `#table(…)` call, so a
+        // newline here must never pick up the enclosing list's indent — it
+        // would break the argument list apart.
+        emit_inline_children_wrapped(cell, " ", out, ctx);
         out.push_str("], ");
       }
       out.push('\n');
@@ -228,6 +237,36 @@ fn emit_inline_children(node: &Node, out: &mut String, ctx: Ctx) {
     for child in children {
       emit_inline(child, out, ctx);
     }
+  }
+}
+
+/// Emit inline content, resuming every embedded newline with `continuation`.
+///
+/// Markdown is indifferent to where a line wraps; Typst is not. A soft-wrapped
+/// list item arrives as one Text value with a `\n` in it, and an unindented
+/// continuation line *ends the item*: the rest of the sentence renders as a
+/// paragraph after the bullet, a nested list loses its nesting, and an ordered
+/// list starts counting from one again. Hard breaks (`Node::Break`) carry the
+/// same hazard.
+///
+/// The right continuation is a property of the enclosing construct, so it comes
+/// from the caller rather than being applied globally in `emit_text`: the
+/// item's content indent inside a list, a plain space where the construct has
+/// to stay on one line. Doing it globally would put a list's indent inside
+/// `#table(…)` and split the call apart.
+fn emit_inline_children_wrapped(
+  node: &Node,
+  continuation: &str,
+  out: &mut String,
+  ctx: Ctx,
+) {
+  let mut inline = String::new();
+  emit_inline_children(node, &mut inline, ctx);
+  for (index, line) in inline.split('\n').enumerate() {
+    if index > 0 {
+      out.push_str(continuation);
+    }
+    out.push_str(line);
   }
 }
 
@@ -407,6 +446,8 @@ fn escape_string(text: &str) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use markdown::mdast::{Paragraph, Text};
+
   /// Conversion with a bibliography available, which is the interesting
   /// case for every construct below: it is the mode in which `[@key]` is
   /// allowed to fire, so a test asserting that something is *not* a
@@ -452,6 +493,118 @@ mod tests {
     assert_eq!(converted.front_matter.title.as_deref(), Some("My Essay"));
     assert_eq!(converted.front_matter.author.as_deref(), Some("Jack"));
     assert!(!converted.body.contains("My Essay"));
+  }
+
+  /// Lines of `body` that open a list item, with their leading indent kept.
+  fn markers(body: &str) -> Vec<&str> {
+    body
+      .lines()
+      .filter(|line| {
+        let text = line.trim_start();
+        text.starts_with("- ") || text.starts_with("+ ")
+      })
+      .collect()
+  }
+
+  #[test]
+  fn a_wrapped_bullet_stays_one_list_item() {
+    let converted = convert(
+      "- A bullet whose text wraps\n  onto a second line in the source.\n- Another bullet.\n",
+    );
+    // Two bullets in, two bullets out — the continuation is not a third.
+    assert_eq!(markers(&converted.body).len(), 2);
+    // And it resumes indented past the marker, so Typst keeps it in the item
+    // rather than ending the list there.
+    assert!(converted.body.contains("wraps\n  onto a second line"));
+    assert!(!converted.body.contains("\nonto a second line"));
+  }
+
+  #[test]
+  fn a_wrapped_numbered_point_does_not_restart_the_numbering() {
+    // The loudest symptom of the bug, and the one an author notices last: the
+    // continuation ends the list, so the next item opens a fresh one and Typst
+    // numbers it 1 again. Counting markers alone would not catch that.
+    let converted = convert(
+      "1. The first point wraps\n   onto a second source line.\n2. The second point.\n",
+    );
+    assert_eq!(markers(&converted.body).len(), 2);
+    assert!(converted.body.contains("wraps\n  onto a second source line"));
+  }
+
+  #[test]
+  fn a_wrapped_bullet_indents_to_its_own_nesting_depth() {
+    let converted = convert(
+      "- Outer\n  - A nested bullet that wraps\n    onto a second line.\n- Another outer.\n",
+    );
+    assert_eq!(markers(&converted.body).len(), 3);
+    // Four spaces: two for the nested item's marker, two past it. With the
+    // wrong depth the continuation ends the nested list and the item after it
+    // returns to the outer level.
+    assert!(converted.body.contains("wraps\n    onto a second line"));
+  }
+
+  #[test]
+  fn a_wrapped_task_item_keeps_its_checkbox_and_its_text() {
+    let converted = convert("- [ ] A task whose text wraps\n      onto a second line.\n");
+    assert_eq!(markers(&converted.body).len(), 1);
+    assert!(converted.body.contains("- ☐ A task whose text wraps\n  onto a second line"));
+  }
+
+  #[test]
+  fn a_hard_break_inside_a_bullet_resumes_indented() {
+    // `Node::Break` emits its own newline, so it needs the same continuation
+    // as a soft wrap or an explicit line break ends the item too.
+    let converted = convert("- First half\\\n  second half\n");
+    assert_eq!(markers(&converted.body).len(), 1);
+    assert!(converted.body.contains(" \\\n  second half"));
+  }
+
+  #[test]
+  fn a_wrapped_setext_heading_stays_one_heading() {
+    let converted = convert("A heading\nthat wraps\n=========\n\nBody.\n");
+    assert!(converted.body.contains("= A heading that wraps\n"));
+  }
+
+  #[test]
+  fn a_table_cell_never_takes_list_indentation() {
+    // Lists on both sides of the table, so a continuation that leaked out of
+    // `emit_list` would land here. Every cell of a row shares one line of the
+    // emitted `#table(…)` call, and the only indent on it is the table
+    // writer's own two spaces.
+    let converted =
+      convert("- Lead-in\n\n| A | B |\n| --- | --- |\n| one | two |\n\n- Trailing\n");
+    assert!(converted.body.contains("\n  [one], [two], \n"));
+  }
+
+  #[test]
+  fn a_wrapped_line_inside_a_table_cell_folds_to_a_space() {
+    // GFM cannot wrap a cell across source lines, so this is unreachable from
+    // Markdown — but it is reachable through `emit_inline_children_wrapped`,
+    // which cells share with list items. That sharing is what the test pins:
+    // fixing the wrapped-bullet bug inside `emit_text` instead would apply a
+    // list's "\n  " to every construct, and a newline in the middle of a
+    // `#table(…)` argument list breaks the call apart. The continuation has to
+    // stay the caller's to choose, and a cell chooses a space.
+    let cell = Node::Paragraph(Paragraph {
+      children: vec![Node::Text(Text { value: "one\ntwo".into(), position: None })],
+      position: None,
+    });
+    let mut out = String::new();
+    emit_inline_children_wrapped(&cell, " ", &mut out, Ctx { citations: true });
+    assert_eq!(out, "one two");
+  }
+
+  #[test]
+  fn a_wrapped_blockquote_line_needs_no_continuation() {
+    // Blockquotes do *not* share the list's bug, and this records why rather
+    // than leaving the next reader to re-derive it: `#quote(block: true)[…]`
+    // is a content block, where a lone newline is only a word space, so the
+    // quote reads as one paragraph however the source wrapped. What keeps that
+    // true is `escape_markup` — an unescaped continuation line opening with
+    // `=` or `-` would start a heading or a list inside the quote.
+    let converted = convert("> A quote that wraps\n> = onto a second line.\n");
+    assert!(converted.body.contains("#quote(block: true)["));
+    assert!(converted.body.contains("A quote that wraps\n\\= onto a second line."));
   }
 
   #[test]
