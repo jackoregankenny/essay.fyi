@@ -19,9 +19,18 @@
  *   breaking one further is impossible to miss.
  */
 import { describe, expect, test } from 'bun:test'
+import './dom'
+import { Editor } from '@tiptap/core'
 
+import { manuscriptExtensions } from '../src/index'
+import { INLINE_TAG } from '../src/markdown-html-inline'
 import { changedLines, golden, readFixture } from './corpus'
 import { roundTrip } from './harness'
+
+/** Just enough of marked to read its inline `tag` rule off the live instance. */
+interface MarkedLike {
+  Lexer: { rules: { inline: { normal: { tag: RegExp } } } }
+}
 
 /** Saving `source` gives back exactly `source`. */
 function keeps(source: string): void {
@@ -166,6 +175,74 @@ describe('a save that changes nothing writes the file back unchanged', () => {
     keeps('<hr class="fancy" />\n')
     keeps('<br>\n')
   })
+
+  /**
+   * Inline HTML, which was the half of that loss left standing: the library
+   * pairs inline `html` tokens and hands the span to the DOM parser before any
+   * extension is asked, so a tag came back as the words inside it. A custom
+   * marked tokenizer claims the tag first — see `markdown-html-inline.ts`.
+   */
+  test('keeps an inline HTML tag and every attribute on it', () => {
+    keeps('Inline <abbr title="HyperText Markup Language">HTML</abbr> too.\n')
+    keeps('A <span class="sc" data-note="unknown to the editor">span</span>.\n')
+  })
+
+  test('keeps a self-closing inline tag', () => {
+    // `<br/>` used to become a Markdown hard break, and then drift: two
+    // trailing spaces on one save, a line beginning with a space on the next.
+    keeps('A self-closing <br/> tag.\n')
+    keeps('An <img src="x.png" alt="inline image"/> mid-sentence.\n')
+  })
+
+  test('keeps an inline tag that never closes', () => {
+    // Half-finished markup is what a paired representation cannot hold, and is
+    // exactly what an author has on disk mid-edit.
+    keeps('An unmatched <span class="x"> tag that never closes.\n')
+    keeps('A stray </div> with no opening tag.\n')
+  })
+
+  test('keeps an inline tag next to real Markdown emphasis', () => {
+    keeps('*Emphasis* right beside <kbd>Ctrl</kbd> and **bold**.\n')
+    keeps('Inline <abbr title="x">HTML</abbr> in a **bold <code>span</code>** run.\n')
+    // One link in the file has to be one link after the save. This is the case
+    // that decided the tag is a mark and not an inline node: a node would have
+    // closed the link at the tag and reopened it after, writing three.
+    keeps('A [link <span>with</span> a tag](https://example.com).\n')
+  })
+
+  test('keeps an HTML comment written mid-sentence', () => {
+    keeps('A sentence with <!-- a note to self --> in the middle.\n')
+    // Both of these are comments to marked and to nothing else. The rule this
+    // matches with is transcribed from marked's, quirks included, precisely so
+    // that the two never disagree about where a tag ends.
+    keeps('A comment with <!-- an -- inner double dash --> in it.\n')
+    keeps('The degenerate empty comment <!--> here.\n')
+  })
+
+  test('keeps an inline tag inside a heading, a list, a quote and a table cell', () => {
+    keeps('# A heading with <sup>2</sup>\n')
+    keeps('- A list item with <span data-x="1">markup</span>\n')
+    keeps('> A quote with <cite>attribution</cite>\n')
+    keeps('| A | B |\n| --- | --- |\n| <b>x</b> | y |\n')
+  })
+
+  test('keeps inline HTML the editor could have read as formatting', () => {
+    // The price of the rule, and the reason it is a rule: `<em>` used to arrive
+    // as an italic mark and be written back as `*word*`. It is now literal
+    // source, written back unchanged. One rewrite fewer, at the cost of a
+    // document that uses HTML for emphasis reading as source in the manuscript.
+    keeps('Inline <em>emphasis by tag</em> here.\n')
+    keeps('A <strong>bold</strong> word.\n')
+  })
+
+  test('keeps text that only looks like a tag as text', () => {
+    // The tokenizer claims exactly the byte ranges marked's own `tag` rule
+    // would have claimed, so everything it declines is left to the rest of the
+    // grammar untouched.
+    keeps('A comparison a<b and b>c in one sentence.\n')
+    keeps('A tag quoted inside `code <b>x</b>` stays in the code span.\n')
+    keeps('Not a tag: <3, < 6, and a lone < at the end.\n')
+  })
 })
 
 describe('the corpus manuscripts survive a save untouched', () => {
@@ -231,12 +308,6 @@ describe('what a save still loses, recorded so it cannot get quietly worse', () 
     ).toBe('A [reference link](https://example.com/one "With a title").\n')
   })
 
-  test('an inline HTML tag is unwrapped to its text', () => {
-    expect(roundTrip('Inline <abbr title="HyperText Markup Language">HTML</abbr> too.\n')).toBe(
-      'Inline HTML too.\n',
-    )
-  })
-
   test('underscore emphasis is rewritten as asterisk emphasis', () => {
     expect(roundTrip('_Underscore emphasis_ and __double underscore__.\n')).toBe(
       '*Underscore emphasis* and **double underscore**.\n',
@@ -300,6 +371,35 @@ describe('the two constructs that still drift on every save', () => {
   })
 })
 
+describe('the inline HTML tokenizer still agrees with marked', () => {
+  /**
+   * Everything above about inline HTML rests on one claim: the rule that claims
+   * a tag matches exactly what marked's own inline `tag` rule would have
+   * matched. Drift there is silent and one-directional — a tag this stops
+   * recognising is a tag marked recognises instead, which routes it back
+   * through the library's inline HTML path and unwraps it. So the claim is
+   * checked against the live rule rather than trusted to a comment.
+   *
+   * marked reaches the assertion through the editor's own manager, so this adds
+   * no dependency and reads the same copy of marked the manuscript is parsed
+   * with. The only difference between the two sources is shape: marked anchors
+   * each alternative, this anchors the group.
+   */
+  test('the transcribed rule is character-identical to the live one', () => {
+    const editor = new Editor({
+      element: document.createElement('div'),
+      extensions: manuscriptExtensions(),
+    })
+    try {
+      const marked = (editor.markdown as unknown as { instance: MarkedLike }).instance
+      const upstream = marked.Lexer.rules.inline.normal.tag.source
+      expect(INLINE_TAG.source).toBe(`^(?:${upstream.replace(/^\^/, '').split('|^').join('|')})`)
+    } finally {
+      editor.destroy()
+    }
+  })
+})
+
 describe('the round-trip adversary', () => {
   const source = readFixture('manuscripts/awkward-syntax.md')
 
@@ -308,13 +408,14 @@ describe('the round-trip adversary', () => {
     expect(actual).toBe(golden('roundtrip/awkward-syntax.golden.md', actual))
   })
 
-  test('only the two known drifting constructs move on a second save', () => {
+  test('only the known drifting construct moves on a second save', () => {
     const once = roundTrip(source)
     const twice = roundTrip(once)
     const moved = changedLines(once, twice).map(line => once.split('\n')[line - 1])
+    // `self-closing   ` used to be here too: `<br/>` became a hard break, whose
+    // trailing spaces then moved on every save. It is now kept as written.
     expect(moved).toEqual([
       'Inline `code`, `code with a ` backtick`, and `triple ` inside`.',
-      'self-closing   ',
     ])
   })
 })

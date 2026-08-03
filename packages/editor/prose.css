@@ -234,6 +234,19 @@
   color: var(--essay-text-muted);
 }
 
+/* The same thing mid-sentence: a single tag Essay is keeping verbatim.
+
+   Deliberately not the code-span treatment. A code span is something the
+   author chose to set as code and reads as a foreground object; this is
+   markup they wrote around their prose, and the sentence has to stay
+   readable straight through it. So: mono and muted enough to see where the
+   tag ends, no box, no padding that would shift the words either side. */
+.essay-prose [data-essay-html-inline] {
+  font-family: var(--essay-font-mono);
+  font-size: 0.85em;
+  color: var(--essay-text-faint);
+}
+
 /* ——— Tables: book style — horizontal rules only, no grid ——— */
 
 .essay-prose table {

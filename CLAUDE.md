@@ -277,10 +277,18 @@ the timeline refreshes off `baseHash` rather than from four call sites.
 Round-trip: **block-level raw HTML now survives** (`markdown-html.ts`, a
 `code: true` node holding its source verbatim, routed by
 `markdownTokenName: 'html'`) — `<div>` with attributes, comments, `<figure>`,
-`<br>`, and MDX `<Callout>` as a free consequence. **Inline** HTML still does
-not and cannot from here: `@tiptap/markdown` intercepts inline `html` tokens
-before extensions are consulted. Table re-padding and list renumbering are
-fixed; `awkward-syntax.md` has a golden.
+`<br>`, and MDX `<Callout>` as a free consequence. **Inline** HTML survives too
+now (`markdown-html-inline.ts`) — the earlier "cannot from here" was wrong. It
+is true that `@tiptap/markdown` intercepts inline `html` tokens before
+extensions are consulted, so the fix is to stop marked *emitting* one: a
+`markdownTokenizer` is registered as a marked inline extension, and marked tries
+those ahead of every built-in tokenizer. The rule is transcribed from marked's
+own `tag` rule so the claimed bytes are unchanged, and the tag becomes a
+`code: true` **mark** on its own source rather than an inline node — a node
+would close an enclosing link at the tag and reopen it after, turning one link
+into three. Price: `<em>word</em>` no longer becomes italic formatting, it stays
+literal source. Table re-padding and list renumbering are fixed;
+`awkward-syntax.md` has a golden.
 
 **Search is in: `essay-search`.** `search_text` over the open buffer,
 `search_project` across the workspace roots, no new third-party dependency — no

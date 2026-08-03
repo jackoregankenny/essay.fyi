@@ -40,23 +40,43 @@ so none of it can get quietly worse.
 
 | Construct | What happens |
 | --- | --- |
-| `<abbr title="…">HTML</abbr>` | Unwrapped to its text; the tag and title are gone. |
 | `[ref]: https://…` definitions | Dropped. Every `[text][ref]` is rewritten as an inline `[text](url)`. |
 
-**Block-level raw HTML used to head this table and no longer does.**
-`<div class="callout">…</div>`, `<!-- a comment -->`, `<figure>`, a bare
-`<br>` and MDX-style `<Callout type="warning">` now all come back byte for
-byte, held by a `htmlBlock` node that keeps its own source verbatim
-(`packages/editor/src/markdown-html.ts`). Syntax the parser does not read as
-HTML was always fine and still is: `:::note` blocks, `{{< shortcode >}}`,
-`$$…$$` math and `==highlight==` round-trip exactly.
+**Raw HTML used to head this table and no longer does, in either form.**
+Block-level HTML — `<div class="callout">…</div>`, `<!-- a comment -->`,
+`<figure>`, a bare `<br>`, MDX-style `<Callout type="warning">` — comes back
+byte for byte, held by an `htmlBlock` node that keeps its own source verbatim
+(`packages/editor/src/markdown-html.ts`).
 
-What remains is **inline** HTML — a tag inside a sentence rather than a block
-of its own. That one is not fixable from here: `@tiptap/markdown` intercepts
-inline `html` tokens before any extension is consulted, pairing opening and
-closing tags and turning what it recognises into marks, so `<abbr>` mid
-sentence still loses its tag. Fixing it means changing the library's inline
-path rather than adding a node.
+**Inline** HTML — a tag inside a sentence rather than a block of its own — was
+the half left standing, and is now kept too
+(`packages/editor/src/markdown-html-inline.ts`). `<abbr title="…">HTML</abbr>`
+keeps its tag and its attributes; so do a self-closing `<br/>` (which used to
+become a hard break, and then drift), an unmatched `<span class="x">` with no
+closing tag, a comment written mid-sentence, and a tag inside a heading, a list
+item, a quote or a table cell. Marks around a tag stay whole:
+`[link <span>with</span> a tag](url)` is still one link after a save.
+
+The obstacle was real, and worth recording because it is the shape of the next
+one. `@tiptap/markdown` handles inline `html` tokens itself, ahead of every
+extension: it pairs opening and closing tags, hands the span to the DOM parser
+and keeps whatever ProseMirror recognises. No `markdownTokenName` reaches that
+branch. The way past it is not to add a node but to stop marked emitting an
+inline `html` token at all — a `markdownTokenizer` on the extension is
+registered as a marked inline extension, and marked tries those at the top of
+its inline loop, before every built-in tokenizer. The rule it matches is
+transcribed from marked's own `tag` rule, so the bytes claimed are exactly the
+bytes that would have been an `html` token and nothing else in the grammar
+moves.
+
+One thing is deliberately given up in exchange: inline HTML the editor *could*
+have read as formatting no longer becomes formatting. `<em>word</em>` used to
+arrive as an italic mark and be written back as `*word*`; it is now literal
+source, written back unchanged.
+
+Syntax the parser does not read as HTML was always fine and still is:
+`:::note` blocks, `{{< shortcode >}}`, `$$…$$` math and `==highlight==`
+round-trip exactly.
 
 **Normalised — the meaning survives, the bytes do not.**
 
@@ -85,6 +105,10 @@ both pinned by name in the test suite:
 - A fenced block **inside an ordered list item** gains one space of indent per
   save. The upstream list tokenizer dedents an item's nested blocks by the
   width of the number rather than of the whole `1. ` marker.
+
+Only one of those is still inside `awkward-syntax.md`. The third used to be an
+inline `<br/>`, which became a hard break whose trailing spaces then moved on
+every save; it is now kept as written.
 
 Everything else that used to drift now does not: a document ending in a list no
 longer grows blank lines (and eventually an `&nbsp;`) on every autosave, a task

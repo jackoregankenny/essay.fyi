@@ -98,9 +98,8 @@ Inline `code`, `code with a ` backtick`, and `triple ` inside`.
   <strong>Raw HTML block.</strong> Nothing here is Markdown.
 </div>
 
-Inline HTML too, and a
-self-closing   
- tag.
+Inline <abbr title="HyperText Markup Language">HTML</abbr> too, and a
+self-closing <br/> tag.
 
 <!-- An HTML comment that must not be eaten. -->
 

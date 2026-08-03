@@ -19,11 +19,14 @@
  * the author can edit the markup directly because it is real text rather than
  * an opaque attribute.
  *
- * **Inline HTML is a different problem and is not solved here.** `@tiptap/markdown`
- * intercepts inline `html` tokens before any extension is consulted — it
- * pairs opening and closing tags and turns what it recognises into marks — so
- * `<abbr title="…">HTML</abbr>` mid-sentence still loses its tag. Fixing that
- * means changing the library's inline path, not adding a node here.
+ * **Inline HTML is a different problem, solved differently — see
+ * `markdown-html-inline.ts`.** The obstacle there is real: `@tiptap/markdown`
+ * intercepts inline `html` tokens before any extension is consulted, pairing
+ * opening and closing tags and turning what it recognises into marks, and no
+ * `markdownTokenName` reaches that branch. The answer was not to add a node
+ * but to stop marked emitting an inline `html` token at all, with a custom
+ * tokenizer. Nothing about the block path changes; the two are independent,
+ * and marked decides between them by whether the tag stands on its own line.
  */
 import { Node, type JSONContent, type MarkdownRendererHelpers } from '@tiptap/core'
 
