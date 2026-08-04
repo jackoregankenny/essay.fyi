@@ -385,8 +385,15 @@ mod tests {
 
         let entry = installed_entry(root.path(), &FAKE).expect("the install is finished");
         assert!(entry.ends_with("dist/index.js"));
+        // Only the part `join_posix` built. Asserting against the absolute
+        // path passed on Windows and failed everywhere else: `tempfile` names
+        // its directory `.tmpXXXX`, so every Linux run had a `/.` in it before
+        // this code contributed anything.
+        let joined = entry
+            .strip_prefix(root.path())
+            .expect("the entry point is under the install root");
         assert!(
-            !entry.to_string_lossy().contains("/."),
+            !joined.to_string_lossy().contains("/."),
             "the path a log line shows should read like a path"
         );
     }
