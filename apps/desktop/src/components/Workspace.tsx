@@ -101,6 +101,9 @@ import { WindowControls } from './ui/window-controls'
 const PrintPane = lazy(() =>
   import('./PrintPane').then((module) => ({ default: module.PrintPane })),
 )
+const FontsPage = lazy(() =>
+  import('./FontsPage').then((module) => ({ default: module.FontsPage })),
+)
 const DiffReview = lazy(() =>
   import('./DiffReview').then((module) => ({ default: module.DiffReview })),
 )
@@ -176,6 +179,9 @@ export function Workspace() {
       whoever asked for it — the conflict bar, or the agent panel with its own
       accept/reject verbs on it. */
   const [review, setReview] = useState<ReviewRequest | null>(null)
+  /** The fonts page, over the manuscript. A machine-level surface rather than
+      a document one, so it is not in the sidebar. */
+  const [fontsOpen, setFontsOpen] = useState(false)
   const [recoverable, setRecoverable] = useState<RecoverableBuffer[]>([])
   const [outline, setOutline] = useState<OutlineItem[]>([])
   const [words, setWords] = useState(0)
@@ -909,6 +915,7 @@ export function Workspace() {
       { id: 'view.agent', title: 'Toggle agent panel', group: 'View', shortcut: shortcut('Ctrl+Shift+A'), keywords: 'ai assistant opencode claude propose changes review', run: () => setAgentOpen((open) => !open) },
       { id: 'view.focus', title: 'Toggle focus mode', group: 'View', keywords: 'zen typewriter dim centre center', run: () => setFocusModeState((on) => !on) },
       { id: 'view.measure', title: `Writing width: ${measureLabel(measure)}`, group: 'View', keywords: 'column measure line length narrow wide', run: () => setMeasure(nextMeasure(measure)) },
+      { id: 'view.fonts', title: 'Fonts…', group: 'View', keywords: 'typeface font family install add serif typography', run: () => setFontsOpen(true) },
       { id: 'view.dark', title: 'Toggle dark mode', group: 'View', keywords: 'theme light appearance', run: () => {
         const root = document.documentElement
         if (root.dataset.theme === 'dark') delete root.dataset.theme
@@ -1160,6 +1167,21 @@ export function Workspace() {
                     className="absolute inset-0 z-20"
                     {...review}
                     onClose={closeReview}
+                  />
+                </Suspense>
+              )}
+              {fontsOpen && (
+                <Suspense fallback={null}>
+                  <FontsPage
+                    className="absolute inset-0 z-20"
+                    // Installing a face changes how the document prints, so a
+                    // preview that is open has to re-typeset against the new
+                    // set rather than keep showing the fallback.
+                    onChanged={() => setRenderVersion((v) => v + 1)}
+                    onClose={() => {
+                      setFontsOpen(false)
+                      editor?.commands.focus()
+                    }}
                   />
                 </Suspense>
               )}

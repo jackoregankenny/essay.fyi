@@ -86,6 +86,12 @@ about a hundred lines and it is deliberately small.
   each platform actually ships. The fallback is a decision rather than an
   accident, but it is still a fallback, and two machines can produce different
   PDFs from the same Markdown.
+
+  A machine with **no** fonts at all — a bare container, a minimal CI image —
+  gets `RenderError::NoFonts` from `compile()` before any conversion happens,
+  rather than a Typst diagnostic about an unresolvable family. The cause and
+  the fix are nothing like a broken template, so they should not read alike.
+  `world::installed_face_count()` is the check.
 - **`file()` resolves against the document's own directory**, and only if a
   root was given. That is how a relative image reference works. A document
   that has never been saved has no root, so file reads fail rather than
@@ -126,9 +132,9 @@ newlines.
 
 The print pane shows an error over the pane when there are no pages, and
 beside stale pages when there are — a document that typeset a moment ago is
-still worth looking at. **Warnings are carried all the way from the compiler
-into `PreviewState.warnings` and then never displayed.** That is a loose end,
-not a decision.
+still worth looking at. Warnings are shown too, grouped by message, because
+Typst reports them once per occurrence and forty identical lines is not more
+informative than one with a count on it.
 
 An empty source compiles to one page. That is asserted, because "degenerate
 input must not error" is easy to regress.

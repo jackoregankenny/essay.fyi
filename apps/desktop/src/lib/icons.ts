@@ -36,6 +36,8 @@ import {
   SidebarSimple,
   Stop,
   Terminal,
+  TextAa,
+  Trash,
   WarningCircle,
   X,
   type Icon,
@@ -99,3 +101,7 @@ export const MovedIcon = ArrowsDownUp
 export const RewriteIcon = ArrowsClockwise
 /** Show or hide the outline pane. */
 export const SidebarIcon = SidebarSimple
+/** A typeface, and the pane that manages them. */
+export const FontIcon = TextAa
+/** Removing something the author installed. */
+export const RemoveIcon = Trash

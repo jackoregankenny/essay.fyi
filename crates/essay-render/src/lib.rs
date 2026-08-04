@@ -20,7 +20,10 @@ pub use convert::{markdown_to_typst, Converted, FrontMatter};
 /// fonts (see `world.rs`), so this is how a document gets a face the system
 /// does not ship — and the answer to the same manuscript setting differently
 /// on two computers.
-pub use world::{font_dir, rescan_fonts, use_font_dir};
+pub use world::{
+  families, font_dir, install_fonts, remove_family, rescan_fonts, use_font_dir, FontError,
+  FontFamily,
+};
 
 /// The default Essay template, embedded so rendering works with zero
 /// filesystem setup. Authors will be able to override it per project.
@@ -30,6 +33,16 @@ const ESSAY_TEMPLATE: &str = include_str!("../../../templates/essay/essay.typ");
 pub enum RenderError {
   #[error("typst compilation failed:\n{0}")]
   Compilation(String),
+  /// Nothing to typeset with. Its own variant rather than a compilation
+  /// failure because the cause and the fix are entirely different: the
+  /// template is fine, the machine has no fonts installed.
+  #[error(
+    "no fonts are installed on this machine, so there is nothing to typeset with.\n\
+     Essay uses the system's fonts rather than embedding its own — install a serif \
+     and a monospace family (fonts-dejavu-core or fonts-liberation on Linux), or \
+     put font files in Essay's font directory."
+  )]
+  NoFonts,
 }
 
 pub struct RenderedPages {
@@ -127,6 +140,13 @@ fn compile(
   // An unsaved manuscript has no folder to look in. That is the ordinary
   // case, not a failure: citations start resolving when the file has a home
   // and a `references.bib` beside it.
+  // Asked first, because everything below it assumes there is something to set
+  // type in. Without this the symptom is a Typst diagnostic about an
+  // unresolvable font family, which reads as a broken template.
+  if world::installed_face_count() == 0 {
+    return Err(RenderError::NoFonts);
+  }
+
   let bibliography = root.as_deref().and_then(find_bibliography);
   let converted = markdown_to_typst(markdown_source, bibliography.is_some());
   // A stray `.bib` must not give an uncited document a References section.

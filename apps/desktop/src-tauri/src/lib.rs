@@ -345,6 +345,50 @@ async fn export_pdf(
   .map_err(|err| err.to_string())?
 }
 
+// ---------------------------------------------------------------------------
+// Fonts
+//
+// Essay embeds none, so what a document can be set in is whatever this machine
+// offers plus whatever the author has added. These three commands are the
+// author's half of that: see what is there, add to it, take it away again.
+// ---------------------------------------------------------------------------
+
+/// Every family the typesetter can resolve, with the author's own marked.
+///
+/// Scanning opens every font file on the machine, so it runs on a blocking
+/// thread — a few hundred faces is not something to do on the UI's round trip.
+#[tauri::command]
+async fn list_font_families() -> Result<Vec<essay_render::FontFamily>, String> {
+  tauri::async_runtime::spawn_blocking(essay_render::families)
+    .await
+    .map_err(|err| err.to_string())
+}
+
+/// Install font files the author chose. Returns the file names that landed.
+///
+/// Every file is parsed before it is copied, so a directory Essay reads on
+/// every render cannot come to contain something that is not a font.
+#[tauri::command]
+async fn install_font_files(paths: Vec<String>) -> Result<Vec<String>, String> {
+  let files: Vec<std::path::PathBuf> = paths.into_iter().map(Into::into).collect();
+  tauri::async_runtime::spawn_blocking(move || {
+    essay_render::install_fonts(&files).map_err(|err| err.to_string())
+  })
+  .await
+  .map_err(|err| err.to_string())?
+}
+
+/// Remove a family Essay installed. Faces the operating system provides are
+/// left alone — they are not Essay's to delete.
+#[tauri::command]
+async fn remove_font_family(family: String) -> Result<usize, String> {
+  tauri::async_runtime::spawn_blocking(move || {
+    essay_render::remove_family(&family).map_err(|err| err.to_string())
+  })
+  .await
+  .map_err(|err| err.to_string())?
+}
+
 /// Find a phrase in the manuscript on screen.
 ///
 /// The text comes from the editor rather than from the file, because the buffer
@@ -710,6 +754,9 @@ pub fn run() {
       search_project,
       render_document,
       export_pdf,
+      list_font_families,
+      install_font_files,
+      remove_font_family,
       list_agents,
       start_agent_session,
       send_agent_prompt,

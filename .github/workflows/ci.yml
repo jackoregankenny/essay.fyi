@@ -68,6 +68,17 @@ jobs:
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Install fonts for the typesetting tests
+        # Essay does not embed fonts; it typesets with the machine's own (see
+        # essay-render/src/world.rs). So the render tests depend on this runner
+        # having a serif and a monospace family that the template's font stack
+        # names, and pinning them here is what makes the job depend on the
+        # repository rather than on whatever GitHub's base image happens to
+        # ship this month.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-dejavu-core fonts-liberation
+
       - name: cargo test (workspace, excluding essay-desktop)
         # essay-desktop needs webkit2gtk system libs on Linux and needs
         # apps/desktop/dist to exist at compile time (tauri::generate_context!
@@ -96,8 +107,9 @@ jobs:
       - name: Install Linux system dependencies
         # Tauri links the system WebKitGTK on Linux rather than vendoring a
         # webview, so without these the shell does not compile at all. Same set
-        # as the release workflow, minus the AppImage packaging tools -- this
-        # job never bundles.
+        # as the release workflow, minus the AppImage packaging tools (this job
+        # never bundles) and plus the fonts, because `cargo check` pulls in
+        # essay-render and a machine with no fonts is a confusing way to fail.
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -107,7 +119,8 @@ jobs:
             libxdo-dev \
             libssl-dev \
             build-essential \
-            curl wget file
+            curl wget file \
+            fonts-dejavu-core fonts-liberation
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

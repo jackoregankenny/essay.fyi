@@ -7,10 +7,9 @@ Editorial history is not undo. Undo answers "what did I type a few seconds
 ago?"; history answers "how did this document change over the last week, and
 who changed it?"
 
-**There is no revision timeline in the interface yet.** The store underneath
-it is complete and has been recording since the first time you opened a
-document; the surface that reads it is not built. This page describes what is
-being kept and how to reach it in the meantime.
+The timeline lives in the **History** pane in the sidebar, and everything it
+shows has been recorded since the first time you opened a document. This page
+describes what is kept, for how long, and how to get earlier text back.
 
 ## Where it lives
 
@@ -97,7 +96,7 @@ your timeline.
 
 ## Getting earlier text back
 
-Three routes today, in order of how much you already have.
+Four routes, in order of how much you already have.
 
 **The version that just arrived.** When a document changes on disk, the notice
 bar's **Review changes** shows exactly what differs, and **Use the file** /

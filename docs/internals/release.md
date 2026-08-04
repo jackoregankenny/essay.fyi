@@ -22,7 +22,15 @@ manual dispatch. Concurrent runs for the same ref cancel each other.
 
 ### `rust` (ubuntu)
 
+Installs `fonts-dejavu-core` and `fonts-liberation`, then runs
 `cargo test --workspace --exclude essay-desktop`.
+
+The fonts are not incidental. Essay typesets with the machine's own faces
+rather than embedded ones, so `essay-render`'s tests depend on the runner
+having a serif and a monospace family that the template's stack names.
+Pinning them in the workflow is what makes this job depend on the repository
+instead of on whichever fonts GitHub's base image happens to ship this month.
+`desktop-linux` installs the same pair for the same reason.
 
 `essay-desktop` is excluded because it needs webkit2gtk system libraries on
 Linux and needs `apps/desktop/dist` to exist at compile time —
