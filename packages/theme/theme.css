@@ -1,15 +1,31 @@
 /* @essay/theme — design tokens shared by the Essay app and editor packages.
-   Palette derived from Linear's shipped CSS tokens (see the design research
-   in git history): near-black chrome with a cool blue-violet cast, canvas
-   one step LIGHTER than chrome (paper floats above desk), borders as their
-   own tokens, one indigo accent with light/dark asymmetry.
-   Fonts are bundled locally (Geist) or system: Essay works fully offline. */
+
+   Dark-first (Jack, 2026-08-07): Essay is designed at night and derived for
+   day, not the other way round. The dark theme is the identity — deep
+   neutral graphite chrome, the canvas one step LIGHTER than the chrome
+   (paper floats above desk, even at night), crisp near-white ink, and one
+   azure accent. The light theme is the same architecture restated on paper,
+   an explicit choice via data-theme='light'. Chrome stays nearly hueless in
+   both — the page is the only thing allowed a temperature, and barely.
+   Fonts are bundled locally (Geist, a grotesque) or system: Essay works
+   fully offline. */
 
 :root {
   --essay-font-ui: "Geist Variable", system-ui, -apple-system, "Segoe UI",
     Roboto, sans-serif;
   --essay-font-prose: "Geist Variable", system-ui, -apple-system, "Segoe UI",
     Georgia, sans-serif;
+  /* Serif prose, opt-in. A stack, not a family — Essay bundles no serif, so
+     naming one face would leave the fallback to chance; the order is the best
+     text serif each platform actually ships (the same problem essay.typ
+     solves for print). Charter is macOS's finest screen serif (Matthew
+     Carter, designed for low resolution) with Palatino behind it; Cambria is
+     Windows's ClearType-era text face with Georgia — also Carter, also
+     screen-first — behind it; Liberation Serif and DejaVu Serif are the
+     common Linux packages; Times New Roman is the floor every machine can
+     stand on. */
+  --essay-font-prose-serif: Charter, "Palatino Linotype", Palatino, Cambria,
+    Georgia, "Liberation Serif", "DejaVu Serif", "Times New Roman", serif;
   --essay-font-mono: "Geist Mono Variable", ui-monospace, "Cascadia Code",
     Consolas, "SF Mono", Menlo, monospace;
 
@@ -27,42 +43,94 @@
   --essay-radius-8: 8px;
   --essay-radius-12: 12px;
 
+  /* Motion — one scale, chosen by rule, never by taste-of-the-day:
+       quick   → hover/pressed feedback, tooltips, the gutter's hover label
+       regular → reveals and slides *inside* a surface: cross-fades, the
+                 active-section light, bubble toolbars
+       slow    → whole layers arriving or leaving: the companion slot,
+                 sheets, full-height overlays
+     Easing:
+       ease-out       → the default; decelerate into place
+       ease-out-quint → emphatic settle for popovers appearing at the cursor
+       ease-swift     → spring-flavoured arrival for layers that slide in:
+                 near-linear launch, long soft landing, no overshoot (an
+                 overshooting panel would nudge nothing — it clips — so the
+                 spring flavour lives in the 0.9 mid-stop, not a >1 bounce)
+     Reduced motion: these tokens do NOT flip under
+     `prefers-reduced-motion: reduce` — a zeroed duration token would also
+     zero feedback transitions that double as state cues. Every surface that
+     *moves* (translate/slide/scale) must disable its own animation under
+     that media query (or its matchMedia equivalent when the choreography is
+     JS-driven); opacity-only feedback may stay. */
   --essay-speed-quick: 0.1s;
   --essay-speed-regular: 0.25s;
+  --essay-speed-slow: 0.4s;
   --essay-ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
   --essay-ease-out-quint: cubic-bezier(0.23, 1, 0.32, 1);
+  --essay-ease-swift: cubic-bezier(0.2, 0.9, 0.25, 1);
 
-  /* Light: cool near-white chrome, canvas lighter still.
+  /* Dark, the identity. Deep graphite, nearly hueless — a writing den, not
+     a terminal. The canvas sits a step ABOVE the chrome and carries the
+     only temperature in the frame: a few thousandths of warmth (hue 70),
+     invisible named and felt as "page" rather than "panel". Ink is crisp
+     near-white held just off pure so a full screen of prose reads without
+     glare — clarity is the whole brief at night. */
+  --essay-bg: oklch(0.146 0.004 260);
+  --essay-editor-bg: oklch(0.178 0.004 70);
+  --essay-prose-ink: oklch(0.93 0.006 85);
+  --essay-surface: oklch(0.203 0.005 255);
+  --essay-surface-hover: oklch(0.245 0.006 255);
+  --essay-border: oklch(0.235 0.006 255);
+  --essay-border-strong: oklch(0.31 0.007 255);
+  --essay-text: oklch(0.935 0.003 250);
+  --essay-text-muted: oklch(0.68 0.008 250);
+  --essay-text-faint: oklch(0.52 0.008 250);
+  /* Azure, not indigo: the accent moved off the violet the old chrome wore.
+     One saturated element in the frame — the caret, the lit tick, the
+     waiting dot — everything else stays graphite. */
+  --essay-accent: oklch(0.71 0.135 240);
+  --essay-accent-tint: oklch(0.225 0.04 240);
+  --essay-selection: color-mix(in oklch, oklch(0.55 0.14 240), black 12%);
+  --essay-selection-match: color-mix(in oklch, oklch(0.62 0.14 240), transparent 72%);
+  --essay-highlight: oklch(0.46 0.085 92);
 
-     The canvas breaks with the chrome's hue on purpose. Everything around the
-     manuscript is a tool and reads cool; the page itself is warm, because a
-     clinical white rectangle is where you file a bug and a warm one is where
-     you write. The chrome stays at hue 286 and the paper sits at 92 — the
-     difference is a few hundredths of chroma, invisible named and obvious
-     felt. Warmth here is worth more than any amount of it in the chrome. */
-  --essay-bg: oklch(0.975 0.002 286);
-  --essay-editor-bg: oklch(0.988 0.009 92);
-  /* Ink, not chrome text: a warm near-black that sits on paper without the
-     blue cast that makes long reading feel like a screen. */
-  --essay-prose-ink: oklch(0.305 0.016 62);
-  --essay-surface: oklch(0.985 0.002 286);
-  --essay-surface-hover: oklch(0.945 0.003 286);
-  --essay-border: oklch(0.925 0.003 286);
-  --essay-border-strong: oklch(0.893 0.003 286);
-  --essay-text: oklch(0.285 0.011 271);
-  --essay-text-muted: oklch(0.542 0.014 285);
-  --essay-text-faint: oklch(0.618 0.014 290);
-  --essay-accent: oklch(0.567 0.159 275);
-  --essay-accent-tint: oklch(0.962 0.019 286);
-  --essay-selection: color-mix(in oklch, oklch(0.567 0.159 275), transparent 72%);
-  --essay-selection-match: color-mix(in oklch, oklch(0.567 0.159 275), transparent 85%);
-  --essay-highlight: oklch(0.94 0.08 95);
+  /* Review surfaces. Two hues held at the same lightness so neither side of
+     a diff shouts louder than the other, and desaturated enough to sit
+     under prose rather than on top of it. The `-bg` pair tints a whole
+     line; the plain token inks the +/- gutter and the section pills. */
+  --essay-diff-insert: oklch(0.802 0.146 152);
+  --essay-diff-insert-bg: oklch(0.283 0.05 152);
+  --essay-diff-remove: oklch(0.762 0.135 24);
+  --essay-diff-remove-bg: oklch(0.298 0.052 24);
 
-  /* Review surfaces. Two hues held at the same lightness so neither side of a
-     diff shouts louder than the other, and desaturated enough to sit under
-     prose rather than on top of it. The `-bg` pair tints a whole line; the
-     plain token inks the +/- gutter and the section pills, and is dark enough
-     to carry text on the page background. */
+  --essay-shadow-low: 0 2px 4px rgb(0 0 0 / 0.3);
+  --essay-shadow-medium: 0 4px 24px rgb(0 0 0 / 0.4);
+  --essay-shadow-palette: 0 9px 48px rgb(0 0 0 / 0.4), 0 6px 24px rgb(0 0 0 / 0.45),
+    0 1px 1px rgb(0 0 0 / 0.25);
+}
+
+/* Dark is the default regardless of OS preference; light is an explicit
+   choice (palette: "Toggle light mode") via data-theme on <html> — the
+   same architecture restated on paper. */
+:root[data-theme='light'] {
+  --essay-bg: oklch(0.972 0.002 255);
+  --essay-editor-bg: oklch(0.99 0.004 90);
+  /* Ink, not chrome text: a near-black that sits on paper without the blue
+     cast that makes long reading feel like a screen. */
+  --essay-prose-ink: oklch(0.29 0.012 75);
+  --essay-surface: oklch(0.982 0.002 255);
+  --essay-surface-hover: oklch(0.94 0.004 255);
+  --essay-border: oklch(0.92 0.004 255);
+  --essay-border-strong: oklch(0.885 0.005 255);
+  --essay-text: oklch(0.27 0.01 255);
+  --essay-text-muted: oklch(0.53 0.012 250);
+  --essay-text-faint: oklch(0.62 0.012 250);
+  --essay-accent: oklch(0.54 0.155 245);
+  --essay-accent-tint: oklch(0.955 0.022 240);
+  --essay-selection: color-mix(in oklch, oklch(0.54 0.155 245), transparent 74%);
+  --essay-selection-match: color-mix(in oklch, oklch(0.54 0.155 245), transparent 86%);
+  --essay-highlight: oklch(0.93 0.085 95);
+
   --essay-diff-insert: oklch(0.472 0.108 152);
   --essay-diff-insert-bg: oklch(0.945 0.038 152);
   --essay-diff-remove: oklch(0.487 0.152 24);
@@ -74,35 +142,10 @@
     0 1px 1px rgb(0 0 0 / 0.04);
 }
 
-/* Light is the default regardless of OS preference; dark is an explicit
-   choice (palette: "Toggle dark mode") via data-theme on <html>. */
-:root[data-theme='dark'] {
-    /* Dark: chrome at Linear's panel depth, canvas a step lighter */
-    --essay-bg: oklch(0.172 0.004 265);
-    /* Same move at night: chrome cool, page warm. A warm charcoal reads as a
-       lamp on a desk; the cool one read as a terminal. */
-    --essay-editor-bg: oklch(0.213 0.008 75);
-    --essay-prose-ink: oklch(0.918 0.008 85);
-    --essay-surface: oklch(0.228 0.006 280);
-    --essay-surface-hover: oklch(0.257 0.006 282);
-    --essay-border: oklch(0.264 0.01 268);
-    --essay-border-strong: oklch(0.327 0.011 282);
-    --essay-text: oklch(0.945 0.002 240);
-    --essay-text-muted: oklch(0.649 0.015 262);
-    --essay-text-faint: oklch(0.509 0.012 262);
-    --essay-accent: oklch(0.691 0.164 276);
-    --essay-accent-tint: oklch(0.222 0.044 282);
-    --essay-selection: color-mix(in oklch, oklch(0.567 0.159 275), black 10%);
-    --essay-selection-match: color-mix(in oklch, oklch(0.567 0.159 275), transparent 70%);
-    --essay-highlight: oklch(0.45 0.07 95);
-
-    --essay-diff-insert: oklch(0.802 0.146 152);
-    --essay-diff-insert-bg: oklch(0.286 0.052 152);
-    --essay-diff-remove: oklch(0.762 0.135 24);
-    --essay-diff-remove-bg: oklch(0.301 0.055 24);
-
-    --essay-shadow-low: 0 2px 4px rgb(0 0 0 / 0.25);
-    --essay-shadow-medium: 0 4px 24px rgb(0 0 0 / 0.35);
-    --essay-shadow-palette: 0 9px 48px rgb(0 0 0 / 0.35), 0 6px 24px rgb(0 0 0 / 0.4),
-      0 1px 1px rgb(0 0 0 / 0.2);
+/* Serif prose is an explicit choice, like dark: data-prose-font on <html>
+   (palette: "Toggle serif prose", persisted by lib/proseFont.ts). Only the
+   manuscript face swaps; the chrome stays Geist — the tools are the app's,
+   the page is the author's. */
+:root[data-prose-font='serif'] {
+  --essay-font-prose: var(--essay-font-prose-serif);
 }

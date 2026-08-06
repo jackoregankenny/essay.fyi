@@ -1,7 +1,5 @@
 import type { DocumentMark, OutlineItem } from '@essay/editor'
-import { HighlighterCircle } from '@phosphor-icons/react'
-import type { Revision } from '#/lib/revisions'
-import { HistoryPane } from './HistoryPane'
+import { IconMark } from './icons'
 import { OutlinePane } from './OutlinePane'
 
 interface SidebarProps {
@@ -10,18 +8,18 @@ interface SidebarProps {
   marks: DocumentMark[]
   onSelectOutline: (item: OutlineItem) => void
   onSelectMark: (mark: DocumentMark) => void
-  documentPath: string | null
-  historyVersion: number
-  currentHash: string | null
-  onCompareRevision: (revision: Revision) => void
-  onCheckpoint: () => void
 }
 
 /**
- * Outline-first: the sidebar is about navigating THIS document — where its
- * sections are, what the author flagged to come back to, and how it got here.
- * All three answer questions about the manuscript on screen, which is why
- * history lives beside the outline rather than in a surface of its own.
+ * The Structure tenant of the companion slot (docs/ui-overhaul.md): where the
+ * sections are and what the author flagged to come back to. History used to
+ * live here too; it is a companion tenant of its own now — a timeline was
+ * never comfortable in a third of a 232px column. The overhaul's step 2 grows
+ * this into the brief's full STRUCTURE pane (page weight, change activity,
+ * pending proposals); today it is the outline and the marks, unchanged.
+ *
+ * No border of its own: the companion column draws the frame, and a tenant
+ * that brought one would double it.
  */
 export function Sidebar({
   outline,
@@ -29,27 +27,15 @@ export function Sidebar({
   marks,
   onSelectOutline,
   onSelectMark,
-  documentPath,
-  historyVersion,
-  currentHash,
-  onCompareRevision,
-  onCheckpoint,
 }: SidebarProps) {
   return (
-    <aside className="flex h-full min-h-0 flex-col border-r border-[var(--essay-border)]">
+    <aside className="flex h-full min-h-0 flex-col">
       <OutlinePane
         outline={outline}
         activePos={activePos}
         onSelect={onSelectOutline}
       />
       {marks.length > 0 && <MarksPane marks={marks} onSelect={onSelectMark} />}
-      <HistoryPane
-        documentPath={documentPath}
-        version={historyVersion}
-        currentHash={currentHash}
-        onCompare={onCompareRevision}
-        onCheckpoint={onCheckpoint}
-      />
     </aside>
   )
 }
@@ -68,10 +54,7 @@ function MarksPane({
   return (
     <section className="flex max-h-[32%] min-h-0 flex-col border-t border-[var(--essay-border)]">
       <header className="flex items-center gap-1.5 px-3 pt-3 pb-1">
-        <HighlighterCircle
-          size={12}
-          className="text-[var(--essay-text-faint)]"
-        />
+        <IconMark size={12} className="text-[var(--essay-text-faint)]" />
         <h2 className="text-[11px] font-[510] tracking-wider text-[var(--essay-text-faint)] uppercase">
           Marks
         </h2>
@@ -86,10 +69,17 @@ function MarksPane({
               <button
                 type="button"
                 onClick={() => onSelect(mark)}
-                className="w-full truncate rounded-md px-2 py-[3px] text-left text-[13px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]"
+                className="flex w-full items-center gap-1.5 rounded-md px-2 py-[3px] text-left text-[13px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]"
               >
-                <span className="mr-1.5 inline-block h-2 w-2 rounded-[2px] bg-[var(--essay-highlight)] align-baseline" />
-                {mark.text}
+                {/* A swatch, not a bullet: it stands for the highlight itself,
+                    so it keeps the mark's own colour rather than borrowing the
+                    row's. shrink-0 in a flex row so a long line truncates the
+                    text and never the swatch. */}
+                <span
+                  aria-hidden
+                  className="h-2 w-2 shrink-0 rounded-[3px] bg-[var(--essay-highlight)]"
+                />
+                <span className="min-w-0 flex-1 truncate">{mark.text}</span>
               </button>
             </li>
           ))}

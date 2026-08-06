@@ -106,3 +106,41 @@ body {
     animation: none;
   }
 }
+
+/* ——— The chrome holds its breath ———
+   Two states quiet it, one deliberate and one ambient. Focus mode
+   (`data-focus-mode`, set by @essay/editor's setFocusMode) is the author
+   asking for the room: chrome drops to a murmur. Typing (`data-typing`,
+   set by the workspace while doc changes are landing) is stronger and
+   momentary: while words arrive the chrome all but vanishes, and the first
+   pointer movement — or a second of stillness — brings it back. Opacity,
+   not display — the affordances stay exactly where the hand knows they
+   are, and a pointer that goes looking finds them mid-fade rather than
+   gone. The transition lives on the base class so the return glides too. */
+.essay-chrome {
+  transition: opacity var(--essay-speed-regular) var(--essay-ease-out);
+}
+
+html[data-focus-mode] .essay-chrome {
+  opacity: 0.25;
+}
+
+html[data-typing] .essay-chrome {
+  opacity: 0.08;
+  /* The room dims slowly — sinking into flow is gradual — but the base
+     class's regular speed governs the return, so looking up is instant. */
+  transition-duration: 0.7s;
+}
+
+html[data-focus-mode] .essay-chrome:hover,
+html[data-focus-mode] .essay-chrome:focus-within,
+html[data-typing] .essay-chrome:hover,
+html[data-typing] .essay-chrome:focus-within {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .essay-chrome {
+    transition: none;
+  }
+}

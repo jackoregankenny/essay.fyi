@@ -4,11 +4,16 @@ import { useEditorState } from '@tiptap/react'
 import {
   ArrowElbowDownLeft,
   Code,
+  Columns,
+  ColumnsPlusRight,
   HighlighterCircle,
   Link as LinkIcon,
+  Rows,
+  RowsPlusBottom,
   TextB,
   TextItalic,
   TextStrikethrough,
+  Trash,
 } from '@phosphor-icons/react'
 import type { Editor } from '@essay/editor'
 import { cn } from '#/lib/cn'
@@ -28,6 +33,8 @@ export function SelectionToolbar({ editor }: { editor: Editor }) {
       code: editor.isActive('code'),
       link: editor.isActive('link'),
       highlight: editor.isActive('highlight'),
+      table: editor.isActive('table'),
+      caretOnly: editor.state.selection.empty,
     }),
   })
 
@@ -49,7 +56,10 @@ export function SelectionToolbar({ editor }: { editor: Editor }) {
       editor={editor}
       options={{ placement: 'top', offset: 8 }}
       shouldShow={({ editor, state }) => {
-        if (state.selection.empty) return false
+        // A bare caret inside a table still gets the toolbar: the table
+        // controls (add/delete row/column) act on position, not on a
+        // selection, and a caret is how an author is usually in a table.
+        if (state.selection.empty && !editor.isActive('table')) return false
         if ('node' in state.selection) return false
         if (editor.isActive('codeBlock')) return false
         return editor.isEditable
@@ -84,56 +94,120 @@ export function SelectionToolbar({ editor }: { editor: Editor }) {
         </form>
       ) : (
         <>
-          <FormatButton
-            title="Bold"
-            active={marks?.bold}
-            onClick={() => editor.chain().focus().toggleBold().run()}
-          >
-            <TextB size={14} weight="bold" />
-          </FormatButton>
-          <FormatButton
-            title="Italic"
-            active={marks?.italic}
-            onClick={() => editor.chain().focus().toggleItalic().run()}
-          >
-            <TextItalic size={14} />
-          </FormatButton>
-          <FormatButton
-            title="Strikethrough"
-            active={marks?.strike}
-            onClick={() => editor.chain().focus().toggleStrike().run()}
-          >
-            <TextStrikethrough size={14} />
-          </FormatButton>
-          <FormatButton
-            title="Code"
-            active={marks?.code}
-            onClick={() => editor.chain().focus().toggleCode().run()}
-          >
-            <Code size={14} />
-          </FormatButton>
-          <span className="mx-0.5 h-4 w-px bg-[var(--essay-border)]" />
-          <FormatButton
-            title="Mark to come back to"
-            active={marks?.highlight}
-            onClick={() => editor.chain().focus().toggleHighlight().run()}
-          >
-            <HighlighterCircle size={14} />
-          </FormatButton>
-          <FormatButton
-            title="Link"
-            active={marks?.link}
-            onClick={() => {
-              const current = editor.getAttributes('link') as { href?: string }
-              setUrl(current.href ?? '')
-              setLinkMode(true)
-            }}
-          >
-            <LinkIcon size={14} />
-          </FormatButton>
+          {/* Marks still apply inside table cells, so the table controls are
+              appended after a divider rather than replacing them — replacing
+              would take bold/italic away exactly where an author is styling a
+              header row. On a bare caret the mark buttons would act on
+              nothing, so only the table group renders. */}
+          {!marks?.caretOnly && <MarkButtons editor={editor} marks={marks} openLink={() => {
+            const current = editor.getAttributes('link') as { href?: string }
+            setUrl(current.href ?? '')
+            setLinkMode(true)
+          }} />}
+          {marks?.table && (
+            <>
+              {!marks?.caretOnly && (
+                <span className="mx-0.5 h-4 w-px bg-[var(--essay-border)]" />
+              )}
+              <FormatButton
+                title="Add row below"
+                onClick={() => editor.chain().focus().addRowAfter().run()}
+              >
+                <RowsPlusBottom size={14} />
+              </FormatButton>
+              <FormatButton
+                title="Add column right"
+                onClick={() => editor.chain().focus().addColumnAfter().run()}
+              >
+                <ColumnsPlusRight size={14} />
+              </FormatButton>
+              <FormatButton
+                title="Delete row"
+                onClick={() => editor.chain().focus().deleteRow().run()}
+              >
+                <Rows size={14} />
+              </FormatButton>
+              <FormatButton
+                title="Delete column"
+                onClick={() => editor.chain().focus().deleteColumn().run()}
+              >
+                <Columns size={14} />
+              </FormatButton>
+              <FormatButton
+                title="Delete table"
+                onClick={() => editor.chain().focus().deleteTable().run()}
+              >
+                <Trash size={14} />
+              </FormatButton>
+            </>
+          )}
         </>
       )}
     </BubbleMenu>
+  )
+}
+
+function MarkButtons({
+  editor,
+  marks,
+  openLink,
+}: {
+  editor: Editor
+  marks:
+    | {
+        bold: boolean
+        italic: boolean
+        strike: boolean
+        code: boolean
+        link: boolean
+        highlight: boolean
+      }
+    | null
+    | undefined
+  openLink: () => void
+}) {
+  return (
+    <>
+      <FormatButton
+        title="Bold"
+        active={marks?.bold}
+        onClick={() => editor.chain().focus().toggleBold().run()}
+      >
+        <TextB size={14} weight="bold" />
+      </FormatButton>
+      <FormatButton
+        title="Italic"
+        active={marks?.italic}
+        onClick={() => editor.chain().focus().toggleItalic().run()}
+      >
+        <TextItalic size={14} />
+      </FormatButton>
+      <FormatButton
+        title="Strikethrough"
+        active={marks?.strike}
+        onClick={() => editor.chain().focus().toggleStrike().run()}
+      >
+        <TextStrikethrough size={14} />
+      </FormatButton>
+      <FormatButton
+        title="Code"
+        active={marks?.code}
+        onClick={() => editor.chain().focus().toggleCode().run()}
+      >
+        <Code size={14} />
+      </FormatButton>
+      <span className="mx-0.5 h-4 w-px bg-[var(--essay-border)]" />
+      <FormatButton
+        title="Mark to come back to"
+        active={marks?.highlight}
+        onClick={() => editor.chain().focus().toggleHighlight().run()}
+      >
+        <HighlighterCircle size={14} />
+      </FormatButton>
+      <FormatButton title="Link" active={marks?.link} onClick={openLink}>
+        <LinkIcon size={14} />
+      </FormatButton>
+    </>
   )
 }
 

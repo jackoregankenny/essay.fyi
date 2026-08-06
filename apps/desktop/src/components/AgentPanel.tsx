@@ -659,7 +659,11 @@ export function AgentPanel({
     >
       <header className="flex h-10 shrink-0 items-center gap-2 border-b border-[var(--essay-border)] pr-1 pl-3">
         <AgentIcon size={14} aria-hidden className="text-[var(--essay-text-faint)]" />
-        <h2 className="text-[12px] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
+        {/* 13px medium, not caps — this holds a proper noun (the agent's own
+            name), and a tracked-caps treatment reads as a category label
+            where this is closer to a document title. Matches the manuscript
+            title's own 12.5px/510 in TopBar. */}
+        <h2 className="text-[13px] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
           {session ? session.agentName : 'Agent'}
         </h2>
         {session && (
@@ -725,7 +729,10 @@ export function AgentPanel({
           className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
         >
           {entries.length === 0 && (
-            <p className="py-8 text-center text-[12px] text-[var(--essay-text-faint)]">
+            // A sentence, not a placeholder graphic: left-aligned and in the
+            // flow, the way the picker's own copy reads before a session
+            // exists.
+            <p className="px-1 py-1 text-[12px] leading-[1.55] text-[var(--essay-text-faint)]">
               {session.agentName} is listening. It can read {documentName} and
               propose edits; nothing it writes reaches the file until you
               accept it.
@@ -748,10 +755,19 @@ export function AgentPanel({
       )}
 
       {failure && (
+        // A hairline top border, like the composer below it — not a tinted
+        // band. The icon carries the severity; the text stays body ink so a
+        // long adapter error is still comfortable to read, not shouted at.
         <p
           role="alert"
-          className="shrink-0 border-t border-[var(--essay-border)] bg-[var(--essay-diff-remove-bg)] px-3 py-2 text-[11px] leading-[1.5] text-[var(--essay-text)]"
+          className="shrink-0 border-t border-[var(--essay-border)] px-3 py-2 text-[11px] leading-[1.5] text-[var(--essay-text)]"
         >
+          <ErrorIcon
+            size={11}
+            weight="bold"
+            aria-hidden
+            className="mr-1 inline-block align-[-1px] text-[var(--essay-diff-remove)]"
+          />
           {failure}
         </p>
       )}
@@ -814,7 +830,10 @@ function OptionsStrip({
   onTune: (option: SessionOption, value: string) => void
 }) {
   return (
-    <div className="shrink-0 border-b border-[var(--essay-border)] bg-[var(--essay-surface)] px-3 py-1.5">
+    // A hairline, not a tinted band: surface is spent on the cards that
+    // hold a decision (the changes queue, the plan), not on chrome that
+    // merely separates one region from the next.
+    <div className="shrink-0 border-b border-[var(--essay-border)] px-3 py-1.5">
       {options.map((option) => (
         <div key={option.id} className="flex h-7 items-center gap-2">
           <span
@@ -1205,9 +1224,18 @@ function AgentPicker({
           </li>
         ))}
         {agents.length === 0 && (
-          <li className="rounded-lg border border-dashed border-[var(--essay-border)] px-2.5 py-3 text-[12px] text-[var(--essay-text-faint)]">
-            No agents found. Essay looks for <code>opencode</code> and{' '}
-            <code>claude</code> on your PATH.
+          // A sentence, not an empty-state card: nothing was expected to be
+          // here yet, so there is nothing to frame.
+          <li className="px-1 py-1 text-[12px] leading-[1.55] text-[var(--essay-text-faint)]">
+            No agents found. Essay looks for{' '}
+            <code className="font-(family-name:--essay-font-mono) text-[var(--essay-text-muted)]">
+              opencode
+            </code>{' '}
+            and{' '}
+            <code className="font-(family-name:--essay-font-mono) text-[var(--essay-text-muted)]">
+              claude
+            </code>{' '}
+            on your PATH.
           </li>
         )}
       </ul>
@@ -1246,7 +1274,10 @@ function ChangesBlock({
   return (
     <section
       aria-label="Changes"
-      className="max-h-[46%] shrink-0 overflow-y-auto border-b border-[var(--essay-border)] bg-[var(--essay-surface)] px-2 py-2"
+      // No fill here: each row below carries its own surface + hairline
+      // card, and a tinted tray around them would be a box around boxes —
+      // exactly the noise a calm queue can't afford.
+      className="max-h-[46%] shrink-0 overflow-y-auto border-b border-[var(--essay-border)] px-2 py-2"
     >
       <div className="mb-1 flex items-center gap-2 px-1">
         {/* 11px faint uppercase — the same micro-heading the outline pane and
@@ -1357,13 +1388,16 @@ function ChangeRow({
 }) {
   const applied = tone === 'applied'
   return (
+    // One card language for both arrival paths — surface, hairline border,
+    // 8px radius — so a PROPOSAL and an ON DISK row read as the same *kind*
+    // of thing (a decision waiting) and only the label and the words beneath
+    // it say which kind. The old red-tinted fill for "on disk" made an
+    // unreviewed write look like an error; it isn't one, it's a fact to act
+    // on, and it does not need alarm colour to be taken seriously.
     <div
       className={cn(
-        'essay-pop flex items-center gap-2 rounded-lg border px-2 py-1.5',
-        'transition-colors duration-100',
-        applied
-          ? 'border-[var(--essay-diff-remove-bg)] bg-[var(--essay-diff-remove-bg)]'
-          : 'border-[var(--essay-border)] bg-[var(--essay-editor-bg)]',
+        'essay-pop flex items-center gap-2 rounded-lg border border-[var(--essay-border)] bg-[var(--essay-surface)] px-2 py-1.5',
+        'transition-colors duration-100 hover:border-[var(--essay-border-strong)]',
       )}
     >
       <button
@@ -1372,27 +1406,21 @@ function ChangeRow({
         className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--essay-accent)]"
       >
         <span className="flex items-center gap-1.5">
-          <span
-            className={cn(
-              'inline-flex h-[15px] shrink-0 items-center gap-1 rounded-[4px] px-1.5',
-              'text-[9px] font-[var(--essay-weight-semibold)] tracking-wide uppercase',
-              // Body ink on a tinted chip, for the reason StatusPill states in
-              // DiffReview: accent-on-tint is the prettier version and it
-              // measures 4.2:1, which is not a number to put a 9px label on.
-              applied
-                ? 'bg-[var(--essay-diff-remove)] text-[var(--essay-editor-bg)]'
-                : 'bg-[var(--essay-accent-tint)] text-[var(--essay-text)]',
-            )}
-          >
-            {applied ? <OnDiskIcon size={9} weight="bold" aria-hidden /> : null}
+          {/* Provenance as a tiny caps label in faint ink, not a chip: it
+              only has to be legible, not shouted — the file name and the
+              verb this row leads to (Accept/Reject or Revert/Keep it, once
+              opened) carry the actual weight. */}
+          <span className="inline-flex shrink-0 items-center gap-0.5 text-[9px] font-[var(--essay-weight-semibold)] tracking-wide text-[var(--essay-text-faint)] uppercase">
+            {applied ? <OnDiskIcon size={9} aria-hidden /> : null}
             {applied ? 'on disk' : 'proposal'}
           </span>
           <span className="min-w-0 truncate text-[12px] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
             {title}
           </span>
           {rewrite && (
-            // Before the accept, not after: an author who misses this has lost
-            // a document's worth of their own phrasing.
+            // Accent-tint, matching every other place Essay flags something
+            // worth a second look — a rewrite is a bigger decision, not a
+            // worse one, so it does not reach for alarm colour either.
             <span
               className="inline-flex shrink-0 items-center gap-1 rounded-[4px] bg-[var(--essay-accent-tint)] px-1 text-[9px] font-[var(--essay-weight-semibold)] tracking-wide text-[var(--essay-text)] uppercase"
               title="Most of the document changed — this reads as a rewrite, not an edit"
@@ -1426,10 +1454,14 @@ function ChangeRow({
           <CloseIcon size={12} />
         </IconButton>
       ) : (
+        // Decorative only — reverting happens inside the review this row
+        // opens, not from the glyph itself — so it stays as quiet as the
+        // label beside it rather than borrowing the danger colour a live
+        // revert control would have earned.
         <RevertIcon
           size={12}
           aria-hidden
-          className="shrink-0 text-[var(--essay-diff-remove)]"
+          className="shrink-0 text-[var(--essay-text-faint)]"
         />
       )}
     </div>
@@ -1441,8 +1473,12 @@ function ChangeRow({
 function TranscriptEntry({ entry }: { entry: Entry }) {
   switch (entry.kind) {
     case 'prompt':
+      // Same size and leading as the agent's own replies — a conversation
+      // reads as one conversation only when neither voice is typeset
+      // smaller than the other. The accent bar is the sole thing marking
+      // this as the author's line, not a frame around it.
       return (
-        <li className="border-l-2 border-[var(--essay-accent)] pl-2.5 text-[12px] leading-[1.55] whitespace-pre-wrap text-[var(--essay-text)]">
+        <li className="border-l-2 border-[var(--essay-accent)] pl-2.5 text-[13px] leading-[1.6] whitespace-pre-wrap text-[var(--essay-text)]">
           {entry.text}
         </li>
       )
@@ -1466,13 +1502,17 @@ function TranscriptEntry({ entry }: { entry: Entry }) {
     case 'plan':
       return <Plan entries={entry.entries} />
     case 'note':
+      // A quiet note is just quieter body text — no frame. An error borrows
+      // the same left-bar language as the author's own prompt (diff-remove
+      // instead of accent) rather than a filled box, so a failure reads as
+      // a distinct voice in the transcript, not a warning sign glued to it.
       return (
         <li
           className={cn(
-            'rounded-md px-2 py-1 text-[11px] leading-[1.5]',
+            'py-0.5 text-[11px] leading-[1.5]',
             entry.tone === 'error'
-              ? 'bg-[var(--essay-diff-remove-bg)] text-[var(--essay-text)]'
-              : 'text-[var(--essay-text-muted)]',
+              ? 'border-l-2 border-[var(--essay-diff-remove)] pl-2.5 text-[var(--essay-text)]'
+              : 'px-1 text-[var(--essay-text-muted)]',
           )}
         >
           {entry.tone === 'error' && (
@@ -1602,7 +1642,10 @@ function Plan({ entries }: { entries: PlanEntry[] }) {
   const [open, setOpen] = useState(true)
   const done = entries.filter((entry) => entry.status === 'completed').length
   return (
-    <li className="rounded-lg border border-[var(--essay-border)]">
+    // Same card language as the changes queue below it — surface, hairline
+    // border, 8px radius — so a plan reads as one more thing Essay is
+    // showing you, not a visitor with its own styling.
+    <li className="rounded-lg border border-[var(--essay-border)] bg-[var(--essay-surface)]">
       <button
         type="button"
         aria-expanded={open}
@@ -1779,8 +1822,12 @@ function Composer({
   }, [value])
 
   return (
+    // The hairline top border is the composer's only edge — the field below
+    // it is told apart from the panel by the canvas-then-page relationship
+    // the theme already uses everywhere else (editor-bg one step lighter
+    // than the chrome around it), not by drawing a box around it too.
     <div className="shrink-0 border-t border-[var(--essay-border)] p-2">
-      <div className="rounded-lg border border-[var(--essay-border)] bg-[var(--essay-editor-bg)] focus-within:border-[var(--essay-border-strong)]">
+      <div className="rounded-lg bg-[var(--essay-editor-bg)] transition-colors duration-100 focus-within:bg-[var(--essay-surface-hover)]">
         <textarea
           ref={ref}
           rows={1}
@@ -1798,7 +1845,7 @@ function Composer({
           className="block max-h-[132px] w-full resize-none bg-transparent px-2.5 py-2 text-[12px] leading-[1.5] text-[var(--essay-text)] outline-none placeholder:text-[var(--essay-text-faint)]"
         />
         <div className="flex items-center gap-2 px-2 pb-1.5">
-          <span className="text-[10px] text-[var(--essay-text-muted)]">
+          <span className="text-[10px] text-[var(--essay-text-faint)]">
             Enter to send · Shift+Enter for a new line
           </span>
           {running ? (

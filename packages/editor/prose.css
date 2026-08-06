@@ -19,6 +19,12 @@
   outline: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Hang opening quotes/brackets into the margin and let trailing punctuation
+     fall out of the right edge: the text block reads optically straight
+     instead of only mathematically so. WebKit-only — and the Tauri WebView on
+     macOS IS WebKit, so the platform where designers will squint hardest gets
+     it; elsewhere the declaration is unknown and dropped, costing nothing. */
+  hanging-punctuation: first allow-end;
 }
 
 /* Reflow the source's line wrapping.
@@ -52,6 +58,35 @@
 
 .essay-prose > * + * {
   margin-top: 0.85em;
+}
+
+/* ——— Serif prose (data-prose-font='serif' on <html>) ———
+   The face swap itself happens in @essay/theme, mirroring data-theme; what
+   lives here is metrics, because the token alone is not enough. Charter and
+   its fallbacks carry a smaller x-height than Geist, so the same rem reads a
+   size smaller — the 4% bump restores apparent size without touching
+   --essay-editor-font-size, which stays the sans truth. And negative
+   tracking is a grotesque's habit: sans faces ship loose and want
+   tightening, text serifs are already fitted, so the headings' -0.012em
+   would push serifs into each other. */
+:root[data-prose-font='serif'] .essay-prose {
+  font-size: calc(var(--essay-editor-font-size) * 1.04);
+}
+
+:root[data-prose-font='serif'] .essay-prose h1,
+:root[data-prose-font='serif'] .essay-prose h2,
+:root[data-prose-font='serif'] .essay-prose h3,
+:root[data-prose-font='serif'] .essay-prose h4 {
+  letter-spacing: 0;
+}
+
+/* 620 was graded against Geist Variable's low stroke contrast. Every face in
+   the serif stack is static, where anything past 500 resolves to the 700
+   bold regardless of the number written here — so this value changes nothing
+   today and exists for the author who installs a variable serif, where
+   Geist's 620 against real thick/thin contrast reads a step too heavy. */
+:root[data-prose-font='serif'] .essay-prose strong {
+  font-weight: 600;
 }
 
 /* ——— Headings ——— */
@@ -102,6 +137,38 @@
   color: var(--essay-text-muted);
 }
 
+/* Real small caps where the engine offers them; the uppercase rule above
+   stays as the universal fallback. Inside the block `text-transform` is
+   turned off so the glyphs render at small-cap height — quieter than a row
+   of full capitals, which is the register these minor headings live in.
+   Neither Geist nor most of the serif stack ships smcp glyphs, so WebKit
+   will synthesize — and synthesized small caps still beat letterspaced full
+   caps at this size, while an author-installed face that has real ones gets
+   them for free. Small caps carry their own fitting, so the tracking eases
+   from the 0.06em full caps need. */
+@supports (font-variant-caps: all-small-caps) {
+  .essay-prose h5,
+  .essay-prose h6 {
+    text-transform: none;
+    font-variant-caps: all-small-caps;
+    letter-spacing: 0.04em;
+  }
+}
+
+/* A heading belongs to the text below it. The `* + *` rhythm gives every
+   block the same 0.85em, which spaces a heading equally from its section and
+   from the section it ends — grouping by proximity asks for less below than
+   above. Pulling the first paragraph up makes the asymmetry read; the wide
+   margin-tops on h2–h6 above are the other half of the gesture. */
+.essay-prose h1 + p,
+.essay-prose h2 + p,
+.essay-prose h3 + p,
+.essay-prose h4 + p,
+.essay-prose h5 + p,
+.essay-prose h6 + p {
+  margin-top: 0.55em;
+}
+
 /* ——— Inline ——— */
 
 .essay-prose strong {
@@ -140,16 +207,19 @@
 
 /* ——— Blockquote ——— */
 
+/* Editorial, not default-browser: a hairline, a step down in ink, roman type.
+   The blanket italic went. A quotation of any length set slanted is one long
+   shout, and it confiscated italics from the quoted author — their own
+   emphasis had to flip back to roman to register at all (the `em` inversion
+   this rule used to need was the tell). Roman at muted ink says "another
+   voice" while leaving the emphasis channel intact, and the hairline thinned
+   from 2px: the indent already does the structural work, so the rule only
+   needs to be findable, not load-bearing. */
 .essay-prose blockquote {
-  margin: 1.4em 0;
-  padding: 0.1em 0 0.1em 1.4em;
-  border-left: 2px solid color-mix(in oklab, var(--essay-text) 30%, transparent);
+  margin: 1.6em 0;
+  padding: 0.15em 0 0.15em 1.4em;
+  border-left: 1px solid color-mix(in oklab, var(--essay-text) 35%, transparent);
   color: var(--essay-text-muted);
-  font-style: italic;
-}
-
-.essay-prose blockquote em {
-  font-style: normal;
 }
 
 /* ——— Lists ——— */
@@ -328,8 +398,25 @@
   color: var(--essay-accent);
 }
 
-/* ——— Focus mode: dim everything but the block being written, and give
-       the typewriter scroll room to centre the first and last lines ——— */
+/* ——— Focus mode: a gradient of attention, and room for the typewriter
+       scroll to centre the first and last lines ———
+
+   Not a binary dim. The block being written carries full ink; its immediate
+   neighbours (.focus-d1, ±1) stay readable at 55% — the sentence you just
+   left and the one you are walking into are part of the thought — the next
+   ring (.focus-d2, ±2) is present at 35%, and everything further sits at
+   22%, far enough back to be texture rather than text. Only the current
+   block and the four nearest carry a class (FocusCurrentBlock in index.ts);
+   the base rule below is the resting state for the whole rest of the
+   document, so the ramp costs five decorations however long the manuscript.
+
+   Motion: the theme's regular speed and default ease — a caret move re-grades
+   five blocks at once and the eased opacity makes it read as a lamp swinging
+   down the page rather than lights switching. Opacity only, no transform, no
+   filter: this fires on every block change while writing, and opacity
+   composites without layout or paint of neighbours (invariant 5). Per
+   theme.css's reduced-motion rule, surfaces that move disable their own
+   animation: the swing IS motion, so it goes instant under the query. */
 
 .essay-prose.is-focus-mode {
   padding-top: 42vh;
@@ -337,12 +424,40 @@
 }
 
 .essay-prose.is-focus-mode > * {
-  opacity: 0.3;
-  transition: opacity 200ms var(--essay-ease-out, ease);
+  opacity: 0.22;
+  transition: opacity var(--essay-speed-regular, 250ms) var(--essay-ease-out, ease);
+}
+
+.essay-prose.is-focus-mode > .focus-d2 {
+  opacity: 0.35;
+}
+
+.essay-prose.is-focus-mode > .focus-d1 {
+  opacity: 0.55;
 }
 
 .essay-prose.is-focus-mode > .is-current-block {
   opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .essay-prose.is-focus-mode > * {
+    transition: none;
+  }
+}
+
+/* Saturated ink pulls through a dim. A ==come back to this== mark or a
+   selection tint inside a dimmed paragraph still reads at full chroma
+   relative to its faded text and drags the eye out of the current block —
+   the one thing focus mode exists to prevent. Fold both toward transparent
+   in the dimmed rings so they fade with the prose they sit in; the current
+   block keeps them at full strength, where attention already is. */
+.essay-prose.is-focus-mode > :not(.is-current-block) mark {
+  background: color-mix(in oklab, var(--essay-highlight) 45%, transparent);
+}
+
+.essay-prose.is-focus-mode > :not(.is-current-block) ::selection {
+  background: color-mix(in oklab, var(--essay-selection) 45%, transparent);
 }
 
 /* ——— Placeholder ——— */

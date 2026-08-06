@@ -15,6 +15,7 @@
  * fixtures/ alongside any serializer-affecting change.
  */
 import { Extension, InputRule, type AnyExtension, type Editor } from '@tiptap/core'
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import StarterKit from '@tiptap/starter-kit'
@@ -60,6 +61,44 @@ function scrollerOf(dom: HTMLElement): HTMLElement | null {
   return null
 }
 
+/** The one in-flight glide per scroller, so a retarget cancels rather than
+    stacks — two animations fighting over scrollTop is a shake, not a glide. */
+const glides = new WeakMap<HTMLElement, number>()
+
+/**
+ * Ease the pane to `target` rather than snapping it. The typewriter's small
+ * moves (a line wrap, one Enter) become a short settle; a caret clicked to
+ * the far end of the document arrives on the same curve. Sub-2px deltas are
+ * set directly — animating them would keep a rAF loop alive under plain
+ * typing for movement nobody can see. Reduced motion gets the old behaviour:
+ * the centring is the feature, the glide is the garnish.
+ */
+function glideTo(scroller: HTMLElement, target: number): void {
+  const prev = glides.get(scroller)
+  if (prev !== undefined) cancelAnimationFrame(prev)
+  const from = scroller.scrollTop
+  const delta = target - from
+  if (
+    Math.abs(delta) < 2 ||
+    (typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+  ) {
+    glides.delete(scroller)
+    scroller.scrollTop = target
+    return
+  }
+  const DURATION = 140
+  const start = performance.now()
+  const step = (now: number) => {
+    const t = Math.min((now - start) / DURATION, 1)
+    const eased = 1 - Math.pow(1 - t, 3)
+    scroller.scrollTop = from + delta * eased
+    if (t < 1) glides.set(scroller, requestAnimationFrame(step))
+    else glides.delete(scroller)
+  }
+  glides.set(scroller, requestAnimationFrame(step))
+}
+
 /** Scroll so the caret sits at the vertical centre of the manuscript pane. */
 function centerCaret(view: { dom: HTMLElement } & Pick<Editor['view'], 'coordsAtPos' | 'state'>): void {
   const scroller = scrollerOf(view.dom)
@@ -72,7 +111,7 @@ function centerCaret(view: { dom: HTMLElement } & Pick<Editor['view'], 'coordsAt
   }
   const rect = scroller.getBoundingClientRect()
   const caretMiddle = (coords.top + coords.bottom) / 2
-  scroller.scrollTop += caretMiddle - (rect.top + rect.height / 2)
+  glideTo(scroller, scroller.scrollTop + caretMiddle - (rect.top + rect.height / 2))
 }
 
 /**
@@ -102,26 +141,90 @@ const TypewriterScroll = Extension.create({
   },
 })
 
+interface FocusBlockState {
+  /** Whether focus mode is on — set by `setFocusMode` via transaction meta. */
+  on: boolean
+  /** Top-level child index of the block holding the caret, or null when the
+      selection sits between blocks (gap cursor). */
+  index: number | null
+  decos: DecorationSet
+}
+
+const focusBlockKey = new PluginKey<FocusBlockState>('essayFocusCurrentBlock')
+
 /**
- * Marks the top-level block containing the caret with `.is-current-block`.
- * Inert on its own — when the host toggles `.is-focus-mode` on the editor
- * DOM (via setFocusMode), prose.css dims every other block.
+ * The decorations for one caret position: the current block, and — only in
+ * focus mode — its neighbours graded by distance. Five node decorations at
+ * most, whatever the document's length; everything past ±2 is left bare and
+ * falls to the base dim in prose.css, so a long manuscript costs the same
+ * as a short one.
+ */
+function focusBlockDecorations(
+  doc: ProseMirrorNode,
+  current: number | null,
+  on: boolean,
+): DecorationSet {
+  if (current === null) return DecorationSet.empty
+  const decos: Decoration[] = []
+  doc.forEach((node, offset, i) => {
+    const distance = Math.abs(i - current)
+    if (distance === 0) {
+      decos.push(Decoration.node(offset, offset + node.nodeSize, { class: 'is-current-block' }))
+    } else if (on && distance <= 2) {
+      decos.push(
+        Decoration.node(offset, offset + node.nodeSize, {
+          class: distance === 1 ? 'focus-d1' : 'focus-d2',
+        }),
+      )
+    }
+  })
+  return DecorationSet.create(doc, decos)
+}
+
+/**
+ * Marks the top-level block containing the caret with `.is-current-block`,
+ * and in focus mode grades its neighbours (`.focus-d1`, `.focus-d2`) so the
+ * dim falls off with distance instead of switching. Inert on its own — the
+ * classes do nothing until the host toggles `.is-focus-mode` (setFocusMode)
+ * and prose.css reads them.
+ *
+ * Perf shape (invariant 5): the decoration set lives in plugin state and is
+ * rebuilt only when the caret crosses into a different top-level block —
+ * `$head.index(0)` is the whole test, and it moves when a block above is
+ * added or removed too, so the test doubles as structural change detection.
+ * A keystroke inside the current block maps the existing set through the
+ * transaction instead; mapping is position arithmetic, no doc walk, no
+ * layout read.
  */
 const FocusCurrentBlock = Extension.create({
   name: 'essayFocusCurrentBlock',
   addProseMirrorPlugins() {
     return [
-      new Plugin({
-        key: new PluginKey('essayFocusCurrentBlock'),
+      new Plugin<FocusBlockState>({
+        key: focusBlockKey,
+        state: {
+          init(_config, state) {
+            const { $head } = state.selection
+            const index = $head.depth === 0 ? null : $head.index(0)
+            return { on: false, index, decos: focusBlockDecorations(state.doc, index, false) }
+          },
+          apply(tr, value, _oldState, newState) {
+            const meta = tr.getMeta(focusBlockKey) as boolean | undefined
+            const on = meta ?? value.on
+            const { $head } = newState.selection
+            const index = $head.depth === 0 ? null : $head.index(0)
+            if (meta === undefined && index === value.index) {
+              // Same block, same mode: typing. Map, never rebuild.
+              return tr.docChanged
+                ? { ...value, decos: value.decos.map(tr.mapping, tr.doc) }
+                : value
+            }
+            return { on, index, decos: focusBlockDecorations(newState.doc, index, on) }
+          },
+        },
         props: {
           decorations(state) {
-            const { $head } = state.selection
-            if ($head.depth === 0) return null
-            return DecorationSet.create(state.doc, [
-              Decoration.node($head.before(1), $head.after(1), {
-                class: 'is-current-block',
-              }),
-            ])
+            return focusBlockKey.getState(state)?.decos ?? null
           },
         },
       }),
@@ -156,11 +259,22 @@ const MarkdownLinkTyping = Extension.create({
 })
 
 /**
- * Dim everything except the block being written and keep the caret line
- * vertically centred (typewriter scrolling).
+ * Dim everything except the caret's neighbourhood — a gradient of attention,
+ * not a switch — and keep the caret line vertically centred (typewriter
+ * scrolling).
+ *
+ * Chrome hook for the host: alongside `.is-focus-mode` on the editor DOM,
+ * this sets/removes `data-focus-mode` on `document.documentElement`. The app
+ * shell can key on `:root[data-focus-mode]` to quiet its own chrome (header,
+ * gutter, companion) while the author is in focus; the shell's styling is the
+ * shell's business — the attribute is the whole contract.
  */
 export function setFocusMode(editor: Editor, on: boolean): void {
   editor.view.dom.classList.toggle('is-focus-mode', on)
+  document.documentElement.toggleAttribute('data-focus-mode', on)
+  // Tell FocusCurrentBlock so it starts/stops grading neighbours; when
+  // focus is off it decorates only the current block, exactly as before.
+  editor.view.dispatch(editor.state.tr.setMeta(focusBlockKey, on))
   if (on) centerCaret(editor.view)
 }
 

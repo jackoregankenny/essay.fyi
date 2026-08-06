@@ -114,7 +114,7 @@ export function HistoryPane({
           type="button"
           onClick={toggle}
           aria-expanded={open}
-          className="-ml-1 flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
+          className="-ml-1 flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors duration-[var(--essay-speed-quick)] ease-[var(--essay-ease-out)] hover:bg-[var(--essay-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
         >
           {open ? (
             <CollapseIcon size={11} aria-hidden className="text-[var(--essay-text-faint)]" />
@@ -136,7 +136,7 @@ export function HistoryPane({
             type="button"
             onClick={onCheckpoint}
             title="Mark the document as it stands as a state worth keeping"
-            className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
+            className="ml-auto flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-[var(--essay-text-muted)] transition-colors duration-[var(--essay-speed-quick)] ease-[var(--essay-ease-out)] hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
           >
             <CheckpointIcon size={11} aria-hidden />
             Mark
@@ -206,11 +206,13 @@ function RevisionRow({
 
   return (
     <li>
+      {/* min-h rather than a fixed height: every row is the same two-line
+          shape, so this pins the rhythm while never clipping a tall glyph. */}
       <button
         type="button"
         onClick={onSelect}
         title={`Compare with the document now — ${originLabel(revision.origin)} by ${authorLabel(revision.author)}`}
-        className="group flex w-full items-center gap-2 rounded-md px-2 py-[5px] text-left transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--essay-accent)]"
+        className="group flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-[5px] text-left transition-colors duration-[var(--essay-speed-quick)] ease-[var(--essay-ease-out)] hover:bg-[var(--essay-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--essay-accent)]"
       >
         <OriginIcon
           size={12}
@@ -224,18 +226,38 @@ function RevisionRow({
           )}
         />
         <span className="min-w-0 flex-1">
-          <span
-            className={cn(
-              'block truncate text-[13px]',
-              current
-                ? 'text-[var(--essay-text)]'
-                : 'text-[var(--essay-text-muted)] group-hover:text-[var(--essay-text)]',
+          <span className="flex min-w-0 items-center gap-1.5">
+            {/* The origin as a quiet chip, not a sentence: the timeline is
+                scanned by kind, and a bordered tab reads as a category where
+                running text reads as a message. Border on surface, not the
+                hover token as fill — a surface-hover chip would vanish into
+                the row's own hover. */}
+            <span
+              className={cn(
+                'shrink-0 rounded-[4px] border border-[var(--essay-border)] bg-[var(--essay-surface)] px-1.5 py-px text-[10.5px] leading-[1.5]',
+                marked
+                  ? 'text-[var(--essay-accent)]'
+                  : current
+                    ? 'text-[var(--essay-text)]'
+                    : 'text-[var(--essay-text-muted)]',
+              )}
+            >
+              {originLabel(revision.origin)}
+            </span>
+            {revision.author.kind === 'agent' && (
+              <span
+                className={cn(
+                  'truncate text-[12px]',
+                  current
+                    ? 'text-[var(--essay-text)]'
+                    : 'text-[var(--essay-text-muted)] group-hover:text-[var(--essay-text)]',
+                )}
+              >
+                {revision.author.name}
+              </span>
             )}
-          >
-            {originLabel(revision.origin)}
-            {revision.author.kind === 'agent' && ` · ${revision.author.name}`}
           </span>
-          <span className="block truncate text-[11px] text-[var(--essay-text-faint)] tabular-nums">
+          <span className="mt-px block truncate text-[11px] text-[var(--essay-text-faint)] tabular-nums">
             {revisionTime(revision.createdAt)}
             {current && ' · current'}
             {words > 0 && (

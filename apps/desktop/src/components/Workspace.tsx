@@ -8,7 +8,6 @@ import {
   type CSSProperties,
 } from 'react'
 import { isTauri } from '@tauri-apps/api/core'
-import { Robot, SidebarSimple } from '@phosphor-icons/react'
 import {
   extractMarks,
   extractOutline,
@@ -25,9 +24,9 @@ import {
   type OutlineItem,
 } from '@essay/editor'
 import { registerCommand, type Command } from '@essay/commands'
+import { cn } from '#/lib/cn'
 import welcome from '#/content/welcome.md?raw'
 import { samePath, type AppliedEdit, type ChangeSet } from '#/lib/agents'
-import { cn } from '#/lib/cn'
 import { diffDocuments, looksLikeARewrite } from '#/lib/diff'
 import {
   clearJournal,
@@ -51,11 +50,14 @@ import {
   type MeasureId,
 } from '#/lib/measure'
 import {
-  commandKey,
-  isMac,
-  shortcut,
-  TRAFFIC_LIGHT_INSET,
-} from '#/lib/platform'
+  applyProseFont,
+  loadProseFont,
+  nextProseFont,
+  proseFontLabel,
+  saveProseFont,
+  type ProseFontId,
+} from '#/lib/proseFont'
+import { commandKey, shortcut } from '#/lib/platform'
 import {
   authorLabel,
   checkpointDocument,
@@ -69,23 +71,29 @@ import {
   documentLabel,
   searchDocument,
   searchProject,
+  type SearchOptions,
 } from '#/lib/search'
+import { insertImage } from '#/lib/images'
 import { documentDir, usePreview } from '#/lib/usePreview'
 import { loadWorkspaceFolders } from '#/lib/workspace'
 import { AgentPanel } from './AgentPanel'
 import { CommandPalette, type SearchEntry } from './CommandPalette'
+import {
+  Companion,
+  loadCompanionTenant,
+  saveCompanionTenant,
+  type CompanionTenant,
+} from './Companion'
 import type { ReviewRequest } from './DiffReview'
-import { DocumentTabs, type OpenTab } from './DocumentTabs'
-import { FilesPopover } from './FilesPopover'
+import { Gutter } from './Gutter'
+import { HistoryPane } from './HistoryPane'
 import { ManuscriptEditor } from './ManuscriptEditor'
 import { MeasureSelect } from './MeasureSelect'
 import { DocName, Notice } from './Notice'
 import { SelectionToolbar } from './SelectionToolbar'
 import { Sidebar } from './Sidebar'
-import { UpdateButton } from './UpdateButton'
-import { IconButton } from './ui/icon-button'
-import { Tip, TooltipProvider } from './ui/tooltip'
-import { WindowControls } from './ui/window-controls'
+import { TopBar } from './TopBar'
+import { TooltipProvider } from './ui/tooltip'
 
 /**
  * Surfaces that are absent until the author asks for one, so they are absent
@@ -107,6 +115,9 @@ const FontsPage = lazy(() =>
 const DiffReview = lazy(() =>
   import('./DiffReview').then((module) => ({ default: module.DiffReview })),
 )
+const FilesPanel = lazy(() =>
+  import('./FilesPanel').then((module) => ({ default: module.FilesPanel })),
+)
 
 const UNTITLED: DocumentRef = { path: null, name: 'untitled.md' }
 
@@ -117,8 +128,6 @@ const JOURNAL_DELAY = 600
 
 /** How long after the last keystroke a saved document writes itself. */
 const AUTOSAVE_DELAY = 1500
-
-type ViewMode = 'write' | 'preview'
 
 /**
  * The document changed on disk while Essay had it open, or a save found it
@@ -136,10 +145,6 @@ interface DiskConflict {
   byAgent: boolean
 }
 
-/** How wide the agent pane runs. Wide enough for a readable transcript,
-    narrow enough that a 42rem manuscript beside a 232px sidebar still fits a
-    1280px window — and the sidebar is one Ctrl+B away when it does not. */
-const AGENT_PANEL_WIDTH = 340
 
 /** Untitled buffers have no path to key their journal by, so they get an id
     that is unique to this launch. */
@@ -166,11 +171,6 @@ export function Workspace() {
   const [editor, setEditor] = useState<Editor | null>(null)
   const [initialDoc] = useState(initialManuscript)
   const [docRef, setDocRef] = useState<DocumentRef>(UNTITLED)
-  /** Saved documents opened this session. Pure bookkeeping for the tab strip:
-      the buffer always lives in the one editor, and a saved document has
-      already been written by autosave before you leave it, so switching is a
-      reload rather than a hand-off. */
-  const [openTabs, setOpenTabs] = useState<DocumentRef[]>([])
   const [dirty, setDirty] = useState(false)
   /** The content hash Essay believes is on disk — the write guard. */
   const [baseHash, setBaseHash] = useState<string | null>(null)
@@ -182,18 +182,27 @@ export function Workspace() {
   /** The fonts page, over the manuscript. A machine-level surface rather than
       a document one, so it is not in the sidebar. */
   const [fontsOpen, setFontsOpen] = useState(false)
+  /** The folder explorer, over the manuscript. A layer, not a rail: browsing
+      the workspace is a deliberate act, and quick-open covers the everyday
+      case of moving between documents. */
+  const [explorerOpen, setExplorerOpen] = useState(false)
   const [recoverable, setRecoverable] = useState<RecoverableBuffer[]>([])
   const [outline, setOutline] = useState<OutlineItem[]>([])
   const [words, setWords] = useState(0)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [focusMode, setFocusModeState] = useState(false)
-  const [mode, setMode] = useState<ViewMode>('write')
+  /** What the companion slot holds, or null when the author has the page to
+      themselves. One slot, one tenant — the whole layout discipline
+      (docs/ui-overhaul.md). Restored per document in `loadIntoEditor`. */
+  const [tenant, setTenantState] = useState<CompanionTenant | null>(null)
   const [measure, setMeasureState] = useState<MeasureId>(loadMeasure)
+  /** The manuscript's face — Geist or the machine's best serif. A root
+      attribute rather than component state in spirit, but mirrored here so
+      the palette command's title can name the current one. */
+  const [proseFont, setProseFontState] = useState<ProseFontId>(loadProseFont)
   const [marks, setMarks] = useState<DocumentMark[]>([])
   const [caretPos, setCaretPos] = useState(0)
   const [renderVersion, setRenderVersion] = useState(0)
-  const [agentOpen, setAgentOpen] = useState(false)
   /** Decisions the agent panel is holding. Mirrored up here because it is the
       only thing that can show in the chrome while the panel is shut. */
   const [waitingOnAuthor, setWaitingOnAuthor] = useState(0)
@@ -231,6 +240,40 @@ export function Workspace() {
     setMeasureState(next)
     saveMeasure(next)
   }, [])
+
+  // The face is applied at mount (the saved choice survives a relaunch) and
+  // whenever the palette cycles it.
+  useEffect(() => {
+    applyProseFont(proseFont)
+  }, [proseFont])
+
+  const cycleProseFont = useCallback(() => {
+    setProseFontState((current) => {
+      const next = nextProseFont(current)
+      saveProseFont(next)
+      return next
+    })
+  }, [])
+
+  /**
+   * Change the slot's tenant and remember the choice for this document. Keyed
+   * by path, so an untitled buffer never records one — "closed" is the flow's
+   * default posture and a fresh document opens with the page to itself.
+   */
+  const setTenant = useCallback((next: CompanionTenant | null) => {
+    setTenantState(next)
+    const path = liveRef.current.path
+    if (path) saveCompanionTenant(path, next)
+  }, [])
+
+  /** The keystroke verb: Ctrl+B lands on structure, Ctrl+J on proof,
+      Ctrl+Shift+A on agent. Pressing it again puts the page back. */
+  const toggleTenant = useCallback(
+    (candidate: CompanionTenant) => {
+      setTenant(tenant === candidate ? null : candidate)
+    },
+    [tenant, setTenant],
+  )
 
   const refreshStats = useCallback((editor: Editor) => {
     setOutline(extractOutline(editor))
@@ -272,18 +315,17 @@ export function Workspace() {
 
       setManuscript(editor, contents)
       setDocRef(ref)
-      if (ref.path) {
-        const path = ref.path
-        setOpenTabs((tabs) =>
-          tabs.some((tab) => tab.path === path) ? tabs : [...tabs, ref],
-        )
-      }
       setBaseHash(hash)
       setDirty(options.dirty ?? false)
       setConflict(null)
       setReview(null)
       refreshStats(editor)
-      setMode('write')
+      // The slot follows the document: the memo being finished left Proof
+      // open, the chapter mid-argument left Structure — and a document Essay
+      // has never seen opens with the page to itself. Restoring 'agent' also
+      // pre-warms the panel's last-used adapter, which is the behaviour the
+      // panel already promises when it opens.
+      setTenantState(ref.path ? loadCompanionTenant(ref.path) : null)
       editor.commands.focus('start')
     },
     [refreshStats],
@@ -358,24 +400,6 @@ export function Workspace() {
     [editor, docRef.path, settleUnsaved, loadIntoEditor],
   )
 
-  /**
-   * Closing a tab is only ever bookkeeping: a saved document has already been
-   * written by autosave, so there is nothing to settle. Closing the one you
-   * are looking at moves to its neighbour, or to a blank document if it was
-   * the last one.
-   */
-  const closeTab = useCallback(
-    (tab: OpenTab) => {
-      const remaining = openTabs.filter((open) => open.path !== tab.path)
-      setOpenTabs(remaining)
-      if (tab.path !== docRef.path) return
-      const neighbour = remaining[remaining.length - 1]
-      if (neighbour?.path) void openByPath(neighbour.path)
-      else void newDocument()
-    },
-    [openTabs, docRef.path, openByPath, newDocument],
-  )
-
   const exportPdf = useCallback(async () => {
     if (!editor) return
     await exportPdfFile(
@@ -418,12 +442,12 @@ export function Workspace() {
    * skipped in the folder pass.
    */
   const runSearch = useCallback(
-    async (query: string): Promise<SearchEntry[]> => {
+    async (query: string, options?: SearchOptions): Promise<SearchEntry[]> => {
       if (!editor) return []
       const entries: SearchEntry[] = []
 
       const text = manuscriptText(editor)
-      const here = await searchDocument(text.text, query)
+      const here = await searchDocument(text.text, query, options ?? {})
       for (const match of here?.matches ?? []) {
         entries.push({
           key: `here-${match.offset}`,
@@ -433,7 +457,6 @@ export function Workspace() {
           // so its "line 4" is not the file's line 4, and a number that is
           // nearly right is worse than none.
           run: () => {
-            setMode('write')
             revealPosition(editor, positionAtOffset(text, match.offset))
           },
         })
@@ -441,7 +464,7 @@ export function Workspace() {
 
       const roots = loadWorkspaceFolders().map((folder) => folder.path)
       if (roots.length === 0) return entries
-      const project = await searchProject(roots, query, {}, docRef.path)
+      const project = await searchProject(roots, query, options ?? {}, docRef.path)
       for (const document of project?.documents ?? []) {
         for (const match of document.matches) {
           entries.push({
@@ -849,10 +872,14 @@ export function Workspace() {
         void newDocument()
       } else if (key === 'b') {
         event.preventDefault()
-        setSidebarOpen((open) => !open)
+        toggleTenant('structure')
       } else if (key === 'k') {
         event.preventDefault()
         setPaletteOpen((open) => !open)
+      } else if (key === 'f' && event.shiftKey) {
+        // Shifted find is focus: the author asking for the room to themselves.
+        event.preventDefault()
+        setFocusModeState((on) => !on)
       } else if (key === 'f') {
         // Find lives in the palette rather than in a bar of its own: the
         // question "where did I write that" is the same question whether the
@@ -861,21 +888,65 @@ export function Workspace() {
         setPaletteOpen(true)
       } else if (key === 'j') {
         event.preventDefault()
-        setMode((m) => (m === 'write' ? 'preview' : 'write'))
+        toggleTenant('proof')
       } else if (key === 'a' && event.shiftKey) {
         // Shifted, because Ctrl+A is select-all and an author reaching for it
         // mid-sentence must never lose their selection to a panel.
         event.preventDefault()
-        setAgentOpen((open) => !open)
+        toggleTenant('agent')
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [openDocument, saveDocument, newDocument])
+  }, [openDocument, saveDocument, newDocument, toggleTenant])
 
   useEffect(() => {
     if (editor) setFocusMode(editor, focusMode)
   }, [editor, focusMode])
+
+  // The chrome recedes as the author sinks into the writing — not on the
+  // first keystroke, which would read as the UI flinching. A run of typing
+  // has to sustain itself for a moment (updates arriving close together for
+  // over a second) before `data-typing` engages and every `.essay-chrome`
+  // surface eases to a murmur (styles.css — the fade out is slow, the
+  // return is quick). Moving the pointer — the author looking up from the
+  // page — brings it back at once; so does a moment of stillness. Doc
+  // changes only, never selection: arrowing around a paragraph is reading,
+  // and reading wants the chrome where the eye left it.
+  useEffect(() => {
+    if (!editor) return
+    const root = document.documentElement
+    /** A pause this long ends the run; the next keystroke starts a new one. */
+    const RUN_GAP = 1500
+    /** How long a run must sustain before the room dims. */
+    const FLOW_AFTER = 1200
+    let runStart = 0
+    let lastStroke = 0
+    let timer: number | null = null
+    const stop = () => {
+      root.removeAttribute('data-typing')
+      runStart = 0
+      if (timer !== null) {
+        clearTimeout(timer)
+        timer = null
+      }
+    }
+    const onUpdate = () => {
+      const now = performance.now()
+      if (now - lastStroke > RUN_GAP) runStart = now
+      lastStroke = now
+      if (now - runStart >= FLOW_AFTER) root.setAttribute('data-typing', '')
+      if (timer !== null) clearTimeout(timer)
+      timer = window.setTimeout(stop, RUN_GAP)
+    }
+    editor.on('update', onUpdate)
+    window.addEventListener('pointermove', stop)
+    return () => {
+      editor.off('update', onUpdate)
+      window.removeEventListener('pointermove', stop)
+      stop()
+    }
+  }, [editor])
 
   // Caret tracking for the outline scroll-spy (which section am I in?).
   useEffect(() => {
@@ -890,7 +961,7 @@ export function Workspace() {
   const preview = usePreview(
     editor,
     documentDir(docRef.path),
-    mode === 'preview',
+    tenant === 'proof',
     renderVersion,
   )
 
@@ -910,16 +981,20 @@ export function Workspace() {
       { id: 'file.exportPdf', title: 'Export PDF…', group: 'File', keywords: 'typeset print render', run: () => void exportPdf() },
       { id: 'file.checkpoint', title: 'Mark this version', group: 'File', keywords: 'checkpoint history revision snapshot milestone draft sent', run: () => void checkpoint() },
       { id: 'file.find', title: 'Find a phrase…', group: 'File', shortcut: shortcut('Ctrl+F'), keywords: 'search find look for text grep phrase across folders', run: () => setPaletteOpen(true) },
-      { id: 'view.preview', title: 'Toggle preview', group: 'View', shortcut: shortcut('Ctrl+J'), keywords: 'typeset pages print render', run: () => setMode((m) => (m === 'write' ? 'preview' : 'write')) },
-      { id: 'view.sidebar', title: 'Toggle sidebar', group: 'View', shortcut: shortcut('Ctrl+B'), run: () => setSidebarOpen((open) => !open) },
-      { id: 'view.agent', title: 'Toggle agent panel', group: 'View', shortcut: shortcut('Ctrl+Shift+A'), keywords: 'ai assistant opencode claude propose changes review', run: () => setAgentOpen((open) => !open) },
-      { id: 'view.focus', title: 'Toggle focus mode', group: 'View', keywords: 'zen typewriter dim centre center', run: () => setFocusModeState((on) => !on) },
+      { id: 'file.folders', title: 'Browse folders…', group: 'File', keywords: 'explorer workspace tree files directory root', run: () => setExplorerOpen(true) },
+      { id: 'view.proof', title: 'Toggle proof', group: 'View', shortcut: shortcut('Ctrl+J'), keywords: 'typeset pages print render preview', run: () => toggleTenant('proof') },
+      { id: 'view.structure', title: 'Toggle structure', group: 'View', shortcut: shortcut('Ctrl+B'), keywords: 'outline sidebar sections marks', run: () => toggleTenant('structure') },
+      { id: 'view.agent', title: 'Toggle agent panel', group: 'View', shortcut: shortcut('Ctrl+Shift+A'), keywords: 'ai assistant opencode claude propose changes review', run: () => toggleTenant('agent') },
+      { id: 'view.history', title: 'Show history', group: 'View', keywords: 'revisions timeline versions restore checkpoint', run: () => setTenant('history') },
+      { id: 'view.focus', title: 'Toggle focus mode', group: 'View', shortcut: shortcut('Ctrl+Shift+F'), keywords: 'zen typewriter dim centre center', run: () => setFocusModeState((on) => !on) },
       { id: 'view.measure', title: `Writing width: ${measureLabel(measure)}`, group: 'View', keywords: 'column measure line length narrow wide', run: () => setMeasure(nextMeasure(measure)) },
+      { id: 'view.proseFont', title: `Prose face: ${proseFontLabel(proseFont)}`, group: 'View', keywords: 'font serif sans typeface geist charter georgia face typography', run: cycleProseFont },
       { id: 'view.fonts', title: 'Fonts…', group: 'View', keywords: 'typeface font family install add serif typography', run: () => setFontsOpen(true) },
-      { id: 'view.dark', title: 'Toggle dark mode', group: 'View', keywords: 'theme light appearance', run: () => {
+      // Dark is the identity (theme.css); light is the explicit departure.
+      { id: 'view.light', title: 'Toggle light mode', group: 'View', keywords: 'theme dark appearance day night', run: () => {
         const root = document.documentElement
-        if (root.dataset.theme === 'dark') delete root.dataset.theme
-        else root.dataset.theme = 'dark'
+        if (root.dataset.theme === 'light') delete root.dataset.theme
+        else root.dataset.theme = 'light'
       } },
       { id: 'format.h1', title: 'Heading 1', group: 'Format', keywords: 'title turn into', run: () => { chain().toggleHeading({ level: 1 }).run() } },
       { id: 'format.h2', title: 'Heading 2', group: 'Format', keywords: 'section turn into', run: () => { chain().toggleHeading({ level: 2 }).run() } },
@@ -929,12 +1004,13 @@ export function Workspace() {
       { id: 'format.codeBlock', title: 'Code block', group: 'Format', run: () => { chain().toggleCodeBlock().run() } },
       { id: 'format.highlight', title: 'Mark to come back to', group: 'Format', keywords: 'highlight revisit note comeback', run: () => { chain().toggleHighlight().run() } },
       { id: 'insert.table', title: 'Insert table', group: 'Insert', run: () => { chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() } },
+      { id: 'insert.image', title: 'Insert image…', group: 'Insert', keywords: 'picture figure photo png jpg', run: () => void insertImage(editor, documentDir(docRef.path)) },
       { id: 'insert.taskList', title: 'Insert task list', group: 'Insert', keywords: 'todo checkbox', run: () => { chain().toggleTaskList().run() } },
       { id: 'insert.divider', title: 'Insert section break', group: 'Insert', keywords: 'horizontal rule divider hr', run: () => { chain().setHorizontalRule().run() } },
     ]
     const unregister = commands.map(registerCommand)
     return () => unregister.forEach((fn) => fn())
-  }, [editor, newDocument, openDocument, saveDocument, exportPdf, checkpoint, measure, setMeasure])
+  }, [editor, newDocument, openDocument, saveDocument, exportPdf, checkpoint, measure, setMeasure, toggleTenant, setTenant, proseFont, cycleProseFont, docRef.path])
 
   useEffect(() => {
     const title = `${docRef.name}${dirty ? ' •' : ''} — Essay`
@@ -946,17 +1022,6 @@ export function Workspace() {
     }
   }, [docRef, dirty])
 
-  /** The strip's contents: saved documents, plus the untitled buffer when
-      that is what you are looking at. Only the active tab can be dirty — the
-      others were written on the way out. */
-  const tabs: OpenTab[] = [
-    ...openTabs.map((tab) => ({
-      ...tab,
-      dirty: tab.path === docRef.path && dirty,
-    })),
-    ...(docRef.path ? [] : [{ ...docRef, dirty }]),
-  ]
-
   const activeOutlinePos = outline.reduce<number | null>(
     (active, item) => (item.pos <= caretPos ? item.pos : active),
     null,
@@ -966,125 +1031,30 @@ export function Workspace() {
 
   return (
     <TooltipProvider>
-      <div className="grid h-screen grid-rows-[auto_minmax(0,1fr)_auto] bg-[var(--essay-bg)] text-[var(--essay-text)]">
-        <header
-          data-tauri-drag-region
-          className="grid h-10 grid-cols-[1fr_auto_1fr] items-center border-b border-[var(--essay-border)] px-2"
-          // macOS draws the traffic lights over the top-left of the content
-          // (titleBarStyle: Overlay) and the DOM has no way to know they are
-          // there, so the header leaves the room itself — otherwise the
-          // sidebar toggle sits under the close button. Only under Tauri: the
-          // browser preview has no native title bar to make room for, and off
-          // macOS there is nothing overlapping at all.
-          style={
-            isMac && isTauri()
-              ? { paddingLeft: TRAFFIC_LIGHT_INSET }
-              : undefined
-          }
-        >
-          <div data-tauri-drag-region className="flex min-w-0 items-center gap-1">
-            <Tip
-              label="Toggle sidebar"
-              shortcut={shortcut('Ctrl+B')}
-              trigger={
-                <IconButton onClick={() => setSidebarOpen((open) => !open)}>
-                  <SidebarSimple size={16} />
-                </IconButton>
-              }
-            />
-            <FilesPopover
+      {/* The spine: manuscript, then the one companion slot. `auto` for the
+          slot because the Companion fixes its own width and collapses to
+          nothing (display: none) when closed — the grid never has to know
+          which. No chrome rows: the top bar and the status line float over
+          the manuscript column (Jack, 2026-08-07 — buttons float, the canvas
+          runs edge to edge, letters not bars). */}
+      <div className="grid h-screen grid-cols-[minmax(0,1fr)_auto] bg-[var(--essay-bg)] text-[var(--essay-text)]">
+          <main className="relative flex min-h-0 flex-col overflow-hidden bg-[var(--essay-editor-bg)]">
+            <TopBar
               docName={docRef.name}
               dirty={dirty}
-              onOpenFile={(path) => void openByPath(path)}
-              nameless={tabs.length > 1}
+              conflict={conflict !== null}
+              tenant={tenant}
+              onToggleTenant={toggleTenant}
+              filesOpen={explorerOpen}
+              onToggleFiles={() => setExplorerOpen((open) => !open)}
+              onOpenPalette={() => setPaletteOpen(true)}
+              waitingOnAuthor={waitingOnAuthor}
             />
-            <DocumentTabs
-              tabs={tabs}
-              activeKey={docRef.path ?? 'untitled'}
-              onSelect={(tab) =>
-                tab.path ? void openByPath(tab.path) : undefined
-              }
-              onClose={closeTab}
-            />
-          </div>
-
-          <ModeSwitch mode={mode} onChange={setMode} />
-
-          <div data-tauri-drag-region className="flex items-center justify-end gap-0.5">
-            {/* Saved means everything typed has reached disk: autosave clears
-                `dirty` for documents with a path, and an untitled buffer with
-                anything in it stays dirty by construction — it has nowhere to
-                be saved to. An unanswered disk conflict is unfinished business
-                of the same kind, so it counts as unsaved too. */}
-            <UpdateButton documentsSaved={!dirty && !conflict} />
-            <Tip
-              label="Agent"
-              shortcut={shortcut('Ctrl+Shift+A')}
-              trigger={
-                <IconButton
-                  onClick={() => setAgentOpen((open) => !open)}
-                  aria-pressed={agentOpen}
-                  className={cn(
-                    agentOpen && 'bg-[var(--essay-surface-hover)] text-[var(--essay-text)]',
-                    // A decision waiting is worth a dot in the chrome; it is
-                    // the only place it shows when the panel is closed.
-                    waitingOnAuthor > 0 && 'text-[var(--essay-accent)]',
-                  )}
-                >
-                  <Robot size={16} />
-                </IconButton>
-              }
-            />
-            <button
-              type="button"
-              onClick={() => setPaletteOpen(true)}
-              title="Command palette"
-              className="flex h-7 items-center gap-1 rounded-md px-2 text-[12px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]"
-            >
-              <Kbd>{commandKey}</Kbd>
-              <Kbd>K</Kbd>
-            </button>
-            <WindowControls />
-          </div>
-        </header>
-
-        <div
-          className="grid min-h-0"
-          // Built here rather than as classes: Tailwind cannot see a template
-          // string, and the pane width is a measured decision (see
-          // AGENT_PANEL_WIDTH) rather than a scale step.
-          style={{
-            gridTemplateColumns: [
-              sidebarOpen ? '232px' : null,
-              'minmax(0,1fr)',
-              agentOpen ? `${AGENT_PANEL_WIDTH}px` : null,
-            ]
-              .filter(Boolean)
-              .join(' '),
-          }}
-        >
-          {sidebarOpen && (
-            <Sidebar
-              outline={outline}
-              activePos={activeOutlinePos}
-              marks={marks}
-              onSelectOutline={(item) => {
-                setMode('write')
-                if (editor) revealHeading(editor, item.pos)
-              }}
-              onSelectMark={(mark) => {
-                setMode('write')
-                if (editor) revealPosition(editor, mark.pos)
-              }}
-              documentPath={docRef.path}
-              historyVersion={historyVersion}
-              currentHash={baseHash}
-              onCompareRevision={(revision) => void compareRevision(revision)}
-              onCheckpoint={() => void checkpoint()}
-            />
-          )}
-          <main className="relative flex min-h-0 flex-col overflow-hidden bg-[var(--essay-editor-bg)]">
+            {/* Below the floating bar, above the page: the notices are the
+                one piece of chrome that must not fade or float — they are
+                asking the author a question about their own words. */}
             {recovering && (
+              <div className="relative z-20 mt-10">
               <Notice
                 actions={[
                   {
@@ -1101,8 +1071,9 @@ export function Workspace() {
                 Unsaved work from your last session:{' '}
                 <DocName>{recovering.name}</DocName>.
               </Notice>
+              </div>
             )}
-            {conflict && !(conflict.byAgent && agentOpen) && (
+            {conflict && !(conflict.byAgent && tenant === 'agent') && (
               // Reviewing is the primary action, not reloading or keeping:
               // the two blunt choices are only safe to make once the author
               // has seen which one costs them something.
@@ -1111,6 +1082,7 @@ export function Workspace() {
               // from the agent it is showing — there it is already a row with
               // better words on it, and two bars saying the same thing in
               // different language is how an author stops reading either.
+              <div className={cn('relative z-20', !recovering && 'mt-10')}>
               <Notice
                 actions={[
                   {
@@ -1133,10 +1105,11 @@ export function Workspace() {
                   ? ', and you have unsaved edits. Both versions are in this document’s history.'
                   : '.'}
               </Notice>
+              </div>
             )}
             <div className="relative min-h-0 flex-1">
               <div
-                className={mode === 'preview' ? 'hidden' : 'h-full'}
+                className="h-full"
                 // Only `.essay-prose` reads this, so scoping it to the
                 // manuscript keeps the print pane on the template's geometry.
                 style={{ '--essay-measure': measureWidth(measure) } as CSSProperties}
@@ -1148,13 +1121,21 @@ export function Workspace() {
                 />
                 {editor && <SelectionToolbar editor={editor} />}
               </div>
-              {mode === 'preview' && (
-                // No fallback: the pane already has a "rendering…" state of
-                // its own, and a second one flashing in front of it for the
-                // length of a disk read would read as two loads, not one.
-                <Suspense fallback={null}>
-                  <PrintPane preview={preview} />
-                </Suspense>
+              {/* The gutter: ambient navigation at the manuscript's edge,
+                  overlaid so the prose column's centring never shifts when
+                  the companion opens or closes. Hidden in focus mode — the
+                  point of focus mode is that nothing else is lit. */}
+              {!focusMode && (
+                <div className="essay-chrome absolute inset-y-0 left-1.5 z-10 flex">
+                  <Gutter
+                    outline={outline}
+                    marks={marks}
+                    activePos={activeOutlinePos}
+                    onSelect={(item) => {
+                      if (editor) revealHeading(editor, item.pos)
+                    }}
+                  />
+                </div>
               )}
               {/* Over the manuscript rather than instead of it: the editor
                   stays mounted with its selection and scroll intact, so Esc
@@ -1167,6 +1148,22 @@ export function Workspace() {
                     className="absolute inset-0 z-20"
                     {...review}
                     onClose={closeReview}
+                  />
+                </Suspense>
+              )}
+              {explorerOpen && (
+                // Files as a pop-out, not a page (Jack, 2026-08-06): a
+                // centred floating panel over the manuscript. The panel
+                // plays its own exit and calls onClose after — which is why
+                // the conditional mount here doesn't clip the animation.
+                <Suspense fallback={null}>
+                  <FilesPanel
+                    open={explorerOpen}
+                    onClose={() => {
+                      setExplorerOpen(false)
+                      editor?.commands.focus()
+                    }}
+                    onOpenFile={(path) => void openByPath(path)}
                   />
                 </Suspense>
               )}
@@ -1186,107 +1183,120 @@ export function Workspace() {
                 </Suspense>
               )}
             </div>
+
+            {/* The status line: letters, not a bar. It floats over the page's
+                bottom edge and lets clicks fall through to the prose except on
+                its own controls; the words carry enough contrast to be read
+                and no frame to be noticed. */}
+            <footer className="essay-chrome pointer-events-none absolute inset-x-0 bottom-0 z-30 flex h-9 items-center gap-4 px-4 text-[11px] font-[510] text-[var(--essay-text-muted)]">
+              <span className="tabular-nums">{words.toLocaleString()} words</span>
+              <span className="tabular-nums">{outline.length} sections</span>
+              {tenant === 'proof' && preview.pageCount > 0 && (
+                <span className="tabular-nums">{preview.pageCount} pages</span>
+              )}
+              {focusMode && (
+                <button
+                  type="button"
+                  onClick={() => setFocusModeState(false)}
+                  className="pointer-events-auto text-[var(--essay-accent)]"
+                  title="Focus mode is on — click to turn off"
+                >
+                  focus
+                </button>
+              )}
+              <span className="pointer-events-auto">
+                <MeasureSelect value={measure} onChange={setMeasure} />
+              </span>
+              {/* The status line tells the truth in the durability layer's own
+                  terms: a document with a path is guarded by hash and journal,
+                  so "safe on disk" is a claim Essay can actually stand behind.
+                  An untitled buffer is journalled but homeless, and the line
+                  says so rather than pretending "unsaved" is a state of the
+                  file. */}
+              <span className="ml-auto text-[var(--essay-text-faint)]">
+                {conflict
+                  ? 'changed on disk'
+                  : docRef.path
+                    ? dirty
+                      ? 'writing…'
+                      : 'safe on disk'
+                    : `only in memory — ${commandKey}S gives it a home`}
+              </span>
+            </footer>
           </main>
 
-          {/* Mounted whether or not it is showing: a session, a transcript and
-              a queue of proposals all outlive the author glancing away, and an
-              agent that kept working while the pane was shut must not come
-              back to an empty panel. */}
-          <AgentPanel
-            open={agentOpen}
-            documentPath={docRef.path}
-            documentName={docRef.name}
-            appliedEdits={appliedEdits}
-            onSessionChange={noteAgentSession}
-            onWaitingChange={setWaitingOnAuthor}
-            onReview={setReview}
-            onCloseReview={closeReview}
-            onAccepted={applyAccepted}
-            onAcceptConflict={acceptConflict}
-            onKeepApplied={keepApplied}
-            onRevertApplied={(edit) => void revertApplied(edit)}
-            onClose={() => setAgentOpen(false)}
+          <Companion
+            tenant={tenant}
+            onTenantChange={setTenant}
+            structure={
+              <Sidebar
+                outline={outline}
+                activePos={activeOutlinePos}
+                marks={marks}
+                onSelectOutline={(item) => {
+                  if (editor) revealHeading(editor, item.pos)
+                }}
+                onSelectMark={(mark) => {
+                  if (editor) revealPosition(editor, mark.pos)
+                }}
+              />
+            }
+            proof={
+              // No fallback: the pane already has a "rendering…" state of
+              // its own, and a second one flashing in front of it for the
+              // length of a disk read would read as two loads, not one.
+              <Suspense fallback={null}>
+                <PrintPane preview={preview} />
+              </Suspense>
+            }
+            agent={
+              // The panel is passed mounted whether or not it is the visible
+              // tenant (the Companion hides rather than unmounts it): a
+              // session, a transcript and a queue of proposals all outlive
+              // the author glancing away. The wrapper strips the panel's own
+              // left border — the companion column already drew the frame.
+              <div className="h-full [&>aside]:border-l-0">
+                <AgentPanel
+                  open={tenant === 'agent'}
+                  documentPath={docRef.path}
+                  documentName={docRef.name}
+                  appliedEdits={appliedEdits}
+                  onSessionChange={noteAgentSession}
+                  onWaitingChange={setWaitingOnAuthor}
+                  onReview={setReview}
+                  onCloseReview={closeReview}
+                  onAccepted={applyAccepted}
+                  onAcceptConflict={acceptConflict}
+                  onKeepApplied={keepApplied}
+                  onRevertApplied={(edit) => void revertApplied(edit)}
+                  onClose={() => setTenant(null)}
+                />
+              </div>
+            }
+            history={
+              <HistoryPane
+                documentPath={docRef.path}
+                version={historyVersion}
+                currentHash={baseHash}
+                onCompare={(revision) => void compareRevision(revision)}
+                onCheckpoint={() => void checkpoint()}
+              />
+            }
           />
-        </div>
-
-        <footer className="flex h-7 items-center gap-3 border-t border-[var(--essay-border)] px-3 text-[11px] text-[var(--essay-text-faint)]">
-          <span className="tabular-nums">{words} words</span>
-          <span className="tabular-nums">{outline.length} sections</span>
-          {mode === 'preview' && preview.pageCount > 0 && (
-            <span className="tabular-nums">{preview.pageCount} pages</span>
-          )}
-          {focusMode && (
-            <button
-              type="button"
-              onClick={() => setFocusModeState(false)}
-              className="text-[var(--essay-accent)]"
-              title="Focus mode is on — click to turn off"
-            >
-              focus
-            </button>
-          )}
-          {mode === 'write' && (
-            <MeasureSelect value={measure} onChange={setMeasure} />
-          )}
-          <span className="ml-auto">
-            {conflict
-              ? 'changed on disk'
-              : docRef.path
-                ? dirty
-                  ? 'saving…'
-                  : 'saved'
-                : 'not saved yet'}
-          </span>
-        </footer>
 
         <CommandPalette
           open={paletteOpen}
           onOpenChange={setPaletteOpen}
           outline={outline}
           onJumpToSection={(item) => {
-            setMode('write')
             if (editor) revealHeading(editor, item.pos)
           }}
           onOpenFile={(path) => void openByPath(path)}
           onSearch={runSearch}
+          currentPath={docRef.path}
         />
       </div>
     </TooltipProvider>
   )
 }
 
-function ModeSwitch({
-  mode,
-  onChange,
-}: {
-  mode: ViewMode
-  onChange: (mode: ViewMode) => void
-}) {
-  return (
-    <div className="flex h-7 items-center gap-0.5 rounded-lg bg-[var(--essay-surface-hover)] p-0.5">
-      {(['write', 'preview'] as const).map((m) => (
-        <button
-          key={m}
-          type="button"
-          onClick={() => onChange(m)}
-          className={cn(
-            'h-6 rounded-md px-3 text-[12px] font-[510] capitalize transition-colors duration-100',
-            mode === m
-              ? 'bg-[var(--essay-bg)] text-[var(--essay-text)] shadow-[var(--essay-shadow-low)]'
-              : 'text-[var(--essay-text-muted)] hover:text-[var(--essay-text)]',
-          )}
-        >
-          {m}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-function Kbd({ children }: { children: string }) {
-  return (
-    <kbd className="flex h-[18px] min-w-[18px] items-center justify-center rounded-[4px] border border-[var(--essay-border)] bg-[var(--essay-surface-hover)] px-1 font-(family-name:--essay-font-ui) text-[10px] font-[510]">
-      {children}
-    </kbd>
-  )
-}
