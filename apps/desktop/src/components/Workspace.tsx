@@ -1152,10 +1152,11 @@ export function Workspace() {
                 </Suspense>
               )}
               {explorerOpen && (
-                // Files as a pop-out, not a page (Jack, 2026-08-06): a
-                // centred floating panel over the manuscript. The panel
-                // plays its own exit and calls onClose after — which is why
-                // the conditional mount here doesn't clip the animation.
+                // Files grow out of the folders button (Jack, 2026-08-07):
+                // an anchored popover — recents first, expandable into a
+                // floating sidebar — never a centred modal. The panel plays
+                // its own exit and calls onClose after — which is why the
+                // conditional mount here doesn't clip the animation.
                 <Suspense fallback={null}>
                   <FilesPanel
                     open={explorerOpen}
