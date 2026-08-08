@@ -39,6 +39,7 @@ blake3 = "1"
 notify = "8"
 rusqlite = { version = "0.40", features = ["bundled"] }
 
+essay-context = { path = "crates/essay-context" }
 essay-core = { path = "crates/essay-core" }
 essay-markdown = { path = "crates/essay-markdown" }
 essay-revisions = { path = "crates/essay-revisions" }

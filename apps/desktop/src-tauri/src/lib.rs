@@ -1,3 +1,5 @@
+mod comments;
+
 use essay_agents::{
   AcceptOutcome, AgentEvent, AgentHost, AgentInfo, ChangeSet, HostObserver, PermissionDecision,
   PermissionRequest, SessionSummary,
@@ -748,6 +750,14 @@ pub fn run() {
       revision_source,
       restore_revision,
       checkpoint_document,
+      comments::list_comments,
+      comments::create_comment,
+      comments::reply_comment,
+      comments::resolve_comment,
+      comments::reopen_comment,
+      comments::delete_comment,
+      comments::reattach_comment,
+      comments::refresh_comment_anchors,
       list_markdown_tree,
       watch_workspace_roots,
       search_document,

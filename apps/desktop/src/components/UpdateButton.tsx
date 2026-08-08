@@ -172,6 +172,7 @@ export function UpdateButton({ documentsSaved }: { documentsSaved: boolean }) {
         trigger={
           <IconButton
             onClick={() => void runCheck(true)}
+            aria-label="Check for updates"
             className="text-[var(--essay-text-faint)]"
           >
             <ArrowsClockwise size={14} />

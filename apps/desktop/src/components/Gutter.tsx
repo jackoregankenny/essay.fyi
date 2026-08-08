@@ -43,6 +43,11 @@ export interface GutterProps {
   outline: OutlineItem[]
   /** `==come back to this==` marks, in document order. */
   marks: DocumentMark[]
+  /** Open comment threads' current editor ranges. A spanning comment touches
+      every section it crosses; each touched section gets the same single
+      unresolved-work dot as a mark — the gutter compresses, it does not
+      classify (docs/long-form-materials.md). */
+  commentSpans?: Array<{ from: number; to: number }>
   /** pos of the section the caret is inside, or null. */
   activePos: number | null
   /** Section headings with pending agent proposals (may be empty for now). */
@@ -167,6 +172,7 @@ function usePrefersReducedMotion(): boolean {
 export function Gutter({
   outline,
   marks,
+  commentSpans,
   activePos,
   pendingHeadings,
   onSelect,
@@ -300,6 +306,16 @@ export function Gutter({
       else break
     }
     if (owner !== null) markedSections.add(owner)
+  }
+  // An open comment marks every section its range crosses — same dot, no new
+  // colour, one signal meaning "unresolved author work" whatever its kind or
+  // count. The thread itself appears once in Structure.
+  for (const span of commentSpans ?? []) {
+    for (let i = 0; i < outline.length; i++) {
+      const start = outline[i].pos
+      const end = i + 1 < outline.length ? outline[i + 1].pos : Infinity
+      if (span.from < end && span.to > start) markedSections.add(start)
+    }
   }
 
   // The label the author is "on": the tick under the pointer, or the active

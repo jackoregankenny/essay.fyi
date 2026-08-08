@@ -297,6 +297,100 @@ Wanted next (Jack): cheap-LLM read-through critique surfaced in the sidebar
 traffic-light rendering needs verification on hardware; table editing to
 top-notch.
 
+### Long-form surface rules (2026-08-07)
+
+Jack's correction: Typora earns calm by hiding almost everything in menus;
+Essay must keep the calm while bringing its real capabilities to the surface.
+The wrong synthesis is a row of permanent tabs or a Notion-style catalogue at
+every empty line. The manuscript is the coordinate system, and a capability's
+**scope** decides where it appears.
+
+These are load-bearing rules for every feature added from here:
+
+1. **The manuscript is the only persistent plane.** Filename, durability,
+   update state, and the command key may remain ambient. Everything else must
+   be earned by document state or explicitly summoned.
+2. **One secondary reading at a time.** Files, Structure, Proof, Agent, and
+   History never accumulate as neighbouring rails. Opening one closes the
+   other. Review may coexist with Agent only when the transcript is the
+   provenance needed to decide the review.
+3. **Empty surfaces never occupy space by default.** A missing bibliography
+   does not reserve a bibliography region and an empty outline never opens on
+   launch. But an explicitly summoned reading must answer: Structure may say
+   that headings will gather there. Minimalism must not make a visible control
+   appear broken.
+4. **Placement follows scope.** Selection acts (link, citation, footnote,
+   highlight) live at the selection. Block acts (list, table, figure, quote,
+   section or page break) live at the current block's margin. Document
+   furniture (bibliography, headers, footers, template, pagination) lives in
+   the finishing flow beside Proof. Project and machine acts (files, folders,
+   fonts) are summoned layers or menus.
+5. **No generic feature drawer.** The command registry is shared plumbing,
+   not the product's information architecture. The palette remains a fast,
+   complete escape hatch; frequent acts also appear at their natural locus.
+   A slash menu is allowed only if later evidence shows that the block margin
+   cannot carry block insertion with less interruption.
+6. **Expose state before containers.** The progression is state → quiet mark
+   → local verb → larger reading. Agent work first appears as a section mark
+   or pending count; only an author's action opens the transcript. Citations
+   first appear in prose; management opens from one of those citations or
+   from finishing.
+7. **Cards are exceptional.** A surface gets a fill only when it must occlude
+   arbitrary prose (palette, review, destructive notice). Files and companion
+   readings use the manuscript canvas, flat type, and at most one hairline.
+8. **Opening tools must not cover words.** A persistent reading claims a real
+   layout track and may reflow the manuscript once; the editor stays mounted
+   with its selection and scroll intact. Transient review layers may cover the
+   manuscript only because reading the review is the task.
+9. **Long-form geometry is a feature.** This is a working manuscript, not a
+   reader-mode article: Auto uses 92% of the available canvas up to 58rem.
+   Narrow and Normal are deliberate reading measures; Full is available for
+   wide tables, technical work, and author preference. The first line begins
+   between 8rem and 11rem from the top.
+10. **Persistent state owns real space.** Word, section and known page counts,
+    durability, and pending agent decisions never sit over editable text.
+    Their row has no separate material, but it is reserved in layout and its
+    view verbs stay legible: Structure, Proof, Agent, History.
+11. **Motion explains origin, then disappears.** A summoned reading settles
+    2–4px from its trigger in 100–180ms. No bounce, scale spectacle, or
+    continuous motion while typing; reduced motion preserves the state change.
+
+The current shell follows those rules as one continuous-material workspace:
+the running head and status own reserved rows; Files and the active document
+panel own real grid tracks; manuscript, Files and panel use the same canvas
+without framing borders or separate fills. Structure, Proof, Agent and History
+remain explicitly switchable in quiet type. Opening Files closes the document
+panel so the manuscript is never squeezed between two peripheral surfaces.
+
+The short rule: **expose verbs, not containers; expose them where their effect
+lives.**
+
+### Agent presence is local; review expands with risk
+
+Agent is not merely a fourth document view. ACP provides a transcript and
+session control, but Essay's product value is that an agent acts visibly on a
+specific part of a long manuscript and the author retains editorial control.
+
+- Invocation begins with a selection, or the current section when there is no
+  selection. The section/selection is named in the composer before work starts.
+- `toolCall.locations` light the blocks being read or edited through editor
+  decorations and the semantic gutter. Activity belongs beside the prose, not
+  only in a chat transcript.
+- A proposal attaches persistent markers to the sections named by
+  `SectionChange`. A direct on-disk write gets a firmer marker because the
+  bytes have already landed and the available decision is Review/Revert.
+- A scoped edit opens its diff at the affected section. Multi-section edits or
+  anything `looks_like_a_rewrite()` escalate to the existing full-width
+  `DiffReview`, beginning with the structural overview.
+- The transcript remains available and mounted while an agent works, but it is
+  secondary to location, proposal, provenance and diff. Closing the transcript
+  never hides that an author decision is waiting.
+
+The surface hierarchy therefore has three scopes: global commands above the
+document; document readings such as Structure, Proof and History; and local
+agent activity attached to selections and sections. They may share command
+plumbing, but they must not be flattened into one generic feature drawer.
+
 ## Gaps that fold into this
 
 From the 2026-08-06 audit, capabilities that are built but unreachable, each

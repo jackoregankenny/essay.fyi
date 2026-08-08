@@ -5,16 +5,9 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import {
-  IconAgent,
-  IconClose,
-  IconHistory,
-  IconProof,
-  IconStructure,
-} from './icons'
+import { IconClose } from './icons'
 import { cn } from '#/lib/cn'
 import { IconButton } from './ui/icon-button'
-import { Tip } from './ui/tooltip'
 
 /**
  * The companion — the one right-hand slot (docs/ui-overhaul.md, "The spine").
@@ -34,10 +27,6 @@ import { Tip } from './ui/tooltip'
 
 export type CompanionTenant = 'structure' | 'proof' | 'agent' | 'history'
 
-/** Matches today's AGENT_PANEL_WIDTH: measured for a readable transcript, and
-    the other tenants were living in less. One width for one slot. */
-const COMPANION_WIDTH = 340
-
 export interface CompanionProps {
   /** null = slot closed. */
   tenant: CompanionTenant | null
@@ -47,17 +36,17 @@ export interface CompanionProps {
   proof: ReactNode
   agent: ReactNode
   history: ReactNode
+  /** Decisions remain visible even when another reading is selected. */
+  waitingOnAuthor?: number
 }
 
-const TENANTS: Array<{
-  tenant: CompanionTenant
-  label: string
-  Icon: typeof IconStructure
-}> = [
-  { tenant: 'structure', label: 'Structure', Icon: IconStructure },
-  { tenant: 'proof', label: 'Proof', Icon: IconProof },
-  { tenant: 'agent', label: 'Agent', Icon: IconAgent },
-  { tenant: 'history', label: 'History', Icon: IconHistory },
+const TENANT_LABELS: ReadonlyArray<
+  readonly [CompanionTenant, string]
+> = [
+  ['structure', 'Structure'],
+  ['proof', 'Proof'],
+  ['agent', 'Agent'],
+  ['history', 'History'],
 ]
 
 /** `prefers-reduced-motion` as state. The entrance choreography below is
@@ -85,37 +74,17 @@ export function Companion({
   proof,
   agent,
   history,
+  waitingOnAuthor = 0,
 }: CompanionProps) {
   const open = tenant !== null
   const reduceMotion = usePrefersReducedMotion()
-
-  // Entrance: the column arrives rather than pops. The Workspace grid sizes
-  // this track `auto`, so animating *width* would resize the track — and
-  // reflow the prose column — every frame; instead the aside claims its full
-  // 340px at once (one reflow) and a fixed-width inner frame slides in by
-  // transform under `overflow-hidden`. Compositor-only, and the prose
-  // settles at its final measure immediately instead of chasing the panel.
-  const [entered, setEntered] = useState(false)
-  useEffect(() => {
-    if (!open) {
-      setEntered(false)
-      return
-    }
-    if (reduceMotion) {
-      setEntered(true)
-      return
-    }
-    // Double rAF: the first frame commits the off-stage style, the second
-    // flips it so the transition has something to travel from.
-    let inner: number | null = null
-    const outer = requestAnimationFrame(() => {
-      inner = requestAnimationFrame(() => setEntered(true))
-    })
-    return () => {
-      cancelAnimationFrame(outer)
-      if (inner !== null) cancelAnimationFrame(inner)
-    }
-  }, [open, reduceMotion])
+  // Keep the last tenant rendered while the field leaves. The old `hidden`
+  // implementation had an entrance but no exit — content disappeared before
+  // the panel could move. This also keeps the agent at one stable tree
+  // position for the lifetime of the workspace.
+  const [visibleTenant, setVisibleTenant] = useState<CompanionTenant>(
+    tenant ?? 'structure',
+  )
 
   // Tenant switch: the incoming content fades in and rises 2px. The fade is
   // applied to the shared stage wrapper *around* all four tenant slots — a
@@ -130,8 +99,9 @@ export function Companion({
   useLayoutEffect(() => {
     const prev = prevTenant.current
     prevTenant.current = tenant
-    if (reduceMotion || tenant === null || prev === null || prev === tenant)
-      return
+    if (tenant === null || prev === tenant) return
+    setVisibleTenant(tenant)
+    if (reduceMotion || prev === null) return
     setStageIn(false)
     let inner: number | null = null
     const outer = requestAnimationFrame(() => {
@@ -142,79 +112,59 @@ export function Companion({
       if (inner !== null) cancelAnimationFrame(inner)
     }
   }, [tenant, reduceMotion])
-  // The column itself is hidden rather than unmounted when the slot is
-  // closed, and the agent wrapper below is hidden rather than unmounted when
-  // another tenant is showing. Both for the same reason: the agent node must
-  // never change its position in the element tree, or React would remount it
-  // — and a session, a transcript and a queue of proposals all outlive the
-  // author glancing away (see the AgentPanel mounting comment in
-  // Workspace.tsx). An agent that kept working while the author read their
-  // history must not come back to an empty panel. The other three tenants
-  // hold no state anyone needs while they are hidden, so they mount and
-  // unmount freely.
-  //
-  // A `hidden` column contributes no visible width; the Workspace grid owns
-  // collapsing its track when the slot is closed.
   return (
     <aside
-      className={cn(
-        'flex min-h-0 flex-col overflow-hidden border-l border-[var(--essay-border)] bg-[var(--essay-bg)]',
-        tenant === null && 'hidden',
-      )}
-      style={{ width: COMPANION_WIDTH }}
+      className="essay-companion z-20 flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--essay-editor-bg)]"
+      data-open={open ? '' : undefined}
+      data-tenant={visibleTenant}
+      aria-hidden={!open}
+      inert={!open}
       aria-label="Companion"
     >
-      {/* The sliding frame: fixed width so the entrance is transform-only
-          (the aside clips it). `transform: 'none'` once settled, so the
-          frame stops being a containing block for any fixed/absolute
-          descendants a tenant might position. */}
-      <div
-        className="flex h-full min-h-0 flex-col"
-        style={{
-          width: COMPANION_WIDTH,
-          ...(reduceMotion
-            ? undefined
-            : {
-                transform: entered ? 'none' : 'translateX(16px)',
-                opacity: entered ? 1 : 0,
-                transition:
-                  'transform var(--essay-speed-slow) var(--essay-ease-swift), opacity var(--essay-speed-slow) var(--essay-ease-out)',
-              }),
-        }}
-      >
-        <div className="flex h-10 shrink-0 items-center gap-0.5 border-b border-[var(--essay-border)] px-2">
-          {TENANTS.map(({ tenant: candidate, label, Icon }) => (
-            <Tip
-              key={candidate}
-              label={label}
-              trigger={
-                <IconButton
+      <div className="flex h-full min-h-0 flex-col">
+        <header className="flex h-10 shrink-0 items-center px-2">
+          <nav
+            aria-label="Document panels"
+            className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden px-1 text-[11px] font-[510] text-[var(--essay-text-muted)]"
+          >
+            {TENANT_LABELS.map(([candidate, label]) => {
+              const active = visibleTenant === candidate && open
+              const waiting =
+                candidate === 'agent' && waitingOnAuthor > 0
+                  ? waitingOnAuthor
+                  : 0
+              return (
+                <button
+                  key={candidate}
+                  type="button"
+                  aria-pressed={active}
                   onClick={() => onTenantChange(candidate)}
-                  aria-pressed={tenant === candidate}
-                  className={cn(
-                    tenant === candidate &&
-                      'bg-[var(--essay-surface-hover)] text-[var(--essay-text)]',
-                  )}
+                  className={`flex shrink-0 items-center gap-1.5 transition-colors duration-[var(--essay-speed-quick)] hover:text-[var(--essay-text)] ${
+                    active ? 'text-[var(--essay-text)]' : ''
+                  }`}
                 >
-                  <Icon size={16} />
-                </IconButton>
-              }
-            />
-          ))}
-          <div className="flex-1" />
-          <Tip
-            label="Close"
-            trigger={
-              <IconButton onClick={() => onTenantChange(null)} aria-label="Close companion">
-                <IconClose size={16} />
-              </IconButton>
-            }
-          />
-        </div>
-
-        {/* The stage: one wrapper around all four tenant slots so a tenant
-            switch is a fade on this ancestor, never a keyed remount of a
-            slot — the agent wrapper's tree position is load-bearing. */}
+                  {waiting > 0 && (
+                    <span
+                      aria-hidden
+                      className="size-1 rounded-full bg-[var(--essay-accent)]"
+                    />
+                  )}
+                  {label}
+                  {waiting > 0 && (
+                    <span className="tabular-nums">{waiting}</span>
+                  )}
+                </button>
+              )
+            })}
+          </nav>
+          <IconButton
+            onClick={() => onTenantChange(null)}
+            aria-label="Close panel"
+            className="h-6 w-6 shrink-0 opacity-60 hover:opacity-100"
+          >
+            <IconClose size={13} />
+          </IconButton>
+        </header>
         <div
           className="flex min-h-0 flex-1 flex-col"
           style={
@@ -228,22 +178,22 @@ export function Companion({
                 }
           }
         >
-          {tenant === 'structure' && (
+          {visibleTenant === 'structure' && (
             <div className="min-h-0 flex-1 overflow-y-auto">{structure}</div>
           )}
-          {tenant === 'proof' && (
+          {visibleTenant === 'proof' && (
             <div className="min-h-0 flex-1 overflow-hidden">{proof}</div>
           )}
           {/* Always mounted; see the comment above. */}
           <div
             className={cn(
               'min-h-0 flex-1 overflow-hidden',
-              tenant !== 'agent' && 'hidden',
+              visibleTenant !== 'agent' && 'hidden',
             )}
           >
             {agent}
           </div>
-          {tenant === 'history' && (
+          {visibleTenant === 'history' && (
             <div className="min-h-0 flex-1 overflow-y-auto">{history}</div>
           )}
         </div>

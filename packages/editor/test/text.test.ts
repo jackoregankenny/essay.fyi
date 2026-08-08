@@ -11,7 +11,14 @@ import './dom'
 import { describe, expect, test } from 'bun:test'
 import { Editor } from '@tiptap/core'
 
-import { manuscriptExtensions, manuscriptText, positionAtOffset } from '../src/index'
+import {
+  extractTasks,
+  manuscriptExtensions,
+  manuscriptSections,
+  manuscriptText,
+  offsetAtPosition,
+  positionAtOffset,
+} from '../src/index'
 import { setManuscript } from '../src/frontmatter'
 
 function open(source: string): Editor {
@@ -92,6 +99,98 @@ describe('an offset into that text becomes the caret position it names', () => {
     const text = manuscriptText(editor)
     const offset = text.text.indexOf('needle')
     expect(textFrom(editor, positionAtOffset(text, offset), 6)).toBe('needle')
+    editor.destroy()
+  })
+})
+
+describe('a caret position becomes the offset that names it (the inverse map)', () => {
+  test('round-trips through positionAtOffset inside a block', () => {
+    const editor = open('The quick brown fox.\n')
+    const text = manuscriptText(editor)
+    const offset = text.text.indexOf('brown')
+    expect(offsetAtPosition(text, positionAtOffset(text, offset))).toBe(offset)
+    editor.destroy()
+  })
+
+  test('round-trips across marks, later blocks and astral characters', () => {
+    const editor = open(
+      '# Title\n\nPlain **bold** and — 𝄞 astral.\n\nThe needle paragraph.\n',
+    )
+    const text = manuscriptText(editor)
+    for (const phrase of ['bold', 'astral', 'needle']) {
+      const offset = text.text.indexOf(phrase)
+      expect(offsetAtPosition(text, positionAtOffset(text, offset))).toBe(offset)
+    }
+    editor.destroy()
+  })
+
+  test('a selection sliced from the flattened text is the text the author selected', () => {
+    const editor = open('First paragraph here.\n\nSecond paragraph there.\n')
+    const text = manuscriptText(editor)
+    // A multi-block selection: from "paragraph" in block one to "Second" in
+    // block two, expressed as ProseMirror positions.
+    const from = positionAtOffset(text, text.text.indexOf('paragraph'))
+    const to = positionAtOffset(text, text.text.indexOf('Second') + 'Second'.length)
+    const slice = text.text.slice(offsetAtPosition(text, from), offsetAtPosition(text, to))
+    expect(slice).toBe('paragraph here.\nSecond')
+    editor.destroy()
+  })
+
+  test('a position at the very end of a block maps to the end of its run', () => {
+    const editor = open('One.\n\nTwo.\n')
+    const text = manuscriptText(editor)
+    const endOfOne = positionAtOffset(text, text.text.indexOf('One.')) + 'One.'.length
+    expect(offsetAtPosition(text, endOfOne)).toBe('One.'.length)
+    editor.destroy()
+  })
+
+  test('a position before any text clamps to the start', () => {
+    const editor = open('Only paragraph.\n')
+    const text = manuscriptText(editor)
+    expect(offsetAtPosition(text, 0)).toBe(0)
+    editor.destroy()
+  })
+})
+
+describe('sections restated in flattened coordinates, with duplicate ordinals', () => {
+  test('spans run heading-to-heading and the last runs to the end', () => {
+    const editor = open(
+      'Preamble before any heading.\n\n# One\n\nBody one.\n\n## Two\n\nBody two.\n',
+    )
+    const text = manuscriptText(editor)
+    const sections = manuscriptSections(editor, text)
+    expect(sections.map((s) => s.text)).toEqual(['One', 'Two'])
+    // The preamble is in no section: the first span starts at its heading.
+    expect(text.text.slice(sections[0].from, sections[0].from + 3)).toBe('One')
+    expect(sections[0].to).toBe(sections[1].from)
+    expect(sections[1].to).toBe(text.text.length)
+    editor.destroy()
+  })
+
+  test('duplicate headings are told apart by ordinal, same text and depth only', () => {
+    const editor = open(
+      '## Objections\n\nFirst run.\n\n## Objections\n\nSecond run.\n\n# Objections\n\nDifferent depth.\n',
+    )
+    const sections = manuscriptSections(editor)
+    expect(sections.map((s) => [s.text, s.level, s.ordinal])).toEqual([
+      ['Objections', 2, 0],
+      ['Objections', 2, 1],
+      ['Objections', 1, 0],
+    ])
+    editor.destroy()
+  })
+})
+
+describe('task lists become document structure without leaving Markdown', () => {
+  test('open and completed tasks retain their text, state and position', () => {
+    const editor = open('- [ ] Follow up the evidence\n- [x] Draft the opening\n')
+    const tasks = extractTasks(editor)
+
+    expect(tasks.map(({ text, checked }) => ({ text, checked }))).toEqual([
+      { text: 'Follow up the evidence', checked: false },
+      { text: 'Draft the opening', checked: true },
+    ])
+    expect(tasks[0].pos).toBeLessThan(tasks[1].pos)
     editor.destroy()
   })
 })

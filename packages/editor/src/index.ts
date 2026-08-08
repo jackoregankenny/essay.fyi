@@ -23,10 +23,12 @@ import { Markdown } from '@tiptap/markdown'
 import { Table, TableKit } from '@tiptap/extension-table'
 
 import Highlight from '@tiptap/extension-highlight'
-import Image from '@tiptap/extension-image'
 import Typography from '@tiptap/extension-typography'
 import { CharacterCount, Placeholder } from '@tiptap/extensions'
 
+import { DecorationLayers } from './decorations'
+import { ManuscriptImage } from './image'
+import { ManuscriptTableEditing } from './table-editing'
 import { ManuscriptCodeBlock } from './markdown-code'
 import { MinimalEscaping } from './markdown-escapes'
 import { ManuscriptHtmlBlock } from './markdown-html'
@@ -42,6 +44,15 @@ import { renderManuscriptTable } from './markdown-tables'
 
 export type { Editor } from '@tiptap/core'
 
+export { ManuscriptImage, type ManuscriptImageOptions } from './image'
+export {
+  ManuscriptTableEditing,
+  cellSelectionTsv,
+  parseTsv,
+  pasteTsv,
+  type ColumnAlign,
+} from './table-editing'
+
 export {
   clearFrontMatter,
   getManuscript,
@@ -49,6 +60,26 @@ export {
   splitFrontMatter,
   type SplitManuscript,
 } from './frontmatter'
+
+export {
+  clearDecorationLayer,
+  decorationLayerRanges,
+  setDecorationLayer,
+  DECORATION_LAYERS,
+  type DecorationLayer,
+  type DecorationRange,
+} from './decorations'
+
+export {
+  findInText,
+  findMatches,
+  foldText,
+  FindController,
+  type FindChangeCause,
+  type FindMatch,
+  type FindOptions,
+  type FindState,
+} from './find'
 
 /** Nearest scrollable ancestor of the editor DOM (the manuscript pane). */
 function scrollerOf(dom: HTMLElement): HTMLElement | null {
@@ -127,6 +158,10 @@ const TypewriterScroll = Extension.create({
         view: () => ({
           update(view, prevState) {
             if (!view.dom.classList.contains('is-focus-mode')) return
+            // A range selection is the author reaching away from the caret.
+            // Recentering underneath a Shift-selection or mouse drag fights
+            // the gesture and makes the selection toolbar chase the pointer.
+            if (!view.state.selection.empty) return
             if (
               prevState.doc.eq(view.state.doc) &&
               prevState.selection.eq(view.state.selection)
@@ -280,6 +315,10 @@ export function setFocusMode(editor: Editor, on: boolean): void {
 
 export interface ManuscriptOptions {
   placeholder?: string
+  /** Display-only: turn a Markdown image src into something the webview can
+      load (Tauri's asset protocol). The serialized document keeps the
+      author's bytes — resolution never reaches the file. */
+  resolveImageSrc?: (src: string) => string
 }
 
 /**
@@ -318,10 +357,18 @@ export function manuscriptExtensions(
       tableHeader: {},
       tableRow: {},
     }),
-    Table.extend({ renderMarkdown: renderManuscriptTable }).configure({ resizable: false }),
+    // renderWrapper emits the <div class="tableWrapper"> that prose.css's
+    // wide-table overflow rules hang off; serialization is untouched by it.
+    Table.extend({ renderMarkdown: renderManuscriptTable }).configure({
+      resizable: false,
+      renderWrapper: true,
+    }),
+    ManuscriptTableEditing,
     ManuscriptTaskList,
     ManuscriptTaskItem.configure({ nested: true }),
-    Image,
+    ManuscriptImage.configure(
+      options.resolveImageSrc ? { resolveSrc: options.resolveImageSrc } : {},
+    ),
     Typography,
     Highlight,
     MinimalEscaping,
@@ -332,6 +379,7 @@ export function manuscriptExtensions(
     }),
     FocusCurrentBlock,
     TypewriterScroll,
+    DecorationLayers,
   ]
 }
 
@@ -415,6 +463,33 @@ export function extractMarks(editor: Editor): DocumentMark[] {
   return marks
 }
 
+export interface DocumentTask {
+  /** Task text as it appears in the manuscript. */
+  text: string
+  /** Position of the task item node. */
+  pos: number
+  checked: boolean
+}
+
+/**
+ * Task-list items in document order. The checkbox remains ordinary Markdown
+ * (`- [ ]` / `- [x]`); this is only a live index over the editor document so
+ * Structure can surface open work in a long manuscript.
+ */
+export function extractTasks(editor: Editor): DocumentTask[] {
+  const tasks: DocumentTask[] = []
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name !== 'taskItem') return true
+    tasks.push({
+      text: node.textContent.trim() || 'Untitled task',
+      pos,
+      checked: Boolean(node.attrs.checked),
+    })
+    return false
+  })
+  return tasks
+}
+
 /** A run of text, and where it sits in both coordinate systems. */
 interface TextRun {
   /** Offset of the run in the flattened text, in UTF-16 code units. */
@@ -477,6 +552,65 @@ export function positionAtOffset(text: ManuscriptText, offset: number): number {
   }
   const last = text.runs[text.runs.length - 1]
   return last ? last.pos + last.length : 0
+}
+
+/**
+ * The offset into `manuscriptText` for a ProseMirror position — the inverse
+ * of `positionAtOffset`. A position that falls between blocks (on no run's
+ * text) resolves to the start of the next run, mirroring the inverse's rule
+ * for a line break; a position past the last run clamps to the text's end.
+ */
+export function offsetAtPosition(text: ManuscriptText, pos: number): number {
+  let end = 0
+  for (const run of text.runs) {
+    if (pos < run.pos) return run.offset
+    if (pos <= run.pos + run.length) return run.offset + (pos - run.pos)
+    end = run.offset + run.length
+  }
+  return end
+}
+
+export interface ManuscriptSection {
+  /** Heading depth, 1–6. */
+  level: number
+  text: string
+  /** Zero-based occurrence among headings sharing this text and level —
+      what tells two `## Methods` sections apart. */
+  ordinal: number
+  /** ProseMirror position of the heading node. */
+  pos: number
+  /** UTF-16 range over the flattened text: heading included, running to the
+      next heading of any depth or the end of the document. */
+  from: number
+  to: number
+}
+
+/**
+ * The outline restated in the flattened text's coordinates — the section
+ * spans a range anchor records and reconciles against (essay-context). The
+ * preamble before the first heading is deliberately in no section: an anchor
+ * there records no section refs, and that absence is meaningful.
+ */
+export function manuscriptSections(
+  editor: Editor,
+  text: ManuscriptText = manuscriptText(editor),
+): ManuscriptSection[] {
+  const outline = extractOutline(editor)
+  const seen = new Map<string, number>()
+  return outline.map((item, i) => {
+    const key = `${item.level} ${item.text}`
+    const ordinal = seen.get(key) ?? 0
+    seen.set(key, ordinal + 1)
+    const next = outline[i + 1]
+    return {
+      level: item.level,
+      text: item.text,
+      ordinal,
+      pos: item.pos,
+      from: offsetAtPosition(text, item.pos),
+      to: next ? offsetAtPosition(text, next.pos) : text.text.length,
+    }
+  })
 }
 
 /** Place the cursor at a document position and scroll it into view. */

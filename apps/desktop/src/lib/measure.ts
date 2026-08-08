@@ -25,6 +25,10 @@ export interface Measure {
  * panes are open; the ceiling stops a 4K display from producing lines the eye
  * cannot track back from.
  */
+// This is a working manuscript, not a reader-mode article. Auto uses the
+// available canvas and tops out only when a wide display would make prose
+// genuinely hard to track. Narrow/Normal remain deliberate reading measures;
+// Full remains there for tables, technical material, and authors who want it.
 const AUTO_WIDTH = 'clamp(34rem, 92%, 58rem)'
 
 export const MEASURES: readonly Measure[] = [

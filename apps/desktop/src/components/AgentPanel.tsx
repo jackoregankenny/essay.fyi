@@ -112,6 +112,8 @@ export interface AgentPanelProps {
   onKeepApplied: (edit: AppliedEdit) => void
   onRevertApplied: (edit: AppliedEdit) => void
   onClose: () => void
+  /** Hosted inside the companion, which already owns the close affordance. */
+  embedded?: boolean
 }
 
 /** A transcript entry. Chunks are folded into these as they arrive, so a
@@ -217,6 +219,7 @@ export function AgentPanel({
   onKeepApplied,
   onRevertApplied,
   onClose,
+  embedded = false,
 }: AgentPanelProps) {
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [session, setSession] = useState<SessionSummary | null>(null)
@@ -653,11 +656,19 @@ export function AgentPanel({
     <aside
       aria-label="Agent"
       className={cn(
-        'flex h-full min-h-0 flex-col border-l border-[var(--essay-border)] bg-[var(--essay-bg)]',
+        'flex h-full min-h-0 flex-col',
+        embedded
+          ? 'bg-transparent'
+          : 'border-l border-[var(--essay-border)] bg-[var(--essay-bg)]',
         !open && 'hidden',
       )}
     >
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-[var(--essay-border)] pr-1 pl-3">
+      <header
+        className={cn(
+          'flex h-10 shrink-0 items-center gap-2 pr-1 pl-3',
+          !embedded && 'border-b border-[var(--essay-border)]',
+        )}
+      >
         <AgentIcon size={14} aria-hidden className="text-[var(--essay-text-faint)]" />
         {/* 13px medium, not caps — this holds a proper noun (the agent's own
             name), and a tracked-caps treatment reads as a category label
@@ -697,9 +708,11 @@ export function AgentPanel({
             End session
           </button>
         )}
-        <IconButton onClick={onClose} aria-label="Close the agent panel">
-          <CloseIcon size={14} />
-        </IconButton>
+        {!embedded && (
+          <IconButton onClick={onClose} aria-label="Close the agent panel">
+            <CloseIcon size={14} />
+          </IconButton>
+        )}
       </header>
 
       {session && tuning && options.length > 0 && (

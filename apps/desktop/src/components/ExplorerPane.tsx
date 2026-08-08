@@ -241,7 +241,7 @@ export function ExplorerContent({
 /**
  * The explorer with its own header and scroll — the shape the full-bleed
  * layer in `Workspace` still mounts. New hosts should prefer `FilesPanel`
- * (the centered floating card) or compose `useExplorer` + `ExplorerContent`
+ * (the integrated workspace reading) or compose `useExplorer` + `ExplorerContent`
  * directly.
  */
 export function ExplorerPane({

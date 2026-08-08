@@ -76,8 +76,10 @@
      near-white held just off pure so a full screen of prose reads without
      glare — clarity is the whole brief at night. */
   --essay-bg: oklch(0.146 0.004 260);
-  --essay-editor-bg: oklch(0.178 0.004 70);
+  --essay-editor-bg: oklch(0.19 0.005 72);
   --essay-prose-ink: oklch(0.93 0.006 85);
+  --essay-prose-muted: oklch(0.7 0.012 82);
+  --essay-prose-faint: oklch(0.52 0.01 80);
   --essay-surface: oklch(0.203 0.005 255);
   --essay-surface-hover: oklch(0.245 0.006 255);
   --essay-border: oklch(0.235 0.006 255);
@@ -118,6 +120,8 @@
   /* Ink, not chrome text: a near-black that sits on paper without the blue
      cast that makes long reading feel like a screen. */
   --essay-prose-ink: oklch(0.29 0.012 75);
+  --essay-prose-muted: oklch(0.5 0.016 76);
+  --essay-prose-faint: oklch(0.64 0.012 78);
   --essay-surface: oklch(0.982 0.002 255);
   --essay-surface-hover: oklch(0.94 0.004 255);
   --essay-border: oklch(0.92 0.004 255);

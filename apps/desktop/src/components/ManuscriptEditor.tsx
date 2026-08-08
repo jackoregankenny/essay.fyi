@@ -1,5 +1,6 @@
 import { EditorContent, useEditor } from '@tiptap/react'
 import { manuscriptExtensions, type Editor } from '@essay/editor'
+import { resolveImageSrc } from '#/lib/images'
 
 interface ManuscriptEditorProps {
   initialMarkdown: string
@@ -16,18 +17,7 @@ interface ManuscriptEditorProps {
  * say something to the author, and "Start writing…" spends it saying
  * nothing. Kept to a handful and rotated so none of them wears out.
  */
-const PLACEHOLDERS = [
-  'Start writing…',
-  'Say the thing.',
-  'A first draft is allowed to be wrong.',
-  'Nobody is watching yet.',
-  'Start in the middle.',
-  'Write it badly, then write it well.',
-]
-
-function pickPlaceholder(): string {
-  return PLACEHOLDERS[Math.floor(Math.random() * PLACEHOLDERS.length)]
-}
+const PLACEHOLDER = 'Begin anywhere.'
 
 export function ManuscriptEditor({
   initialMarkdown,
@@ -35,11 +25,19 @@ export function ManuscriptEditor({
   onChanged,
 }: ManuscriptEditorProps) {
   const editor = useEditor({
-    extensions: manuscriptExtensions({ placeholder: pickPlaceholder() }),
+    // resolveImageSrc is display-only plumbing (Tauri asset URLs for the
+    // <img> tags); the document on disk keeps the author's own path bytes.
+    extensions: manuscriptExtensions({ placeholder: PLACEHOLDER, resolveImageSrc }),
     content: initialMarkdown,
     contentType: 'markdown',
     editorProps: {
-      attributes: { class: 'essay-prose' },
+      // spellcheck is explicit, not inherited: the three WebViews disagree
+      // about the default, and a product guarantee cannot rest on one
+      // (docs/authoring-backlog.md item 2). The native checker is local and
+      // offline; code blocks opt back out in @essay/editor's markdown-code.
+      // `lang` is deliberately not set — the OS language services already
+      // know the author's dictionaries better than a UA guess would.
+      attributes: { class: 'essay-prose', spellcheck: 'true' },
     },
     onCreate: ({ editor }) => {
       if (import.meta.env.DEV) {

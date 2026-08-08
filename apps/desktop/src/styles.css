@@ -22,6 +22,115 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Everything ambient is laid out from the manuscript's invisible edges.
+   The page is the coordinate system; the window is only the room around it. */
+.essay-manuscript-orbit {
+  width: min(calc(100% - 2rem), calc(var(--essay-measure) + 5rem));
+}
+
+.essay-manuscript-gutter {
+  /* Inside the manuscript's own left padding: a section tick annotates the
+     paragraph it belongs to instead of floating in a second, invisible rail. */
+  left: max(0.5rem, calc(50% - var(--essay-measure) / 2 + 0.25rem));
+}
+
+[data-measure='full'] .essay-manuscript-orbit {
+  width: calc(100% - 2rem);
+}
+
+[data-measure='full'] .essay-manuscript-gutter {
+  left: 0.5rem;
+}
+
+/* One continuous workspace material, with real columns when the author asks
+   for them. Panels change the available manuscript space; they never overlay
+   its words. Zero-width tracks keep the editor and the agent session mounted
+   when their reading is closed. */
+.essay-shell {
+  --essay-files-track: 0px;
+  --essay-companion-track: 0px;
+}
+
+.essay-shell[data-files-open] {
+  --essay-files-track: minmax(16rem, 20rem);
+}
+
+.essay-shell[data-companion-open] {
+  --essay-companion-track: minmax(20rem, 23rem);
+}
+
+.essay-workspace-grid,
+.essay-shell-track-grid {
+  display: grid;
+  grid-template-columns:
+    var(--essay-files-track) minmax(0, 1fr)
+    var(--essay-companion-track);
+  min-width: 0;
+}
+
+.essay-shell-center {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.essay-files-column {
+  grid-column: 1;
+}
+
+.essay-manuscript-cell {
+  grid-column: 2;
+}
+
+.essay-companion {
+  grid-column: 3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--essay-speed-regular) var(--essay-ease-out);
+}
+
+.essay-companion[data-open] {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+/* Below this width the requested reading gets the canvas. The editor stays
+   mounted in its zero-width track, retaining selection and scroll for Esc. */
+@media (max-width: 52rem) {
+  [data-files-open] .essay-workspace-grid {
+    grid-template-columns: minmax(0, 1fr) 0 0;
+  }
+
+  [data-companion-open] .essay-workspace-grid {
+    grid-template-columns: 0 0 minmax(0, 1fr);
+  }
+
+  .essay-shell-track-grid {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .essay-companion {
+    transition: opacity var(--essay-speed-quick) linear;
+  }
+}
+
+@keyframes essay-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.essay-panel-enter {
+  animation: essay-panel-enter var(--essay-speed-regular)
+    var(--essay-ease-out-quint) both;
+}
+
 /* Slim, quiet scrollbars everywhere */
 ::-webkit-scrollbar {
   width: 10px;
@@ -137,10 +246,33 @@ html[data-focus-mode] .essay-chrome:focus-within,
 html[data-typing] .essay-chrome:hover,
 html[data-typing] .essay-chrome:focus-within {
   opacity: 1;
+  transition-duration: var(--essay-speed-quick);
+}
+
+/* Selection furniture lives at the caret and arrives one beat slower than a
+   tooltip: enough settle to feel placed, never enough to delay the action. */
+@keyframes essay-bubble {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.essay-bubble {
+  animation: essay-bubble var(--essay-speed-regular)
+    var(--essay-ease-out-quint) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .essay-chrome {
     transition: none;
+  }
+
+  .essay-bubble {
+    animation: none;
   }
 }
