@@ -8,17 +8,18 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
 interface TipProps {
   label: string
   shortcut?: string
+  side?: 'top' | 'right' | 'bottom' | 'left'
   /** The trigger element; tooltip props are merged onto it (shadcn asChild-style). */
   trigger: ReactElement<Record<string, unknown>>
 }
 
-export function Tip({ label, shortcut, trigger }: TipProps) {
+export function Tip({ label, shortcut, side = 'bottom', trigger }: TipProps) {
   return (
     <Tooltip.Root>
       <Tooltip.Trigger render={trigger} />
       <Tooltip.Portal>
-        <Tooltip.Positioner side="bottom" sideOffset={6}>
-          <Tooltip.Popup className="essay-pop z-50 flex items-center gap-1.5 rounded-lg border border-[var(--essay-border)] bg-[var(--essay-bg)] px-2 py-1 text-xs text-[var(--essay-text)] shadow-[var(--essay-shadow-medium)]">
+        <Tooltip.Positioner side={side} sideOffset={6}>
+          <Tooltip.Popup className="essay-pop z-50 flex items-center gap-1.5 rounded-lg border border-[var(--essay-border)] bg-[var(--essay-surface)] px-2 py-1 text-xs text-[var(--essay-text)] shadow-[var(--essay-shadow-medium)]">
             {label}
             {shortcut && (
               <kbd className="font-(family-name:--essay-font-ui) text-[10px] tracking-wide text-[var(--essay-text-faint)]">

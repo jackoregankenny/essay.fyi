@@ -1,7 +1,7 @@
 # UI overhaul — direction
 
-> Status: agreed direction (Jack, 2026-08-06), not yet built. Supersedes the
-> chrome described in the "Current state" section of `CLAUDE.md`. The
+> Status: in progress; the spine and most of the authoring pass are built.
+> Supersedes the chrome described in the historical current-state notes. The
 > non-negotiable invariants in that file are unaffected; this document is
 > about what is on screen and when.
 >
@@ -293,9 +293,10 @@ identity now:
   labels spread to a 28px rhythm while staying anchored to their ticks.
 
 Wanted next (Jack): cheap-LLM read-through critique surfaced in the sidebar
-(read, not edit); top/bottom chrome may be revisited again; macOS
-traffic-light rendering needs verification on hardware; table editing to
-top-notch.
+(read, not edit); top/bottom chrome may be revisited again; table editing to
+top-notch. macOS traffic-light overlay rendering was verified on hardware on
+2026-08-09; the running head now observes an explicit safe inset even at Full
+writing width. Linux window-frame appearance remains unverified.
 
 ### Long-form surface rules (2026-08-07)
 
@@ -310,14 +311,14 @@ These are load-bearing rules for every feature added from here:
 1. **The manuscript is the only persistent plane.** Filename, durability,
    update state, and the command key may remain ambient. Everything else must
    be earned by document state or explicitly summoned.
-2. **One secondary reading at a time.** Files, Structure, Proof, Agent, and
-   History never accumulate as neighbouring rails. Opening one closes the
-   other. Review may coexist with Agent only when the transcript is the
-   provenance needed to decide the review.
-3. **Empty surfaces never occupy space by default.** A missing bibliography
-   does not reserve a bibliography region and an empty outline never opens on
-   launch. But an explicitly summoned reading must answer: Structure may say
-   that headings will gather there. Minimalism must not make a visible control
+2. **One secondary reading at a time.** Structure, Proof, Agent, and History
+   never accumulate as neighbouring margins. Files is transient navigation,
+   not another reading. Review may coexist with Agent only when the transcript
+   is the provenance needed to decide the review.
+3. **Empty surfaces do not multiply.** A missing bibliography does not reserve
+   a bibliography region and an empty outline stays collapsed. Agent is the
+   deliberate default working margin; other readings must be summoned and
+   must answer even when empty. Minimalism must not make a visible control
    appear broken.
 4. **Placement follows scope.** Selection acts (link, citation, footnote,
    highlight) live at the selection. Block acts (list, table, figure, quote,
@@ -336,8 +337,8 @@ These are load-bearing rules for every feature added from here:
    first appear in prose; management opens from one of those citations or
    from finishing.
 7. **Cards are exceptional.** A surface gets a fill only when it must occlude
-   arbitrary prose (palette, review, destructive notice). Files and companion
-   readings use the manuscript canvas, flat type, and at most one hairline.
+   arbitrary prose (palette, Files popover, review, destructive notice).
+   Companion readings use the manuscript canvas and flat type.
 8. **Opening tools must not cover words.** A persistent reading claims a real
    layout track and may reflow the manuscript once; the editor stays mounted
    with its selection and scroll intact. Transient review layers may cover the
@@ -349,21 +350,47 @@ These are load-bearing rules for every feature added from here:
    between 8rem and 11rem from the top.
 10. **Persistent state owns real space.** Word, section and known page counts,
     durability, and pending agent decisions never sit over editable text.
-    Their row has no separate material, but it is reserved in layout and its
-    view verbs stay legible: Structure, Proof, Agent, History.
-11. **Motion explains origin, then disappears.** A summoned reading settles
-    2–4px from its trigger in 100–180ms. No bounce, scale spectacle, or
-    continuous motion while typing; reduced motion preserves the state change.
+    Their row has no separate material, but it is reserved in layout. View
+    verbs stay anchored to the window or the page margin, not status text.
+11. **Motion explains origin, then disappears.** Floating layers may settle
+    2–4px from their trigger in 100–180ms. Layout panels reveal through their
+    real grid track while opacity and a small resolving blur soften the reflow;
+    they do not translate independently of the manuscript. The companion is
+    the page margin itself, not a tinted panel. Files is the exception: a flat
+    blurred popover anchored to the running head. No bounce, scale
+    spectacle, or continuous motion while typing; reduced motion preserves the
+    state change without the interpolation.
 
 The current shell follows those rules as one continuous-material workspace:
-the running head and status own reserved rows; Files and the active document
-panel own real grid tracks; manuscript, Files and panel use the same canvas
-without framing borders or separate fills. Structure, Proof, Agent and History
-remain explicitly switchable in quiet type. Opening Files closes the document
-panel so the manuscript is never squeezed between two peripheral surfaces.
+the running head and status own reserved rows; Files floats from the top bar
+without changing manuscript geometry; one companion reading owns a real right
+margin without a fill, border, or dividing line. Structure, Proof, Agent and
+History remain explicitly switchable from floating margin controls. Compact
+widths give the active reading the canvas.
 
 The short rule: **expose verbs, not containers; expose them where their effect
 lives.**
+
+### Margin and navigation pass (Jack, 2026-08-09)
+
+Files belongs in the running head as a non-modal popover: choosing a document
+is a short navigation act, not a second workspace that should squeeze the
+page. The title-bar actions are window-anchored, so neither the folder trigger
+nor the command shortcut moves when a companion opens. Structure, Proof,
+Agent and History use 32px keyboard targets with 14px glyphs in a floating
+group inset from the right edge; there is no left rail and no full-height
+right rail material.
+
+The companion is the manuscript's right margin, using exactly the canvas
+background with no border, tint, shadow, or gradient. Agent is the default for
+an unseen document; closing it is remembered per saved document. On a saved
+file that default also lets the existing last-used-agent warm-up happen in the
+background, so the first visible state is a chat rather than adapter setup.
+Inside Agent, session controls appear only after a connection, options stay
+behind their tuning control, and the diff queue appears only when it contains
+a decision. Chat, mode/model/effort, permissions, tool activity, and review
+remain findable without making the empty panel read like instrumentation.
+The one-companion invariant remains.
 
 ### Agent presence is local; review expands with risk
 

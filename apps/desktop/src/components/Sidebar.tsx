@@ -1,5 +1,5 @@
 import { useMemo, useState, type KeyboardEvent } from 'react'
-import { ArrowLeft, ChatCircle } from '@phosphor-icons/react'
+import { ArrowLeft, Books, ChatCircle } from '@phosphor-icons/react'
 import type { DocumentMark, DocumentTask, OutlineItem } from '@essay/editor'
 import type { CommentItem, CommentRange } from '#/lib/useComments'
 import { truncateMiddle } from '#/lib/commentAnchors'
@@ -33,6 +33,7 @@ interface SidebarProps {
   marks: DocumentMark[]
   tasks: DocumentTask[]
   comments?: SidebarComments
+  citations: ReadonlyArray<{ key: string; count: number }>
   onSelectOutline: (item: OutlineItem) => void
   onSelectMark: (mark: DocumentMark) => void
   onSelectTask: (task: DocumentTask) => void
@@ -59,6 +60,7 @@ export function Sidebar({
   marks,
   tasks,
   comments,
+  citations,
   onSelectOutline,
   onSelectMark,
   onSelectTask,
@@ -74,6 +76,27 @@ export function Sidebar({
     )
   }
 
+  const isBlank =
+    outline.length === 0 &&
+    marks.length === 0 &&
+    tasks.length === 0 &&
+    citations.length === 0 &&
+    (!comments || comments.items.length === 0)
+
+  if (isBlank) {
+    return (
+      <aside className="flex h-full min-h-0 flex-col px-4 pt-5">
+        <h2 className="text-[10.5px] font-[590] tracking-[0.12em] text-[var(--essay-text-faint)] uppercase">
+          Structure
+        </h2>
+        <p className="mt-3 max-w-56 text-[12px] leading-relaxed text-[var(--essay-text-faint)]">
+          Headings, comments, tasks, marks, and citations will gather here as
+          the document takes shape.
+        </p>
+      </aside>
+    )
+  }
+
   return (
     <aside className="flex h-full min-h-0 flex-col">
       <OutlinePane
@@ -83,9 +106,8 @@ export function Sidebar({
       />
       {marks.length > 0 && <MarksPane marks={marks} onSelect={onSelectMark} />}
       {tasks.length > 0 && <TasksPane tasks={tasks} onSelect={onSelectTask} />}
-      {comments && comments.items.length > 0 && (
-        <CommentsPane comments={comments} outline={outline} />
-      )}
+      {comments && <CommentsPane comments={comments} outline={outline} />}
+      <CitationsPane citations={citations} />
     </aside>
   )
 }
@@ -280,6 +302,11 @@ function CommentsPane({
         </span>
       </header>
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        {openCount === 0 && resolved.length === 0 && (
+          <p className="px-2 py-1 text-[11.5px] leading-relaxed text-[var(--essay-text-faint)]">
+            Select a passage, then choose Comment from the selection tools.
+          </p>
+        )}
         {groups.map((group, i) => (
           <div key={`${group.label ?? '·preamble'}-${i}`}>
             <p className="truncate px-2 pt-1.5 pb-0.5 text-[10.5px] text-[var(--essay-text-faint)]">
@@ -324,6 +351,63 @@ function CommentsPane({
           </div>
         )}
       </nav>
+    </section>
+  )
+}
+
+// ——— Citations ———
+
+/**
+ * The live citation index. Citations are manuscript syntax, not sidecar
+ * metadata, so this reading is derived directly from the Markdown buffer and
+ * can never become stale. Bibliography editing comes later; this first surface
+ * makes the keys and repeated uses visible where an author expects them.
+ */
+function CitationsPane({
+  citations,
+}: {
+  citations: ReadonlyArray<{ key: string; count: number }>
+}) {
+  const uses = citations.reduce((total, citation) => total + citation.count, 0)
+  return (
+    <section className="flex max-h-[28%] min-h-0 flex-col border-t border-[var(--essay-border)] pt-2">
+      <header className="flex items-center gap-1.5 px-3 pb-1">
+        <Books size={12} className="text-[var(--essay-text-faint)]" />
+        <h2 className="text-[11px] font-[510] tracking-wider text-[var(--essay-text-faint)] uppercase">
+          Citations
+        </h2>
+        {uses > 0 && (
+          <span className="text-[11px] tabular-nums text-[var(--essay-text-faint)]">
+            {uses}
+          </span>
+        )}
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        {citations.length === 0 ? (
+          <p className="px-2 py-1 text-[11.5px] leading-relaxed text-[var(--essay-text-faint)]">
+            Cite with <code className="text-[var(--essay-text-muted)]">[@key]</code>.
+            Essay resolves keys from a bibliography beside the document.
+          </p>
+        ) : (
+          <ul>
+            {citations.map((citation) => (
+              <li
+                key={citation.key}
+                className="flex items-baseline gap-2 rounded-md px-2 py-[3px] text-[12.5px] text-[var(--essay-text-muted)]"
+              >
+                <code className="min-w-0 flex-1 truncate font-(family-name:--essay-font-mono)">
+                  @{citation.key}
+                </code>
+                {citation.count > 1 && (
+                  <span className="text-[10.5px] tabular-nums text-[var(--essay-text-faint)]">
+                    {citation.count}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   )
 }

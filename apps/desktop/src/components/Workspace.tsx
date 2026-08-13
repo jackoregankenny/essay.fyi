@@ -8,6 +8,7 @@ import {
   type CSSProperties,
 } from 'react'
 import { isTauri } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
   extractMarks,
   extractOutline,
@@ -81,15 +82,16 @@ import { documentDir, usePreview } from '#/lib/usePreview'
 import { loadWorkspaceFolders } from '#/lib/workspace'
 import { AgentPanel } from './AgentPanel'
 import { CommandPalette, type SearchEntry } from './CommandPalette'
+import { Companion } from './Companion'
 import {
-  Companion,
   loadCompanionTenant,
   saveCompanionTenant,
   type CompanionTenant,
-} from './Companion'
+} from './companion-state'
 import { CommentComposer } from './CommentComposer'
 import type { ReviewRequest } from './DiffReview'
 import { FindBar } from './FindBar'
+import { FilesPanel } from './FilesPanel'
 import { Gutter } from './Gutter'
 import { HistoryPane } from './HistoryPane'
 import { ManuscriptEditor } from './ManuscriptEditor'
@@ -97,7 +99,9 @@ import { MeasureSelect } from './MeasureSelect'
 import { DocName, Notice } from './Notice'
 import { SelectionToolbar } from './SelectionToolbar'
 import { Sidebar } from './Sidebar'
+import { SlashMenu } from './SlashMenu'
 import { TopBar } from './TopBar'
+import { WorkspaceRail } from './WorkspaceRail'
 import { TooltipProvider } from './ui/tooltip'
 
 /**
@@ -120,10 +124,6 @@ const FontsPage = lazy(() =>
 const DiffReview = lazy(() =>
   import('./DiffReview').then((module) => ({ default: module.DiffReview })),
 )
-const FilesPanel = lazy(() =>
-  import('./FilesPanel').then((module) => ({ default: module.FilesPanel })),
-)
-
 const UNTITLED: DocumentRef = { path: null, name: 'untitled.md' }
 
 /** How long after the last keystroke the buffer is journalled for crash
@@ -133,6 +133,7 @@ const JOURNAL_DELAY = 600
 
 /** How long after the last keystroke a saved document writes itself. */
 const AUTOSAVE_DELAY = 1500
+const COMPACT_QUERY = '(max-width: 52rem)'
 
 /**
  * The document changed on disk while Essay had it open, or a save found it
@@ -158,6 +159,18 @@ const launchId = Math.random().toString(36).slice(2, 8)
 function newUntitledKey(): string {
   untitledCount += 1
   return `untitled:${launchId}:${untitledCount}`
+}
+
+/** The exact bracketed citation shape accepted by essay-render. */
+function citationIndex(markdown: string): Array<{ key: string; count: number }> {
+  const counts = new Map<string, number>()
+  for (const match of markdown.matchAll(/\[(@[\p{L}\p{N}_.:-]+(?:\s*;\s*@[\p{L}\p{N}_.:-]+)*)\]/gu)) {
+    for (const entry of match[1].split(';')) {
+      const key = entry.trim().slice(1)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+  }
+  return Array.from(counts, ([key, count]) => ({ key, count }))
 }
 
 /** The welcome manuscript appears once, on first launch; after that new
@@ -187,9 +200,8 @@ export function Workspace() {
   /** The fonts page, over the manuscript. A machine-level surface rather than
       a document one, so it is not in the sidebar. */
   const [fontsOpen, setFontsOpen] = useState(false)
-  /** The folder explorer, over the manuscript. A layer, not a rail: browsing
-      the workspace is a deliberate act, and quick-open covers the everyday
-      case of moving between documents. */
+  /** File navigation is a non-modal popover from the running head. It never
+      claims manuscript width and closes as soon as a file is chosen. */
   const [explorerOpen, setExplorerOpen] = useState(false)
   const [recoverable, setRecoverable] = useState<RecoverableBuffer[]>([])
   const [outline, setOutline] = useState<OutlineItem[]>([])
@@ -210,7 +222,10 @@ export function Workspace() {
   /** What the companion slot holds, or null when the author has the page to
       themselves. One slot, one tenant — the whole layout discipline
       (docs/ui-overhaul.md). Restored per document in `loadIntoEditor`. */
-  const [tenant, setTenantState] = useState<CompanionTenant | null>(null)
+  const [tenant, setTenantState] = useState<CompanionTenant | null>('agent')
+  const [compact, setCompact] = useState(
+    () => window.matchMedia?.(COMPACT_QUERY).matches ?? false,
+  )
   const [measure, setMeasureState] = useState<MeasureId>(loadMeasure)
   /** The manuscript's face — Geist or the machine's best serif. A root
       attribute rather than component state in spirit, but mirrored here so
@@ -271,6 +286,14 @@ export function Workspace() {
     applyProseFont(proseFont)
   }, [proseFont])
 
+  useEffect(() => {
+    const query = window.matchMedia(COMPACT_QUERY)
+    const update = () => setCompact(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
+
   const cycleProseFont = useCallback(() => {
     setProseFontState((current) => {
       const next = nextProseFont(current)
@@ -281,8 +304,9 @@ export function Workspace() {
 
   /**
    * Change the slot's tenant and remember the choice for this document. Keyed
-   * by path, so an untitled buffer never records one — "closed" is the flow's
-   * default posture and a fresh document opens with the page to itself.
+   * by path, so an untitled buffer never records one. A saved document
+   * remembers both its selected tenant and an explicit close; a document
+   * Essay has not seen before opens with the manuscript to itself.
    */
   const setTenant = useCallback((next: CompanionTenant | null) => {
     setTenantState(next)
@@ -300,17 +324,9 @@ export function Workspace() {
     [tenant, setTenant],
   )
 
-  const toggleFiles = useCallback(() => {
-    setExplorerOpen((open) => {
-      if (!open) setTenant(null)
-      return !open
-    })
-  }, [setTenant])
-
   const openFiles = useCallback(() => {
-    setTenant(null)
     setExplorerOpen(true)
-  }, [setTenant])
+  }, [])
 
   const refreshStats = useCallback((editor: Editor) => {
     setOutline(extractOutline(editor))
@@ -359,11 +375,9 @@ export function Workspace() {
       setReview(null)
       setLoadVersion((version) => version + 1)
       refreshStats(editor)
-      // The slot follows the document: the memo being finished left Proof
-      // open, the chapter mid-argument left Structure — and a document Essay
-      // has never seen opens with the page to itself. Restoring 'agent' also
-      // pre-warms the panel's last-used adapter, which is the behaviour the
-      // panel already promises when it opens.
+      // The slot follows the document. An unseen document opens with Agent as
+      // its quiet working margin; an explicit close is remembered. Restoring
+      // Agent also pre-warms the last-used adapter in the background.
       setTenantState(ref.path ? loadCompanionTenant(ref.path) : null)
       editor.commands.focus('start')
     },
@@ -891,6 +905,7 @@ export function Workspace() {
         event.key === 'Escape' &&
         !event.defaultPrevented &&
         explorerOpen &&
+        !findOpen &&
         !paletteOpen &&
         !review &&
         !fontsOpen
@@ -906,7 +921,6 @@ export function Workspace() {
         findOpen &&
         !paletteOpen &&
         !review &&
-        !explorerOpen &&
         !fontsOpen
       ) {
         // Reaching here means focus is in the manuscript — Esc pressed in
@@ -1177,9 +1191,7 @@ export function Workspace() {
     const title = `${docRef.name}${dirty ? ' •' : ''} — Essay`
     document.title = title
     if (isTauri()) {
-      void import('@tauri-apps/api/window').then(({ getCurrentWindow }) =>
-        getCurrentWindow().setTitle(title),
-      )
+      void getCurrentWindow().setTitle(title)
     }
   }, [docRef, dirty])
 
@@ -1189,18 +1201,22 @@ export function Workspace() {
   )
   const activeOutlineItem = outline.find((item) => item.pos === activeOutlinePos)
   const openTaskCount = tasks.filter((task) => !task.checked).length
+  // `renderVersion` makes this recompute after every editor update. Reading
+  // the live Markdown keeps the index honest for unsaved citations too.
+  const citations = editor ? citationIndex(getManuscript(editor)) : []
+  const openCommentCount = comments.items.filter(
+    (item) => item.thread.state === 'open',
+  ).length
 
   const recovering = recoverable[0]
 
   return (
     <TooltipProvider>
-      {/* One continuous material, three functional columns. The running head
-          and status own real rows; Files and the active document panel own
-          real tracks. Nothing overlays prose simply to avoid drawing a line. */}
+      {/* One continuous canvas: file navigation floats from the running head,
+          while one optional reading becomes the manuscript's right margin. */}
       <div
         className="essay-shell relative flex h-screen flex-col overflow-hidden bg-[var(--essay-editor-bg)] text-[var(--essay-text)]"
         data-measure={measure}
-        data-files-open={explorerOpen ? '' : undefined}
         data-companion-open={tenant !== null ? '' : undefined}
         style={{ '--essay-measure': measureWidth(measure) } as CSSProperties}
       >
@@ -1209,28 +1225,31 @@ export function Workspace() {
           sectionName={activeOutlineItem?.text}
           dirty={dirty}
           conflict={conflict !== null}
-          filesOpen={explorerOpen}
-          onToggleFiles={toggleFiles}
+          files={
+            <FilesPanel
+              open={explorerOpen}
+              onOpenChange={setExplorerOpen}
+              currentPath={docRef.path}
+              onOpenDocument={() => void openDocument()}
+              onOpenFile={(path) => void openByPath(path)}
+            />
+          }
           onOpenPalette={() => setPaletteOpen(true)}
         />
 
         <div className="essay-workspace-grid min-h-0 flex-1">
-          {explorerOpen && (
-            <Suspense fallback={null}>
-              <FilesPanel
-                open
-                onClose={() => {
-                  setExplorerOpen(false)
-                  editor?.commands.focus()
-                }}
-                onOpenFile={(path) => void openByPath(path)}
-              />
-            </Suspense>
-          )}
+          <WorkspaceRail
+            tenant={tenant}
+            waitingOnAuthor={waitingOnAuthor}
+            openComments={openCommentCount}
+            onToggleTenant={toggleTenant}
+          />
 
           <main
             className="essay-manuscript-cell relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--essay-editor-bg)]"
             data-measure={measure}
+            aria-hidden={compact && tenant !== null}
+            inert={compact && tenant !== null}
           >
             {/* Notices ask the author a question about their own words and
                 therefore remain in flow above the manuscript. */}
@@ -1315,10 +1334,13 @@ export function Workspace() {
                   onChanged={handleChanged}
                 />
                 {editor && (
-                  <SelectionToolbar
-                    editor={editor}
-                    onComment={(from, to) => comments.beginComposer(from, to)}
-                  />
+                  <>
+                    <SelectionToolbar
+                      editor={editor}
+                      onComment={(from, to) => comments.beginComposer(from, to)}
+                    />
+                    <SlashMenu editor={editor} />
+                  </>
                 )}
               </div>
               {/* The composer holds the range it was opened on (mapped through
@@ -1401,9 +1423,12 @@ export function Workspace() {
                 <span className="shrink-0 tabular-nums">
                   {words.toLocaleString()} words
                 </span>
-                <span className="hidden shrink-0 tabular-nums sm:inline">
-                  {outline.length} {outline.length === 1 ? 'section' : 'sections'}
-                </span>
+                {outline.length > 0 && (
+                  <span className="hidden shrink-0 tabular-nums sm:inline">
+                    {outline.length}{' '}
+                    {outline.length === 1 ? 'section' : 'sections'}
+                  </span>
+                )}
                 {marks.length > 0 && (
                   <button
                     type="button"
@@ -1452,47 +1477,6 @@ export function Workspace() {
                         : 'safe on disk'
                       : `only in memory — ${commandKey}S gives it a home`}
                 </span>
-                <nav
-                  aria-label="Document views"
-                  className="pointer-events-auto ml-auto flex shrink-0 items-center gap-3 text-[var(--essay-text-muted)] lg:ml-3"
-                >
-                  {(
-                    [
-                      ['structure', 'Structure'],
-                      ['proof', 'Proof'],
-                      ['agent', 'Agent'],
-                      ['history', 'History'],
-                    ] as const
-                  ).map(([candidate, label]) => {
-                    const active = tenant === candidate
-                    const waiting =
-                      candidate === 'agent' && waitingOnAuthor > 0
-                        ? waitingOnAuthor
-                        : 0
-                    return (
-                      <button
-                        key={candidate}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => toggleTenant(candidate)}
-                        className={`flex items-center gap-1.5 transition-colors duration-[var(--essay-speed-quick)] hover:text-[var(--essay-text)] ${
-                          active ? 'text-[var(--essay-text)]' : ''
-                        }`}
-                      >
-                        {waiting > 0 && (
-                          <span
-                            aria-hidden
-                            className="size-1 rounded-full bg-[var(--essay-accent)]"
-                          />
-                        )}
-                        {label}
-                        {waiting > 0 && (
-                          <span className="tabular-nums">{waiting}</span>
-                        )}
-                      </button>
-                    )
-                  })}
-                </nav>
                 <span className="pointer-events-auto shrink-0 opacity-70 transition-opacity duration-[var(--essay-speed-quick)] hover:opacity-100">
                   <MeasureSelect value={measure} onChange={setMeasure} />
                 </span>
@@ -1502,14 +1486,13 @@ export function Workspace() {
 
           <Companion
             tenant={tenant}
-            onTenantChange={setTenant}
-            waitingOnAuthor={waitingOnAuthor}
             structure={
               <Sidebar
                 outline={outline}
                 activePos={activeOutlinePos}
                 marks={marks}
                 tasks={tasks}
+                citations={citations}
                 comments={{
                   items: comments.items,
                   rangeOf: comments.rangeOf,
@@ -1563,6 +1546,7 @@ export function Workspace() {
                   onAcceptConflict={acceptConflict}
                   onKeepApplied={keepApplied}
                   onRevertApplied={(edit) => void revertApplied(edit)}
+                  onSaveDocument={() => void saveDocument()}
                   onClose={() => setTenant(null)}
                 />
               </div>

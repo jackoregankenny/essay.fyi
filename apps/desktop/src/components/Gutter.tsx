@@ -434,7 +434,7 @@ export function Gutter({
                 onClick={() => onSelect(item)}
                 onMouseEnter={() => setHoverPos(item.pos)}
                 className={cn(
-                  'pointer-events-auto absolute flex origin-left items-baseline gap-1.5 rounded-full border border-[var(--essay-border)] bg-[var(--essay-bg)] px-2.5 py-1 whitespace-nowrap shadow-[var(--essay-shadow-low)]',
+                  'pointer-events-auto absolute flex origin-left items-baseline gap-1.5 rounded-full border border-[var(--essay-border)] bg-[var(--essay-surface)] px-2.5 py-1 whitespace-nowrap shadow-[var(--essay-shadow-low)]',
                   shown
                     ? 'transition-[opacity,transform] duration-[var(--essay-speed-regular)] ease-[var(--essay-ease-swift)]'
                     : 'transition-opacity duration-[var(--essay-speed-quick)] ease-[var(--essay-ease-out)]',

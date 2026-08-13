@@ -47,9 +47,17 @@ export interface ExplorerState {
   folders: WorkspaceFolder[]
   recents: RecentFile[]
   listings: Listings
+  error: string | null
   addFolder: () => Promise<void>
+  clearError: () => void
+  refresh: () => void
   removeFolder: (folder: WorkspaceFolder) => void
   walk: (root: string) => void
+}
+
+function explorerError(action: string, error: unknown): string {
+  const detail = String(error).replace(/^Error:\s*/, '')
+  return `${action}${detail ? `: ${detail}` : '.'}`
 }
 
 export function useExplorer(): ExplorerState {
@@ -66,16 +74,22 @@ export function useExplorer(): ExplorerState {
   const [listings, setListings] = useState<Listings>(() =>
     desktop ? {} : { [DEMO_FOLDER.path]: DEMO_PATHS },
   )
+  const [error, setError] = useState<string | null>(null)
 
   const addFolder = useCallback(async () => {
-    const folder = await pickWorkspaceFolder()
-    if (!folder) return
-    setFolders((current) => {
-      if (current.some((f) => f.path === folder.path)) return current
-      const next = [...current, folder]
-      if (desktop) saveWorkspaceFolders(next)
-      return next
-    })
+    setError(null)
+    try {
+      const folder = await pickWorkspaceFolder()
+      if (!folder) return
+      setFolders((current) => {
+        if (current.some((f) => f.path === folder.path)) return current
+        const next = [...current, folder]
+        if (desktop) saveWorkspaceFolders(next)
+        return next
+      })
+    } catch (reason) {
+      setError(explorerError('Could not add that folder', reason))
+    }
   }, [desktop])
 
   const walked = useRef(new Set<string>())
@@ -104,8 +118,22 @@ export function useExplorer(): ExplorerState {
   const walk = useCallback((root: string) => {
     listMarkdownTree(root)
       .then((paths) => setListings((current) => ({ ...current, [root]: paths })))
-      .catch(() => setListings((current) => ({ ...current, [root]: [] })))
+      .catch((reason) => {
+        setListings((current) => ({ ...current, [root]: [] }))
+        setError(explorerError('Could not read a workspace folder', reason))
+      })
   }, [])
+
+  const refresh = useCallback(() => {
+    setError(null)
+    for (const folder of folders) walk(folder.path)
+    if (desktop) {
+      void watchWorkspaceRoots(folders.map((folder) => folder.path)).catch(
+        (reason) =>
+          setError(explorerError('Could not watch workspace folders', reason)),
+      )
+    }
+  }, [desktop, folders, walk])
 
   // One listing per folder, walked the first time it is seen. Tracked in a ref
   // rather than derived from `listings`, so that the arrival of a listing
@@ -136,16 +164,22 @@ export function useExplorer(): ExplorerState {
     let live = true
     void onTreeChange((change) => {
       setListings((current) => ({ ...current, [change.root]: change.paths }))
-    }).then((fn) => {
-      // Unmounted before the subscription landed: unsubscribe it rather than
-      // hold a listener that outlives the pane and setStates into nothing.
-      if (live) dispose = fn
-      else fn()
     })
+      .then((fn) => {
+        // Unmounted before the subscription landed: unsubscribe it rather than
+        // hold a listener that outlives the pane and setStates into nothing.
+        if (live) dispose = fn
+        else fn()
+      })
+      .catch((reason) => {
+        if (live) {
+          setError(explorerError('Could not listen for folder changes', reason))
+        }
+      })
     return () => {
       live = false
       dispose?.()
-      void watchWorkspaceRoots([])
+      void watchWorkspaceRoots([]).catch(() => {})
     }
   }, [desktop])
 
@@ -156,10 +190,31 @@ export function useExplorer(): ExplorerState {
   // for the rest of the session. Only unmounting stops watching.
   useEffect(() => {
     if (!desktop) return
-    void watchWorkspaceRoots(folders.map((folder) => folder.path))
+    let live = true
+    void watchWorkspaceRoots(folders.map((folder) => folder.path)).catch(
+      (reason) => {
+        if (live) {
+          setError(explorerError('Could not watch workspace folders', reason))
+        }
+      },
+    )
+    return () => {
+      live = false
+    }
   }, [desktop, folders])
 
-  return { desktop, folders, recents, listings, addFolder, removeFolder, walk }
+  return {
+    desktop,
+    folders,
+    recents,
+    listings,
+    error,
+    addFolder,
+    clearError: () => setError(null),
+    refresh,
+    removeFolder,
+    walk,
+  }
 }
 
 /**
@@ -169,35 +224,65 @@ export function useExplorer(): ExplorerState {
  */
 export function ExplorerContent({
   explorer,
+  currentPath = null,
+  query = '',
   onOpenFile,
 }: {
   explorer: ExplorerState
+  currentPath?: string | null
+  query?: string
   onOpenFile: (absolutePath: string) => void
 }) {
   const { desktop, folders, recents, listings, addFolder, removeFolder, walk } =
     explorer
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const visibleRecents = normalizedQuery
+    ? recents.filter(
+        (recent) =>
+          recent.name.toLocaleLowerCase().includes(normalizedQuery) ||
+          recent.path.toLocaleLowerCase().includes(normalizedQuery),
+      )
+    : recents
 
   return (
     <>
       {/* Above the folders on purpose: a document opened ten minutes ago is
           more likely to be the one being looked for than any given file in
           a tree, and it may not be under a workspace folder at all. */}
-      {recents.length > 0 && (
+      {visibleRecents.length > 0 && (
         <div className="mb-2">
           <div className="flex h-6 items-center px-1.5">
             <span className="text-[11px] font-medium tracking-wider text-[var(--essay-text-faint)] uppercase">
               Recent
             </span>
           </div>
-          {recents.map((recent) => (
+          {visibleRecents.map((recent) => (
             <button
               key={recent.path}
               type="button"
               title={recent.path}
               onClick={() => onOpenFile(recent.path)}
-              className="flex h-6 w-full items-center rounded px-1.5 text-left text-[13px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]"
+              aria-current={recent.path === currentPath ? 'page' : undefined}
+              className={`flex min-h-8 w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] ${
+                recent.path === currentPath
+                  ? 'bg-[var(--essay-surface-hover)] text-[var(--essay-text)]'
+                  : 'text-[var(--essay-text-muted)]'
+              }`}
             >
-              <span className="truncate">{recent.name}</span>
+              <span
+                aria-hidden
+                className={`size-1.5 shrink-0 rounded-full ${
+                  recent.path === currentPath
+                    ? 'bg-[var(--essay-accent)]'
+                    : 'bg-[var(--essay-text-faint)]'
+                }`}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12.5px]">{recent.name}</span>
+                <span className="block truncate text-[9.5px] text-[var(--essay-text-faint)]">
+                  {parentLabel(recent.path)}
+                </span>
+              </span>
             </button>
           ))}
         </div>
@@ -228,6 +313,8 @@ export function ExplorerContent({
             folder={folder}
             demo={!desktop}
             paths={listings[folder.path] ?? null}
+            currentPath={currentPath}
+            query={query}
             onOpenFile={onOpenFile}
             onRefresh={() => walk(folder.path)}
             onRemove={() => removeFolder(folder)}
@@ -236,6 +323,11 @@ export function ExplorerContent({
       )}
     </>
   )
+}
+
+function parentLabel(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean)
+  return parts.length > 1 ? parts[parts.length - 2] : path
 }
 
 /**
@@ -288,6 +380,8 @@ function RootSection({
   folder,
   demo,
   paths,
+  currentPath,
+  query,
   onOpenFile,
   onRefresh,
   onRemove,
@@ -295,10 +389,20 @@ function RootSection({
   folder: WorkspaceFolder
   demo: boolean
   paths: string[] | null
+  currentPath: string | null
+  query: string
   onOpenFile: (absolutePath: string) => void
   onRefresh: () => void
   onRemove: () => void
 }) {
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const matchingFiles =
+    paths?.filter(
+      (path) =>
+        !path.endsWith('/') &&
+        (!normalizedQuery || path.toLocaleLowerCase().includes(normalizedQuery)),
+    ).length ?? 0
+
   return (
     <div className="group/root mb-1">
       <div className="flex h-6 items-center gap-1 rounded px-1.5">
@@ -308,7 +412,12 @@ function RootSection({
         >
           {folder.name}
         </span>
-        <div className="ml-auto flex items-center opacity-0 transition-opacity group-hover/root:opacity-100">
+        {paths && (
+          <span className="ml-auto shrink-0 text-[9.5px] tabular-nums text-[var(--essay-text-faint)]">
+            {matchingFiles}
+          </span>
+        )}
+        <div className="flex items-center opacity-55 transition-opacity group-hover/root:opacity-100 focus-within:opacity-100">
           {!demo && (
             // Kept even though the tree is watched: a watch can fail silently
             // on a network share or a permission-denied subtree, and this is
@@ -340,10 +449,16 @@ function RootSection({
         <p className="px-2 py-1 text-[12px] text-[var(--essay-text-faint)]">
           No Markdown here yet — files appear as they are written.
         </p>
+      ) : normalizedQuery && matchingFiles === 0 ? (
+        <p className="px-2 py-1 text-[12px] text-[var(--essay-text-faint)]">
+          No files match “{query.trim()}”.
+        </p>
       ) : (
         <RootTree
           root={folder.path}
           paths={paths}
+          currentPath={currentPath}
+          query={query}
           onOpen={(rel) =>
             demo ? undefined : onOpenFile(joinPath(folder.path, rel))
           }
@@ -425,10 +540,14 @@ function firstLevelDirs(paths: string[]): string[] {
 function RootTree({
   root,
   paths,
+  currentPath,
+  query,
   onOpen,
 }: {
   root: string
   paths: string[]
+  currentPath: string | null
+  query: string
   onOpen: (relPath: string) => void
 }) {
   const onOpenRef = useRef(onOpen)
@@ -443,6 +562,13 @@ function RootTree({
     () => loadExpandedDirs(root) ?? firstLevelDirs(paths),
   )
 
+  const currentRelative = currentPath?.startsWith(root)
+    ? currentPath
+        .slice(root.length)
+        .replace(/^[\\/]+/, '')
+        .replaceAll('\\', '/')
+    : null
+
   const { model } = useFileTree({
     paths,
     initialExpansion: 'closed',
@@ -451,11 +577,21 @@ function RootTree({
     // 24px rows: the library's default 30px is an IDE sidebar's density, and
     // beside the app's own 24px rows (recents, palette) it read padded.
     density: 'compact',
+    fileTreeSearchMode: 'hide-non-matches',
+    initialSearchQuery: query.trim() || null,
+    initialSelectedPaths:
+      currentRelative && paths.includes(currentRelative)
+        ? [currentRelative]
+        : [],
     onSelectionChange: (selected) => {
       const rel = selected[0]
       if (rel && !rel.endsWith('/')) onOpenRef.current(rel)
     },
   })
+
+  useEffect(() => {
+    model.setSearch(query.trim() || null)
+  }, [model, query])
 
   /**
    * A new listing arrived — the watcher saw a file appear, or the author hit

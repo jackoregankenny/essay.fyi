@@ -26,7 +26,7 @@ export function MeasureSelect({
     >
       <Select.Trigger
         aria-label="Writing width"
-        className="flex h-5 items-center gap-1 rounded-[4px] px-1 text-[11px] text-[var(--essay-text-faint)] transition-colors duration-[var(--essay-speed-quick)] ease-[var(--essay-ease-out)] hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)] data-[popup-open]:bg-[var(--essay-surface-hover)] data-[popup-open]:text-[var(--essay-text-muted)]"
+        className="flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] text-[var(--essay-text-muted)] transition-colors duration-[var(--essay-speed-quick)] ease-[var(--essay-ease-out)] hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)] data-[popup-open]:bg-[var(--essay-surface-hover)] data-[popup-open]:text-[var(--essay-text)]"
       >
         <ArrowsHorizontal size={11} className="shrink-0" />
         <Select.Value />

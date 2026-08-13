@@ -108,7 +108,7 @@ export function CommentComposer({
       style={style}
       className={cn(
         'absolute z-30 w-80 rounded-lg border border-[var(--essay-border)]',
-        'bg-[color-mix(in_oklab,var(--essay-bg)_94%,transparent)] p-2.5 shadow-[var(--essay-shadow-medium)] backdrop-blur-md',
+        'bg-[var(--essay-surface)] p-2.5 shadow-[var(--essay-shadow-medium)]',
         'motion-safe:animate-[essay-pop_var(--essay-speed-quick)_var(--essay-ease-out)_both]',
       )}
     >

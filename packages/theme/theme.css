@@ -79,14 +79,20 @@
   --essay-editor-bg: oklch(0.19 0.005 72);
   --essay-prose-ink: oklch(0.93 0.006 85);
   --essay-prose-muted: oklch(0.7 0.012 82);
-  --essay-prose-faint: oklch(0.52 0.01 80);
-  --essay-surface: oklch(0.203 0.005 255);
-  --essay-surface-hover: oklch(0.245 0.006 255);
-  --essay-border: oklch(0.235 0.006 255);
-  --essay-border-strong: oklch(0.31 0.007 255);
+  --essay-prose-faint: oklch(0.595 0.01 80);
+  /* UI furniture must be visibly raised from the night-paper canvas. The
+     previous 0.013 lightness step was technically different and perceptually
+     black; panels and popovers now read as one graphite layer. */
+  --essay-surface: oklch(0.225 0.006 255);
+  --essay-surface-hover: oklch(0.275 0.007 255);
+  --essay-border: oklch(0.285 0.007 255);
+  --essay-border-strong: oklch(0.355 0.008 255);
   --essay-text: oklch(0.935 0.003 250);
   --essay-text-muted: oklch(0.68 0.008 250);
-  --essay-text-faint: oklch(0.52 0.008 250);
+  /* AA-safe for normal-size text on --essay-editor-bg. This token is still
+     quieter than muted, but no longer becomes decorative simply because it
+     is small. Icons exceed the 3:1 non-text floor as a consequence. */
+  --essay-text-faint: oklch(0.595 0.008 250);
   /* Azure, not indigo: the accent moved off the violet the old chrome wore.
      One saturated element in the frame — the caret, the lit tick, the
      waiting dot — everything else stays graphite. */
@@ -121,14 +127,14 @@
      cast that makes long reading feel like a screen. */
   --essay-prose-ink: oklch(0.29 0.012 75);
   --essay-prose-muted: oklch(0.5 0.016 76);
-  --essay-prose-faint: oklch(0.64 0.012 78);
+  --essay-prose-faint: oklch(0.56 0.012 78);
   --essay-surface: oklch(0.982 0.002 255);
   --essay-surface-hover: oklch(0.94 0.004 255);
   --essay-border: oklch(0.92 0.004 255);
   --essay-border-strong: oklch(0.885 0.005 255);
   --essay-text: oklch(0.27 0.01 255);
   --essay-text-muted: oklch(0.53 0.012 250);
-  --essay-text-faint: oklch(0.62 0.012 250);
+  --essay-text-faint: oklch(0.56 0.012 250);
   --essay-accent: oklch(0.54 0.155 245);
   --essay-accent-tint: oklch(0.955 0.022 240);
   --essay-selection: color-mix(in oklch, oklch(0.54 0.155 245), transparent 74%);

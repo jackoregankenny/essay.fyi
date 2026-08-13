@@ -10,6 +10,8 @@ import {
   ColumnsPlusRight,
   HighlighterCircle,
   Link as LinkIcon,
+  ListBullets,
+  ListNumbers,
   Rows,
   RowsPlusBottom,
   RowsPlusTop,
@@ -69,6 +71,8 @@ export function SelectionToolbar({
       code: editor.isActive('code'),
       link: editor.isActive('link'),
       highlight: editor.isActive('highlight'),
+      bulletList: editor.isActive('bulletList'),
+      orderedList: editor.isActive('orderedList'),
       table: editor.isActive('table'),
       caretOnly: editor.state.selection.empty,
       image: selectedImage(editor),
@@ -96,6 +100,7 @@ export function SelectionToolbar({
   return (
     <BubbleMenu
       editor={editor}
+      updateDelay={60}
       options={{ placement: 'top', offset: 8 }}
       shouldShow={({ editor, state }) => {
         // A bare caret inside a table still gets the toolbar: the table
@@ -111,7 +116,7 @@ export function SelectionToolbar({
         if (editor.isActive('codeBlock')) return false
         return editor.isEditable
       }}
-      className="essay-bubble z-40 flex items-center gap-0.5 rounded-lg border border-[var(--essay-border)] bg-[color-mix(in_oklab,var(--essay-bg)_92%,transparent)] p-1 shadow-[var(--essay-shadow-medium)] backdrop-blur-md focus-within:border-[var(--essay-border-strong)]"
+      className="essay-bubble z-40 flex items-center gap-0.5 rounded-[var(--essay-radius-6)] border border-[var(--essay-border)] bg-[var(--essay-surface)] p-1 shadow-[var(--essay-shadow-low)] focus-within:border-[var(--essay-border-strong)]"
     >
       {marks?.image ? (
         // Keyed by position so selecting a different image resets the inputs.
@@ -194,6 +199,8 @@ function MarkButtons({
         code: boolean
         link: boolean
         highlight: boolean
+        bulletList: boolean
+        orderedList: boolean
       }
     | null
     | undefined
@@ -228,6 +235,21 @@ function MarkButtons({
         onClick={() => editor.chain().focus().toggleCode().run()}
       >
         <Code size={14} />
+      </FormatButton>
+      <span className="mx-0.5 h-4 w-px bg-[var(--essay-border)]" />
+      <FormatButton
+        title="Bullet list"
+        active={marks?.bulletList}
+        onClick={() => editor.chain().focus().toggleBulletList().run()}
+      >
+        <ListBullets size={14} />
+      </FormatButton>
+      <FormatButton
+        title="Numbered list"
+        active={marks?.orderedList}
+        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+      >
+        <ListNumbers size={14} />
       </FormatButton>
       <span className="mx-0.5 h-4 w-px bg-[var(--essay-border)]" />
       <FormatButton
