@@ -166,7 +166,7 @@ export function DiffReview({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[64rem] px-5 py-5">
+        <div className="mx-auto w-full max-w-[64rem] px-5 py-8">
           <Summary diff={diff} changed={changed.length} reordering={reordering} />
           {rewrite && <RewriteCallout churn={diff.churn} />}
 
@@ -186,7 +186,12 @@ export function DiffReview({
                   </button>
                 )}
               </PaneHeading>
-              <ul className="mb-7">
+              {/* Hairline rows, not cards: a section list is scanned top to
+                  bottom like a table of contents, and a divider reads faster
+                  than a hover state alone. Fixed row height keeps that scan
+                  rhythm even where a heading is one word and a delta is three
+                  digits. */}
+              <ul className="mb-6 divide-y divide-[color-mix(in_oklch,var(--essay-border)_55%,transparent)]">
                 {rows.map((section, index) => (
                   <SectionRow
                     key={`${section.heading ?? 'preamble'}-${section.oldIndex}-${section.newIndex}-${index}`}
@@ -219,7 +224,7 @@ export function DiffReview({
                 <button
                   type="button"
                   onClick={() => setPages((n) => n + 1)}
-                  className="mt-2 w-full rounded-lg border border-dashed border-[var(--essay-border)] py-2 text-[12px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
+                  className="mt-2 w-full rounded-lg border border-[var(--essay-border)] py-2 text-[12px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
                 >
                   Show {diff.hunks.length - visibleHunks.length} more changed
                   passages
@@ -259,8 +264,8 @@ function Summary({
     : `${diff.hunks.length} passage${diff.hunks.length === 1 ? '' : 's'} changed`
 
   return (
-    <div className="mb-5">
-      <p className="text-[15px] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
+    <div className="mb-6">
+      <p className="text-[16px] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
         {headline}
       </p>
       <p className="mt-0.5 text-[12px] text-[var(--essay-text-muted)] tabular-nums">
@@ -293,15 +298,21 @@ function Summary({
  */
 function RewriteCallout({ churn }: { churn: number }) {
   return (
-    <div className="mb-6 flex gap-3 rounded-xl bg-[var(--essay-accent-tint)] px-3.5 py-3">
+    <div className="mb-6 flex gap-3 rounded-xl bg-[var(--essay-accent-tint)] px-4 py-3.5">
+      {/* The claim is carried by the icon, not the title — a full-weight
+          accent headline over an accent-tinted card measured weak in the
+          dark theme, so the ink stays --essay-text and the icon alone is
+          coloured. Its 1px top offset (against the title's explicit 1.3
+          line-height) is what centres a 15px glyph on a 13px first line
+          rather than hanging it from the text's cap height. */}
       <RewriteIcon
         size={15}
         weight="bold"
         aria-hidden
-        className="mt-[2px] shrink-0 text-[var(--essay-accent)]"
+        className="mt-[1px] shrink-0 text-[var(--essay-accent)]"
       />
       <div className="min-w-0">
-        <p className="text-[13px] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
+        <p className="text-[13px] leading-[1.3] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
           This reads as a rewrite, not an edit
         </p>
         <p className="mt-0.5 text-[12px] leading-[1.5] text-[var(--essay-text-muted)]">
@@ -369,7 +380,7 @@ function SectionRow({ section }: { section: SectionChange }) {
   const words = section.stats.wordsInserted + section.stats.wordsRemoved
 
   return (
-    <li className="flex items-center gap-3 rounded-lg px-2 py-[7px] hover:bg-[var(--essay-surface-hover)]">
+    <li className="flex h-9 items-center gap-3 px-2 hover:bg-[var(--essay-surface-hover)]">
       <StatusPill status={section.status} />
       <span
         className={cn(
@@ -389,7 +400,10 @@ function SectionRow({ section }: { section: SectionChange }) {
       {moved && section.oldIndex !== null && section.newIndex !== null && (
         <span className="flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-[var(--essay-text-muted)]">
           <MovedIcon size={11} aria-hidden />
-          position {section.oldIndex + 1} → {section.newIndex + 1}
+          {/* Thin spaces, not regular ones — a bare "3 → 5" lets the arrow
+              glyph sit closer to one number than the other depending on the
+              font's own side bearings; U+2009 sets it dead centre. */}
+          {`position ${section.oldIndex + 1} → ${section.newIndex + 1}`}
         </span>
       )}
       {words > 0 && (
@@ -422,7 +436,10 @@ function StatusPill({ status }: { status: SectionStatus }) {
   return (
     <span
       className={cn(
-        'inline-flex h-[18px] w-[86px] shrink-0 items-center justify-center rounded-[5px]',
+        // 92px, not 86: "moved + edited" at 10px semibold with tracking-wide
+        // is the longest label and was touching the edge at 86 — widened
+        // across the board rather than loosening tracking for one case alone.
+        'inline-flex h-[18px] w-[92px] shrink-0 items-center justify-center rounded-[5px]',
         'text-[10px] font-[var(--essay-weight-semibold)] tracking-wide',
         tone[status],
       )}
@@ -468,11 +485,18 @@ function HunkBlock({ hunk }: { hunk: Hunk }) {
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--essay-border)]">
       <h4>
+        {/* Quieter than the old solid --essay-surface fill: a hunk header is
+            a rail between two blocks of prose, not a toolbar, and it only
+            needs a line under it — and only while there's a table beneath
+            that line to separate from. */}
         <button
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((on) => !on)}
-          className="flex w-full items-center gap-1.5 bg-[var(--essay-surface)] px-2 py-1.5 text-left transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--essay-accent)]"
+          className={cn(
+            'flex w-full items-center gap-1.5 px-2 py-1.5 text-left transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--essay-accent)]',
+            open && 'border-b border-[var(--essay-border)]',
+          )}
         >
           {open ? (
             <CollapseIcon size={11} aria-hidden className="text-[var(--essay-text-faint)]" />
@@ -513,11 +537,16 @@ const SIGN: Record<DiffLine['tag'], string> = {
 }
 
 function DiffRow({ line }: { line: DiffLine }) {
+  // Full-strength across a whole row's width, the dark tokens read as
+  // alarm stripes rather than the calm wash a line-by-line diff wants to be.
+  // Mixed toward the editor background instead of desaturating the tokens
+  // themselves, so --essay-diff-insert-bg/-remove-bg stay full strength
+  // wherever else a diff cites them.
   const tint =
     line.tag === 'insert'
-      ? 'bg-[var(--essay-diff-insert-bg)]'
+      ? 'bg-[color-mix(in_oklch,var(--essay-diff-insert-bg)_65%,var(--essay-editor-bg))]'
       : line.tag === 'delete'
-        ? 'bg-[var(--essay-diff-remove-bg)]'
+        ? 'bg-[color-mix(in_oklch,var(--essay-diff-remove-bg)_65%,var(--essay-editor-bg))]'
         : ''
   const ink =
     line.tag === 'insert'
@@ -532,14 +561,17 @@ function DiffRow({ line }: { line: DiffLine }) {
   // 10px numeral on.
   return (
     <tr>
-      <td className="w-9 select-none border-r border-[var(--essay-border)] px-1 text-right align-top text-[10px] tabular-nums text-[var(--essay-text-muted)]">
+      <td className="w-9 select-none border-r border-[var(--essay-border)] px-1 text-right align-top text-[10px] tabular-nums text-[var(--essay-text-faint)]">
         {line.oldLine ?? ''}
       </td>
-      <td className="w-9 select-none border-r border-[var(--essay-border)] px-1 text-right align-top text-[10px] tabular-nums text-[var(--essay-text-muted)]">
+      <td className="w-9 select-none border-r border-[var(--essay-border)] px-1 text-right align-top text-[10px] tabular-nums text-[var(--essay-text-faint)]">
         {line.newLine ?? ''}
       </td>
-      {/* The sign, not the tint, is what makes this readable without colour. */}
-      <td className={cn('w-4 select-none text-center align-top', tint, ink)}>
+      {/* The sign, not the tint, is what makes this readable without colour.
+          No manual width: a single glyph at 12px mono is narrower than the
+          old fixed 16px column, so letting it size to content hands that
+          sliver back to the text column instead. */}
+      <td className={cn('select-none px-1 text-center align-top', tint, ink)}>
         {SIGN[line.tag]}
       </td>
       <td

@@ -17,7 +17,7 @@
  * whose content grows a fence still closes where it should.
  */
 import type { JSONContent, MarkdownRendererHelpers } from '@tiptap/core'
-import { CodeBlock } from '@tiptap/extension-code-block'
+import { CodeBlock, type CodeBlockOptions } from '@tiptap/extension-code-block'
 
 import { sourceAttribute } from './markdown-lists'
 
@@ -70,6 +70,20 @@ export function renderCodeBlock(node: JSONContent, h: MarkdownRendererHelpers): 
 }
 
 export const ManuscriptCodeBlock = CodeBlock.extend({
+  addOptions() {
+    // The cast, not optional chaining all the way down: CodeBlock always
+    // defines its options, the `?.` is only the extend API's signature.
+    const parent = this.parent?.() as CodeBlockOptions
+    return {
+      ...parent,
+      // Code is not prose: the native spellchecker must not squiggle
+      // identifiers (the manuscript surface itself opts in — see
+      // ManuscriptEditor). Element-level is as fine as the WebViews allow;
+      // URLs and citation keys inside a paragraph cannot opt out this way.
+      HTMLAttributes: { ...parent.HTMLAttributes, spellcheck: 'false' },
+    }
+  },
+
   addAttributes() {
     return {
       ...this.parent?.(),

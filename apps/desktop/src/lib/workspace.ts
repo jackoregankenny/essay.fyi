@@ -36,7 +36,12 @@ export function loadWorkspaceFolders(): WorkspaceFolder[] {
 }
 
 export function saveWorkspaceFolders(folders: WorkspaceFolder[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(folders))
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(folders))
+  } catch {
+    // A disabled/full preference store costs remembered roots, never the
+    // live explorer or the author's files.
+  }
   // A folder that is no longer in the workspace has no tree to remember the
   // shape of, and its record would otherwise sit in storage for ever.
   pruneExpansion(folders.map((folder) => folder.path))

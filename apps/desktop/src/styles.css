@@ -22,6 +22,173 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Everything ambient is laid out from the manuscript's invisible edges.
+   The page is the coordinate system; the window is only the room around it. */
+.essay-manuscript-orbit {
+  width: min(calc(100% - 2rem), calc(var(--essay-measure) + 5rem));
+}
+
+.essay-manuscript-gutter {
+  /* Inside the manuscript's own left padding: a section tick annotates the
+     paragraph it belongs to instead of floating in a second, invisible rail. */
+  left: max(0.5rem, calc(50% - var(--essay-measure) / 2 + 0.25rem));
+}
+
+[data-measure='full'] .essay-manuscript-orbit {
+  width: calc(100% - 2rem);
+}
+
+[data-measure='full'] .essay-manuscript-gutter {
+  left: 0.5rem;
+}
+
+/* One manuscript and one optional margin. File navigation floats from the
+   running head, so it never changes the page geometry. The companion claims
+   a real margin, but uses the canvas itself rather than drawing a panel. */
+.essay-shell {
+  --essay-companion-track: 0px;
+  --essay-companion-width: clamp(21rem, 25vw, 23rem);
+}
+
+.essay-shell[data-companion-open] {
+  --essay-companion-track: var(--essay-companion-width);
+}
+
+.essay-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--essay-companion-track);
+  min-width: 0;
+  position: relative;
+  transition: grid-template-columns 220ms var(--essay-ease-swift);
+}
+
+.essay-reading-controls {
+  position: absolute;
+  z-index: 30;
+  top: 1rem;
+  right: 1.25rem;
+}
+
+.essay-manuscript-cell {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.essay-companion {
+  grid-column: 2;
+  grid-row: 1;
+  z-index: 20;
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  filter: blur(5px);
+  transition:
+    opacity 150ms linear,
+    filter 200ms var(--essay-ease-out),
+    visibility 0s linear 220ms;
+}
+
+.essay-companion[data-open] {
+  visibility: visible;
+  pointer-events: auto;
+  opacity: 1;
+  filter: blur(0);
+  padding-right: 3.75rem;
+  transition-delay: 0s;
+}
+
+/* Files are a menu-like layer, not a modal and not a sidebar. One flat piece
+   of translucent canvas is enough to establish elevation. */
+.essay-files-popover {
+  background: color-mix(in oklab, var(--essay-editor-bg) 90%, transparent);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.2);
+  backdrop-filter: blur(24px);
+  transform-origin: top left;
+  transition:
+    opacity 130ms linear,
+    transform 170ms var(--essay-ease-out),
+    filter 170ms var(--essay-ease-out);
+}
+
+.essay-files-popover[data-starting-style],
+.essay-files-popover[data-ending-style] {
+  opacity: 0;
+  filter: blur(4px);
+  transform: translateY(-4px);
+}
+
+@keyframes essay-tenant-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.essay-tenant-reading {
+  animation: essay-tenant-in 120ms var(--essay-ease-out) both;
+}
+
+/* Below this width the requested reading gets the canvas. The editor stays
+   mounted in its zero-width track, retaining selection and scroll for Esc. */
+@media (max-width: 52rem) {
+  .essay-workspace-grid {
+    grid-template-columns: minmax(0, 1fr) 0;
+  }
+
+  .essay-companion {
+    position: absolute;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    inset: 0;
+  }
+
+  .essay-companion[data-open] {
+    /* The reading owns the compact canvas. This is the same canvas colour,
+       not panel material; it simply prevents the mounted editor showing
+       through the text chat. */
+    background: var(--essay-editor-bg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .essay-workspace-grid {
+    transition: none;
+  }
+
+  .essay-companion {
+    filter: none;
+    transition: opacity var(--essay-speed-quick) linear, visibility 0s;
+  }
+
+  .essay-files-popover {
+    filter: none;
+    transform: none;
+    transition: opacity var(--essay-speed-quick) linear;
+  }
+
+  .essay-tenant-reading {
+    animation: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .essay-files-popover {
+    background: var(--essay-editor-bg);
+    backdrop-filter: none;
+    outline: 1px solid var(--essay-text);
+  }
+
+  html[data-focus-mode] .essay-chrome,
+  html[data-typing] .essay-chrome {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .essay-files-popover {
+    background: var(--essay-editor-bg);
+    backdrop-filter: none;
+  }
+}
+
 /* Slim, quiet scrollbars everywhere */
 ::-webkit-scrollbar {
   width: 10px;
@@ -103,6 +270,67 @@ body {
   .essay-pop,
   .essay-pop-centered,
   .essay-fade {
+    animation: none;
+  }
+}
+
+/* ——— The chrome holds its breath ———
+   Two states quiet it, one deliberate and one ambient. Focus mode
+   (`data-focus-mode`, set by @essay/editor's setFocusMode) is the author
+   asking for the room: chrome drops to a murmur. Typing (`data-typing`,
+   set by the workspace while doc changes are landing) is stronger and
+   momentary: while words arrive the chrome all but vanishes, and the first
+   pointer movement — or a second of stillness — brings it back. Opacity,
+   not display — the affordances stay exactly where the hand knows they
+   are, and a pointer that goes looking finds them mid-fade rather than
+   gone. The transition lives on the base class so the return glides too. */
+.essay-chrome {
+  transition: opacity var(--essay-speed-regular) var(--essay-ease-out);
+}
+
+html[data-focus-mode] .essay-chrome {
+  opacity: 0.25;
+}
+
+html[data-typing] .essay-chrome {
+  opacity: 0.08;
+  /* The room dims slowly — sinking into flow is gradual — but the base
+     class's regular speed governs the return, so looking up is instant. */
+  transition-duration: 0.7s;
+}
+
+html[data-focus-mode] .essay-chrome:hover,
+html[data-focus-mode] .essay-chrome:focus-within,
+html[data-typing] .essay-chrome:hover,
+html[data-typing] .essay-chrome:focus-within {
+  opacity: 1;
+  transition-duration: var(--essay-speed-quick);
+}
+
+/* Selection furniture lives at the caret and arrives one beat slower than a
+   tooltip: enough settle to feel placed, never enough to delay the action. */
+@keyframes essay-bubble {
+  from {
+    opacity: 0;
+    transform: translateY(2px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.essay-bubble {
+  animation: essay-bubble 140ms
+    var(--essay-ease-out-quint) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .essay-chrome {
+    transition: none;
+  }
+
+  .essay-bubble {
     animation: none;
   }
 }

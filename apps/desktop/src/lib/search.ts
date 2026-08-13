@@ -1,9 +1,12 @@
 // The shape of `essay-search`, and the one way the frontend asks for matches.
 //
-// Nothing here matches text. The Rust engine is the only place a match is
-// decided, so the palette, a future find bar and the CLI can never disagree
-// about what "whole word" means or where an occurrence starts — the same
-// discipline that keeps diffs in one place.
+// Nothing here matches text — but the Rust engine is no longer the only place
+// a match is decided. It answers the palette's project search and the CLI;
+// the in-manuscript find bar matches the live buffer in TypeScript
+// (@essay/editor's find.ts), because it recomputes while the author types and
+// typing never waits on IPC (docs/authoring-backlog.md item 1.6). The find
+// bar's case fold and whole-word alphabet are transcribed from the crate, and
+// keeping the two in agreement is a standing discipline, not a mechanism.
 //
 // Every offset below is in UTF-16 code units, which is what JavaScript strings
 // and ProseMirror positions are counted in. Nothing here needs to convert.

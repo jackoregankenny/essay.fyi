@@ -7,7 +7,6 @@ import {
 } from 'react'
 import {
   AcceptIcon,
-  AgentIcon,
   BusyIcon,
   CloseIcon,
   CollapseIcon,
@@ -64,6 +63,7 @@ import { Select } from '@base-ui-components/react/select'
 import { Check } from '@phosphor-icons/react'
 import type { ReviewRequest } from './DiffReview'
 import { IconButton } from './ui/icon-button'
+import { Tip } from './ui/tooltip'
 
 /**
  * The agent surface: pick an agent, ask it something, watch it work, and
@@ -111,7 +111,12 @@ export interface AgentPanelProps {
   onAcceptConflict: (diskHash: string, diskContents: string) => void
   onKeepApplied: (edit: AppliedEdit) => void
   onRevertApplied: (edit: AppliedEdit) => void
+  /** Untitled drafts cannot start a filesystem agent. The empty state offers
+      this direct route instead of presenting a disabled agent catalogue. */
+  onSaveDocument: () => void
   onClose: () => void
+  /** Hosted inside the companion, which already owns the close affordance. */
+  embedded?: boolean
 }
 
 /** A transcript entry. Chunks are folded into these as they arrive, so a
@@ -216,7 +221,9 @@ export function AgentPanel({
   onAcceptConflict,
   onKeepApplied,
   onRevertApplied,
+  onSaveDocument,
   onClose,
+  embedded = false,
 }: AgentPanelProps) {
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [session, setSession] = useState<SessionSummary | null>(null)
@@ -231,7 +238,8 @@ export function AgentPanel({
   /** The agent's knobs — mode, model, whatever it advertises. Whole-state
       replaced on every `options` event; the stream is the source of truth. */
   const [options, setOptions] = useState<SessionOption[]>([])
-  /** Whether the knobs are showing. Off by default: power, tucked away. */
+  /** Session mechanics are available, not ambient. A conversation opens as a
+      conversation; mode/model/effort appear when the author asks for them. */
   const [tuning, setTuning] = useState(false)
   const [commands, setCommands] = useState<AgentCommand[]>([])
   /** Preference skills switched on. The house skill is not in here: it is
@@ -259,33 +267,53 @@ export function AgentPanel({
   // a session outlives which file is on screen, and re-probing on every
   // document change would restart a transcript mid-conversation.
   useEffect(() => {
-    void listAgents().then(setAgents)
-    void listChangeSets().then(setChanges)
-    void listAgentSessions().then((open) => {
-      const mine =
-        open.find((s) => samePath(s.document, documentRef.current)) ?? open[0]
-      if (mine) {
-        setSession(mine)
-        void sessionOptions(mine.sessionId).then(setOptions)
-        setEntries([
-          {
-            id: nextId(),
-            kind: 'note',
-            tone: 'quiet',
-            text: `Reattached to ${mine.agentName}.`,
-          },
-        ])
-      }
-    })
+    const failed = (action: string, error: unknown) =>
+      setFailure((current) =>
+        current ?? `${action}: ${String(error).replace(/^Error:\s*/, '')}`,
+      )
+    void listAgents()
+      .then(setAgents)
+      .catch((error) => failed('Could not list agents', error))
+    void listChangeSets()
+      .then(setChanges)
+      .catch((error) => failed('Could not load review changes', error))
+    void listAgentSessions()
+      .then((open) => {
+        const mine =
+          open.find((s) => samePath(s.document, documentRef.current)) ?? open[0]
+        if (mine) {
+          setSession(mine)
+          void sessionOptions(mine.sessionId)
+            .then(setOptions)
+            .catch((error) => failed('Could not load ACP controls', error))
+          setEntries([
+            {
+              id: nextId(),
+              kind: 'note',
+              tone: 'quiet',
+              text: `Reattached to ${mine.agentName}.`,
+            },
+          ])
+        }
+      })
+      .catch((error) => failed('Could not restore agent sessions', error))
   }, [])
 
   useEffect(() => {
     const disposers: Array<() => void> = []
     let cancelled = false
-    const track = (pending: Promise<() => void>) =>
-      void pending.then((dispose) =>
-        cancelled ? dispose() : disposers.push(dispose),
-      )
+    const track = (pending: Promise<() => void>, label: string) =>
+      void pending
+        .then((dispose) =>
+          cancelled ? dispose() : disposers.push(dispose),
+        )
+        .catch((error) => {
+          if (!cancelled) {
+            setFailure(
+              `${label}: ${String(error).replace(/^Error:\s*/, '')}`,
+            )
+          }
+        })
 
     track(
       onAgentEvent((event) => {
@@ -321,6 +349,7 @@ export function AgentPanel({
           setCommands([])
         }
       }),
+      'Could not listen to the agent transcript',
     )
     track(
       onChangeSet((change) =>
@@ -329,11 +358,13 @@ export function AgentPanel({
           change,
         ]),
       ),
+      'Could not listen for proposed changes',
     )
     track(
       onPermissionRequest((request) =>
         setAsks((current) => [...current, request]),
       ),
+      'Could not listen for permission requests',
     )
 
     return () => {
@@ -429,9 +460,17 @@ export function AgentPanel({
       return
     }
     let current = true
-    void listSkills(documentPath).then((found) => {
-      if (current) setSkills(found)
-    })
+    void listSkills(documentPath)
+      .then((found) => {
+        if (current) setSkills(found)
+      })
+      .catch((error) => {
+        if (current) {
+          setFailure(
+            `Could not load agent instructions: ${String(error).replace(/^Error:\s*/, '')}`,
+          )
+        }
+      })
     return () => {
       current = false
     }
@@ -653,17 +692,29 @@ export function AgentPanel({
     <aside
       aria-label="Agent"
       className={cn(
-        'flex h-full min-h-0 flex-col border-l border-[var(--essay-border)] bg-[var(--essay-bg)]',
+        'flex h-full min-h-0 flex-col',
+        embedded
+          ? 'bg-transparent'
+          : 'border-l border-[var(--essay-border)] bg-[var(--essay-editor-bg)]',
         !open && 'hidden',
       )}
     >
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-[var(--essay-border)] pr-1 pl-3">
-        <AgentIcon size={14} aria-hidden className="text-[var(--essay-text-faint)]" />
-        <h2 className="text-[12px] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
+      <header
+        className={cn(
+          'flex h-10 shrink-0 items-center gap-2 px-3',
+          !embedded && 'border-b border-[var(--essay-border)]',
+        )}
+      >
+        {/* 13px medium, not caps — this holds a proper noun (the agent's own
+            name), and a tracked-caps treatment reads as a category label
+            where this is closer to a document title. Matches the manuscript
+            title's own 12.5px/510 in TopBar. */}
+        <h2 className="text-[13px] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
           {session ? session.agentName : 'Agent'}
         </h2>
         {session && (
           <span
+            aria-label={running ? 'Agent is working' : 'Agent is connected and idle'}
             className={cn(
               'h-1.5 w-1.5 shrink-0 rounded-full',
               running
@@ -675,43 +726,54 @@ export function AgentPanel({
         )}
         <span className="ml-auto" />
         {session && options.length > 0 && (
-          <IconButton
-            onClick={() => setTuning((on) => !on)}
-            aria-label="Agent settings — mode, model"
-            aria-expanded={tuning}
-            className={cn(tuning && 'bg-[var(--essay-surface-hover)] text-[var(--essay-text)]')}
-          >
-            <TuneIcon size={14} />
-          </IconButton>
+          <Tip
+            label="Session options"
+            side="bottom"
+            trigger={
+              <IconButton
+                onClick={() => setTuning((on) => !on)}
+                aria-label="Agent session options — mode, model, and effort"
+                aria-expanded={tuning}
+                className={cn(
+                  'h-8 w-8 bg-transparent',
+                  tuning
+                    ? 'text-[var(--essay-accent)]'
+                    : 'text-[var(--essay-text-muted)]',
+                )}
+              >
+                <TuneIcon size={14} />
+              </IconButton>
+            }
+          />
         )}
         {session && (
           <button
             type="button"
             onClick={() => void endSession()}
-            className="h-6 shrink-0 rounded-md px-2 text-[11px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
+            className="h-8 shrink-0 rounded-md px-1.5 text-[10.5px] text-[var(--essay-text-faint)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
           >
             End session
           </button>
         )}
-        <IconButton onClick={onClose} aria-label="Close the agent panel">
-          <CloseIcon size={14} />
-        </IconButton>
+        {!embedded && (
+          <IconButton onClick={onClose} aria-label="Close the agent panel">
+            <CloseIcon size={14} />
+          </IconButton>
+        )}
       </header>
 
       {session && tuning && options.length > 0 && (
         <OptionsStrip options={options} onTune={tune} />
       )}
 
-      {(pending.length > 0 || unsettled.length > 0 || settled.length > 0) && (
-        <ChangesBlock
-          pending={pending}
-          applied={unsettled}
-          settled={settled}
-          onReviewChange={reviewChange}
-          onRejectChange={(change) => void reject(change)}
-          onReviewApplied={reviewApplied}
-        />
-      )}
+      <ChangesBlock
+        pending={pending}
+        applied={unsettled}
+        settled={settled}
+        onReviewChange={reviewChange}
+        onRejectChange={(change) => void reject(change)}
+        onReviewApplied={reviewApplied}
+      />
 
       {session ? (
         <div
@@ -725,10 +787,12 @@ export function AgentPanel({
           className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
         >
           {entries.length === 0 && (
-            <p className="py-8 text-center text-[12px] text-[var(--essay-text-faint)]">
-              {session.agentName} is listening. It can read {documentName} and
-              propose edits; nothing it writes reaches the file until you
-              accept it.
+            // A sentence, not a placeholder graphic: left-aligned and in the
+            // flow, the way the picker's own copy reads before a session
+            // exists.
+            <p className="px-1 py-1 text-[12px] leading-[1.55] text-[var(--essay-text-faint)]">
+              {session.agentName} is ready. Ask about this draft or propose an
+              edit.
             </p>
           )}
           <ol className="flex flex-col gap-2.5">
@@ -743,15 +807,24 @@ export function AgentPanel({
           documentPath={documentPath}
           documentName={documentName}
           starting={starting}
+          onSave={onSaveDocument}
           onStart={(agent) => void start(agent)}
         />
       )}
 
       {failure && (
+        // The icon carries severity; a soft local surface keeps a long
+        // adapter error readable without dividing the whole margin.
         <p
           role="alert"
-          className="shrink-0 border-t border-[var(--essay-border)] bg-[var(--essay-diff-remove-bg)] px-3 py-2 text-[11px] leading-[1.5] text-[var(--essay-text)]"
+          className="mx-2 shrink-0 rounded-lg bg-[color-mix(in_oklab,var(--essay-surface)_45%,transparent)] px-3 py-2 text-[11px] leading-[1.5] text-[var(--essay-text)]"
         >
+          <ErrorIcon
+            size={11}
+            weight="bold"
+            aria-hidden
+            className="mr-1 inline-block align-[-1px] text-[var(--essay-diff-remove)]"
+          />
           {failure}
         </p>
       )}
@@ -803,8 +876,8 @@ export function AgentPanel({
 /**
  * The agent's knobs — mode, model, whatever else it advertised — rendered
  * generically from what ACP handed over, so a new agent with new knobs needs
- * no new UI. Behind the faders toggle rather than always on screen: these are
- * decisions made once a session, not while writing.
+ * no new UI. They stay behind the faders button so transport and model
+ * mechanics never lead the conversation.
  */
 function OptionsStrip({
   options,
@@ -814,7 +887,19 @@ function OptionsStrip({
   onTune: (option: SessionOption, value: string) => void
 }) {
   return (
-    <div className="shrink-0 border-b border-[var(--essay-border)] bg-[var(--essay-surface)] px-3 py-1.5">
+    // A hairline, not a tinted band: surface is spent on the cards that
+    // hold a decision (the changes queue, the plan), not on chrome that
+    // merely separates one region from the next.
+    <section
+      aria-label="Agent session options"
+      className="mx-2 mb-1 shrink-0 rounded-lg bg-[color-mix(in_oklab,var(--essay-surface)_58%,transparent)] px-3 py-2"
+    >
+      <div className="mb-1 flex items-center gap-1.5">
+        <TuneIcon size={11} className="text-[var(--essay-text-faint)]" />
+        <h3 className="text-[10px] font-[var(--essay-weight-semibold)] tracking-wider text-[var(--essay-text-faint)] uppercase">
+          Session options
+        </h3>
+      </div>
       {options.map((option) => (
         <div key={option.id} className="flex h-7 items-center gap-2">
           <span
@@ -826,7 +911,7 @@ function OptionsStrip({
           <OptionSelect option={option} onTune={onTune} />
         </div>
       ))}
-    </div>
+    </section>
   )
 }
 
@@ -931,7 +1016,7 @@ function SkillBar({
   const open = skills.find((skill) => skill.id === reading)
 
   return (
-    <div className="border-t border-[var(--essay-border)] px-3 py-2">
+    <div className="px-3 py-2">
       <div className="flex flex-wrap items-center gap-1">
         {skills.map((skill) => {
           const on = skill.builtIn || chosen.includes(skill.id)
@@ -984,7 +1069,7 @@ function SkillBar({
       </div>
 
       {open && (
-        <div className="essay-pop mt-2 rounded-md border border-[var(--essay-border)] bg-[var(--essay-bg)] p-2">
+        <div className="essay-pop mt-2 rounded-md border border-[var(--essay-border)] bg-[var(--essay-surface)] p-2">
           <p className="whitespace-pre-wrap text-[11px] leading-[1.5] text-[var(--essay-text-muted)]">
             {open.body}
           </p>
@@ -1123,29 +1208,45 @@ function AgentPicker({
   documentPath,
   documentName,
   starting,
+  onSave,
   onStart,
 }: {
   agents: AgentInfo[]
   documentPath: string | null
   documentName: string
   starting: string | null
+  onSave: () => void
   onStart: (agent: AgentInfo) => void
 }) {
   const ready = (agent: AgentInfo) => agent.available && documentPath !== null
+
+  if (!documentPath) {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-6">
+        <h3 className="text-[15px] font-[var(--essay-weight-medium)] tracking-[-0.01em] text-[var(--essay-text)]">
+          Save to start a chat.
+        </h3>
+        <p className="mt-1.5 max-w-72 text-[12px] leading-[1.55] text-[var(--essay-text-muted)]">
+          Agents work on the Markdown file and return edits for review.
+        </p>
+        <button
+          type="button"
+          onClick={onSave}
+          className="mt-4 flex h-8 items-center rounded-md bg-[var(--essay-text)] px-3 text-[12px] font-[var(--essay-weight-medium)] text-[var(--essay-bg)] transition-opacity duration-[var(--essay-speed-quick)] hover:opacity-88 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--essay-accent)]"
+        >
+          Save document
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-      <p className="mb-3 text-[12px] leading-[1.55] text-[var(--essay-text-muted)]">
-        {documentPath ? (
-          <>
-            An agent reads <DocumentChip>{documentName}</DocumentChip> and
-            proposes edits you review before anything is written.
-          </>
-        ) : (
-          <>
-            Save <DocumentChip>{documentName}</DocumentChip> first — an agent
-            works on a file, and this one is not on disk yet.
-          </>
-        )}
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-5">
+      <h3 className="mb-1 px-1 text-[14px] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
+        Choose an agent
+      </h3>
+      <p className="mb-3 px-1 text-[11.5px] leading-[1.55] text-[var(--essay-text-muted)]">
+        Choose who writes alongside you in <DocumentChip>{documentName}</DocumentChip>.
       </p>
       <ul className="flex flex-col gap-1">
         {agents.map((agent) => (
@@ -1154,16 +1255,13 @@ function AgentPicker({
               type="button"
               disabled={!ready(agent) || starting !== null}
               onClick={() => onStart(agent)}
-              // Unavailable is drawn with a dashed border and muted ink rather
-              // than dimmed: fading a row is how the sentence explaining *why*
-              // it is unusable becomes the least readable thing on screen.
               className={cn(
-                'flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left',
+                'flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left',
                 'transition-colors duration-100',
                 'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]',
                 ready(agent)
-                  ? 'border-[var(--essay-border)] hover:border-[var(--essay-border-strong)] hover:bg-[var(--essay-surface-hover)]'
-                  : 'cursor-default border-dashed border-[var(--essay-border)]',
+                  ? 'hover:bg-[var(--essay-surface-hover)]'
+                  : 'cursor-default',
               )}
             >
               {starting === agent.id ? (
@@ -1201,13 +1299,27 @@ function AgentPicker({
                   {agent.available ? agent.command : `${agent.command} — not on PATH`}
                 </span>
               </span>
+              {ready(agent) && (
+                <span className="shrink-0 text-[10px] font-[var(--essay-weight-medium)] text-[var(--essay-accent)]">
+                  Start
+                </span>
+              )}
             </button>
           </li>
         ))}
         {agents.length === 0 && (
-          <li className="rounded-lg border border-dashed border-[var(--essay-border)] px-2.5 py-3 text-[12px] text-[var(--essay-text-faint)]">
-            No agents found. Essay looks for <code>opencode</code> and{' '}
-            <code>claude</code> on your PATH.
+          // A sentence, not an empty-state card: nothing was expected to be
+          // here yet, so there is nothing to frame.
+          <li className="px-1 py-3 text-[12px] leading-[1.6] text-[var(--essay-text-muted)]">
+            No local agent is ready. Essay looks for{' '}
+            <code className="font-(family-name:--essay-font-mono) text-[var(--essay-text-muted)]">
+              opencode
+            </code>{' '}
+            and{' '}
+            <code className="font-(family-name:--essay-font-mono) text-[var(--essay-text-muted)]">
+              claude
+            </code>{' '}
+            on your PATH.
           </li>
         )}
       </ul>
@@ -1243,17 +1355,22 @@ function ChangesBlock({
   const [showSettled, setShowSettled] = useState(false)
   const waiting = pending.length + applied.length
 
+  if (waiting === 0 && settled.length === 0) return null
+
   return (
     <section
       aria-label="Changes"
-      className="max-h-[46%] shrink-0 overflow-y-auto border-b border-[var(--essay-border)] bg-[var(--essay-surface)] px-2 py-2"
+      // No fill here: each row below carries its own surface + hairline
+      // card, and a tinted tray around them would be a box around boxes —
+      // exactly the noise a calm queue can't afford.
+      className="mx-2 max-h-[46%] shrink-0 overflow-y-auto rounded-lg bg-[color-mix(in_oklab,var(--essay-surface)_48%,transparent)] px-2 py-2"
     >
       <div className="mb-1 flex items-center gap-2 px-1">
         {/* 11px faint uppercase — the same micro-heading the outline pane and
             the diff surface already use, so the panel reads as part of the
             chrome rather than a visitor in it. */}
-        <h3 className="text-[11px] font-[510] tracking-wider text-[var(--essay-text-faint)] uppercase">
-          Changes
+        <h3 className="text-[11px] font-[510] tracking-wider text-[var(--essay-text-muted)] uppercase">
+          Review changes
         </h3>
         <span className="text-[11px] tabular-nums text-[var(--essay-text-faint)]">
           {waiting}
@@ -1269,12 +1386,6 @@ function ChangesBlock({
           </button>
         )}
       </div>
-
-      {waiting === 0 && (
-        <p className="px-1 py-1 text-[11px] text-[var(--essay-text-faint)]">
-          Nothing waiting on you.
-        </p>
-      )}
 
       <ul className="flex flex-col gap-1">
         {applied.map((edit) => (
@@ -1308,7 +1419,7 @@ function ChangesBlock({
       </ul>
 
       {showSettled && (
-        <ul className="mt-1 flex flex-col gap-0.5 border-t border-[var(--essay-border)] pt-1">
+        <ul className="mt-2 flex flex-col gap-0.5">
           {settled.map((entry) => (
             <li
               key={entry.id}
@@ -1357,13 +1468,16 @@ function ChangeRow({
 }) {
   const applied = tone === 'applied'
   return (
+    // One quiet row language for both arrival paths — soft surface and an
+    // 8px radius — so a PROPOSAL and an ON DISK row read as the same *kind*
+    // of thing (a decision waiting) and only the label and the words beneath
+    // it say which kind. The old red-tinted fill for "on disk" made an
+    // unreviewed write look like an error; it isn't one, it's a fact to act
+    // on, and it does not need alarm colour to be taken seriously.
     <div
       className={cn(
-        'essay-pop flex items-center gap-2 rounded-lg border px-2 py-1.5',
-        'transition-colors duration-100',
-        applied
-          ? 'border-[var(--essay-diff-remove-bg)] bg-[var(--essay-diff-remove-bg)]'
-          : 'border-[var(--essay-border)] bg-[var(--essay-editor-bg)]',
+        'essay-pop flex items-center gap-2 rounded-lg bg-[color-mix(in_oklab,var(--essay-surface)_66%,transparent)] px-2 py-1.5',
+        'transition-colors duration-100 hover:bg-[var(--essay-surface-hover)]',
       )}
     >
       <button
@@ -1372,27 +1486,21 @@ function ChangeRow({
         className="min-w-0 flex-1 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--essay-accent)]"
       >
         <span className="flex items-center gap-1.5">
-          <span
-            className={cn(
-              'inline-flex h-[15px] shrink-0 items-center gap-1 rounded-[4px] px-1.5',
-              'text-[9px] font-[var(--essay-weight-semibold)] tracking-wide uppercase',
-              // Body ink on a tinted chip, for the reason StatusPill states in
-              // DiffReview: accent-on-tint is the prettier version and it
-              // measures 4.2:1, which is not a number to put a 9px label on.
-              applied
-                ? 'bg-[var(--essay-diff-remove)] text-[var(--essay-editor-bg)]'
-                : 'bg-[var(--essay-accent-tint)] text-[var(--essay-text)]',
-            )}
-          >
-            {applied ? <OnDiskIcon size={9} weight="bold" aria-hidden /> : null}
+          {/* Provenance as a tiny caps label in faint ink, not a chip: it
+              only has to be legible, not shouted — the file name and the
+              verb this row leads to (Accept/Reject or Revert/Keep it, once
+              opened) carry the actual weight. */}
+          <span className="inline-flex shrink-0 items-center gap-0.5 text-[9px] font-[var(--essay-weight-semibold)] tracking-wide text-[var(--essay-text-faint)] uppercase">
+            {applied ? <OnDiskIcon size={9} aria-hidden /> : null}
             {applied ? 'on disk' : 'proposal'}
           </span>
           <span className="min-w-0 truncate text-[12px] font-[var(--essay-weight-medium)] text-[var(--essay-text)]">
             {title}
           </span>
           {rewrite && (
-            // Before the accept, not after: an author who misses this has lost
-            // a document's worth of their own phrasing.
+            // Accent-tint, matching every other place Essay flags something
+            // worth a second look — a rewrite is a bigger decision, not a
+            // worse one, so it does not reach for alarm colour either.
             <span
               className="inline-flex shrink-0 items-center gap-1 rounded-[4px] bg-[var(--essay-accent-tint)] px-1 text-[9px] font-[var(--essay-weight-semibold)] tracking-wide text-[var(--essay-text)] uppercase"
               title="Most of the document changed — this reads as a rewrite, not an edit"
@@ -1415,6 +1523,10 @@ function ChangeRow({
             <span className="text-[var(--essay-diff-remove)]">−{removed}</span>
           </span>
         </span>
+        <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-[var(--essay-weight-medium)] text-[var(--essay-accent)]">
+          Review diff
+          <ExpandIcon size={9} aria-hidden />
+        </span>
       </button>
       {onDismiss ? (
         <IconButton
@@ -1426,10 +1538,14 @@ function ChangeRow({
           <CloseIcon size={12} />
         </IconButton>
       ) : (
+        // Decorative only — reverting happens inside the review this row
+        // opens, not from the glyph itself — so it stays as quiet as the
+        // label beside it rather than borrowing the danger colour a live
+        // revert control would have earned.
         <RevertIcon
           size={12}
           aria-hidden
-          className="shrink-0 text-[var(--essay-diff-remove)]"
+          className="shrink-0 text-[var(--essay-text-faint)]"
         />
       )}
     </div>
@@ -1441,8 +1557,11 @@ function ChangeRow({
 function TranscriptEntry({ entry }: { entry: Entry }) {
   switch (entry.kind) {
     case 'prompt':
+      // Same size and leading as the agent's own replies. The quieter ink is
+      // enough to distinguish the author's line without introducing a rule,
+      // bubble, or chat-app chrome into the margin.
       return (
-        <li className="border-l-2 border-[var(--essay-accent)] pl-2.5 text-[12px] leading-[1.55] whitespace-pre-wrap text-[var(--essay-text)]">
+        <li className="text-[13px] leading-[1.6] font-[var(--essay-weight-medium)] whitespace-pre-wrap text-[var(--essay-text-muted)]">
           {entry.text}
         </li>
       )
@@ -1466,13 +1585,15 @@ function TranscriptEntry({ entry }: { entry: Entry }) {
     case 'plan':
       return <Plan entries={entry.entries} />
     case 'note':
+      // Notes remain typography. The error icon and ink supply the state;
+      // neither voice needs a rule or bubble around it.
       return (
         <li
           className={cn(
-            'rounded-md px-2 py-1 text-[11px] leading-[1.5]',
+            'py-0.5 text-[11px] leading-[1.5]',
             entry.tone === 'error'
-              ? 'bg-[var(--essay-diff-remove-bg)] text-[var(--essay-text)]'
-              : 'text-[var(--essay-text-muted)]',
+              ? 'text-[var(--essay-text)]'
+              : 'px-1 text-[var(--essay-text-muted)]',
           )}
         >
           {entry.tone === 'error' && (
@@ -1550,7 +1671,7 @@ function ToolRow({
   const busy = status === 'in_progress' || status === 'pending'
 
   return (
-    <li className="flex items-center gap-2 rounded-md bg-[var(--essay-surface)] px-2 py-1">
+    <li className="flex items-center gap-2 px-1 py-0.5">
       <Glyph
         size={11}
         aria-hidden
@@ -1602,7 +1723,7 @@ function Plan({ entries }: { entries: PlanEntry[] }) {
   const [open, setOpen] = useState(true)
   const done = entries.filter((entry) => entry.status === 'completed').length
   return (
-    <li className="rounded-lg border border-[var(--essay-border)]">
+    <li>
       <button
         type="button"
         aria-expanded={open}
@@ -1666,7 +1787,7 @@ function CommandHints({
   if (matches.length === 0) return null
 
   return (
-    <div className="max-h-[180px] shrink-0 overflow-y-auto border-t border-[var(--essay-border)] px-2 py-1">
+    <div className="max-h-[180px] shrink-0 overflow-y-auto px-2 py-1">
       {matches.map((command) => (
         <button
           key={command.name}
@@ -1707,7 +1828,7 @@ function PermissionCard({
   return (
     <section
       aria-label={`${request.agentName} needs a decision`}
-      className="essay-pop shrink-0 border-t border-[var(--essay-border)] bg-[var(--essay-accent-tint)] px-3 py-2.5"
+      className="essay-pop mx-2 shrink-0 rounded-lg bg-[color-mix(in_oklab,var(--essay-surface)_58%,transparent)] px-3 py-2.5"
     >
       {/* The live region is the sentence, not the card: an alert wrapping
           buttons is announced as text and then fought over by the reader. */}
@@ -1730,7 +1851,7 @@ function PermissionCard({
                 'transition-colors duration-100',
                 'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]',
                 allows
-                  ? 'bg-[var(--essay-accent)] text-[var(--essay-editor-bg)] hover:brightness-110'
+                  ? 'bg-[var(--essay-text)] text-[var(--essay-bg)] hover:opacity-88'
                   : 'text-[var(--essay-text-muted)] hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]',
               )}
             >
@@ -1779,8 +1900,8 @@ function Composer({
   }, [value])
 
   return (
-    <div className="shrink-0 border-t border-[var(--essay-border)] p-2">
-      <div className="rounded-lg border border-[var(--essay-border)] bg-[var(--essay-editor-bg)] focus-within:border-[var(--essay-border-strong)]">
+    <div className="shrink-0 p-2">
+      <div className="rounded-lg bg-[color-mix(in_oklab,var(--essay-surface)_42%,transparent)] transition-colors duration-100 focus-within:bg-[color-mix(in_oklab,var(--essay-surface)_68%,transparent)]">
         <textarea
           ref={ref}
           rows={1}
@@ -1798,7 +1919,7 @@ function Composer({
           className="block max-h-[132px] w-full resize-none bg-transparent px-2.5 py-2 text-[12px] leading-[1.5] text-[var(--essay-text)] outline-none placeholder:text-[var(--essay-text-faint)]"
         />
         <div className="flex items-center gap-2 px-2 pb-1.5">
-          <span className="text-[10px] text-[var(--essay-text-muted)]">
+          <span className="text-[10px] text-[var(--essay-text-faint)]">
             Enter to send · Shift+Enter for a new line
           </span>
           {running ? (

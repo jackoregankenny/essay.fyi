@@ -28,8 +28,16 @@ that covers it says so rather than leaving you to find out.
 
 ## What is planned
 
+- [Product one-pager](./product-one-pager.md) — the customer promise and the
+  internal feature order used to decide what Essay builds.
 - [Build list](./roadmap.md) — what is next, what it would cost, and the
   smaller gaps found while writing these docs.
+- [Authoring and structured-editing build list](./authoring-backlog.md) — the
+  concrete order for selection comments, structural operations, find/replace,
+  spelling, images, tables, footnotes and maths.
+- [Working material around the manuscript](./long-form-materials.md) — how
+  fragments, questions, sources, tasks, decisions and suggestions can support
+  long-form work without turning Essay into a general notes app.
 
 ## Reference
 

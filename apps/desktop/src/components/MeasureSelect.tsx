@@ -26,7 +26,7 @@ export function MeasureSelect({
     >
       <Select.Trigger
         aria-label="Writing width"
-        className="flex h-5 items-center gap-1 rounded-[4px] px-1 text-[11px] text-[var(--essay-text-faint)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text-muted)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)] data-[popup-open]:text-[var(--essay-text-muted)]"
+        className="flex h-7 items-center gap-1 rounded-md px-1.5 text-[11px] text-[var(--essay-text-muted)] transition-colors duration-[var(--essay-speed-quick)] ease-[var(--essay-ease-out)] hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)] data-[popup-open]:bg-[var(--essay-surface-hover)] data-[popup-open]:text-[var(--essay-text)]"
       >
         <ArrowsHorizontal size={11} className="shrink-0" />
         <Select.Value />
@@ -41,7 +41,12 @@ export function MeasureSelect({
           alignItemWithTrigger={false}
           className="z-50"
         >
-          <Select.Popup className="essay-pop min-w-[150px] rounded-lg border border-[var(--essay-border)] bg-[var(--essay-surface)] p-1 shadow-[var(--essay-shadow-palette)] outline-none">
+          {/* Entrance by the motion rules, not .essay-pop's fixed 130ms: a
+              popover settling at the pointer is quick/ease-out-quint. The
+              keyframes are shared; only the timing is spoken in tokens.
+              motion-safe gates it, matching what the class does via media
+              query. */}
+          <Select.Popup className="min-w-[150px] rounded-lg border border-[var(--essay-border)] bg-[var(--essay-surface)] p-1 shadow-[var(--essay-shadow-palette)] outline-none motion-safe:animate-[essay-pop_var(--essay-speed-quick)_var(--essay-ease-out-quint)_both]">
             <Select.List>
               {MEASURES.map((measure) => (
                 <Select.Item

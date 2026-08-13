@@ -390,13 +390,20 @@ crate as `markdown_tree`, so the explorer and the watcher cannot disagree about
 what a folder contains.
 
 Next: maths, in-editor find affordances beyond the palette (a find bar,
-find-and-replace, match highlighting), filename quick-open, and the `essay
+find-and-replace, match highlighting), and the `essay
 inspect / read / search / propose / status` CLI verbs, which still print "not
-implemented yet". A **UI overhaul is planned** (Jack, 2026-07-31: the current
-chrome was derived from the text editor and that is not the direction). Jack's framing (2026-08-02): the
-current UI is a **POC for evaluating features** — build the feature roughly,
-end to end, and the style pass makes it good — so features are worth taking
-to a usable surface now, and polish is not.
+implemented yet". The **UI overhaul is underway** — direction and build order
+in `docs/ui-overhaul.md`, which supersedes the chrome described above. Step 1
+(the spine) landed 2026-08-06: gutter + one companion slot
+(Structure/Proof/Agent/History, remembered per document) + summoned layers;
+document tabs, the write/preview mode switch, and the files popover are gone —
+moving between documents is the palette's quick-open (recents + filename
+match), and the explorer is a palette-summoned layer. Jack's framing
+(2026-08-02): the current UI is a **POC for evaluating features** — build the
+feature roughly, end to end, and the style pass makes it good — so features
+are worth taking to a usable surface now, and polish is not. Authoring craft
+is the overhaul's step 2 and its centre of gravity (Jack, 2026-08-06:
+authoring first; typesetting after, in the flow).
 Inline agent presence (highlight where the agent is reading/editing, section
 markers for pending proposals) is designed for that pass: `toolCall` events
 already carry `locations`, and `SectionChange` names the touched headings.

@@ -1,12 +1,8 @@
 import { isTauri } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Minus, Square, X } from '@phosphor-icons/react'
 import { cn } from '#/lib/cn'
 import { isWindows } from '#/lib/platform'
-
-async function currentWindow() {
-  const { getCurrentWindow } = await import('@tauri-apps/api/window')
-  return getCurrentWindow()
-}
 
 /**
  * Windows-style window controls for the frameless window. The header
@@ -26,20 +22,20 @@ export function WindowControls() {
     <div className="-mr-2 ml-1 flex h-10 items-stretch">
       <ControlButton
         label="Minimize"
-        onClick={() => void currentWindow().then((w) => w.minimize())}
+        onClick={() => void getCurrentWindow().minimize()}
       >
         <Minus size={14} />
       </ControlButton>
       <ControlButton
         label="Maximize"
-        onClick={() => void currentWindow().then((w) => w.toggleMaximize())}
+        onClick={() => void getCurrentWindow().toggleMaximize()}
       >
         <Square size={11} />
       </ControlButton>
       <ControlButton
         label="Close"
         danger
-        onClick={() => void currentWindow().then((w) => w.close())}
+        onClick={() => void getCurrentWindow().close()}
       >
         <X size={14} />
       </ControlButton>
@@ -66,6 +62,7 @@ function ControlButton({
       onClick={onClick}
       className={cn(
         'flex w-11 items-center justify-center text-[var(--essay-text-muted)] transition-colors duration-100',
+        'focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--essay-accent)]',
         danger
           ? 'hover:bg-[#c42b1c] hover:text-white'
           : 'hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]',

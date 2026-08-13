@@ -113,6 +113,13 @@ export function UpdateButton({ documentsSaved }: { documentsSaved: boolean }) {
 
   useEffect(() => {
     if (!isTauri()) return
+    // Dev builds are not an installable release and the endpoint is often
+    // absent or intentionally private while a version is being assembled.
+    // Polling it from `tauri dev` produces a native ERROR line fifteen
+    // seconds after every launch even though nothing is wrong with Essay.
+    // Keep the manual button available for explicitly testing the updater;
+    // only the automatic production cycle is suppressed here.
+    if (import.meta.env.DEV) return
     const first = setTimeout(() => void runCheck(false), FIRST_CHECK_DELAY)
     const poll = setInterval(() => void runCheck(false), CHECK_INTERVAL)
     // A laptop that slept through four polls fires none of them, and the
@@ -172,7 +179,8 @@ export function UpdateButton({ documentsSaved }: { documentsSaved: boolean }) {
         trigger={
           <IconButton
             onClick={() => void runCheck(true)}
-            className="text-[var(--essay-text-faint)]"
+            aria-label="Check for updates"
+            className="h-8 w-8 text-[var(--essay-text-muted)]"
           >
             <ArrowsClockwise size={14} />
           </IconButton>
@@ -220,6 +228,7 @@ export function UpdateButton({ documentsSaved }: { documentsSaved: boolean }) {
         'flex h-7 shrink-0 items-center rounded-md px-2 text-[11px] whitespace-nowrap',
         'text-[var(--essay-text-muted)] transition-colors duration-100',
         'hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]',
+        'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]',
         // Coloured only when pressing it does something — the one state where
         // the chrome is asking for an answer rather than reporting.
         canRestart && 'text-[var(--essay-accent)]',

@@ -342,16 +342,17 @@ impl World for EssayWorld {
       .sources
       .get(&id)
       .cloned()
-      .ok_or_else(|| FileError::NotFound(id.vpath().as_rootless_path().into()))
+      .ok_or_else(|| FileError::NotFound(id.vpath().get_without_slash().into()))
   }
 
   fn file(&self, id: FileId) -> FileResult<Bytes> {
     let Some(root) = &self.root else {
-      return Err(FileError::NotFound(id.vpath().as_rootless_path().into()));
+      return Err(FileError::NotFound(id.vpath().get_without_slash().into()));
     };
-    let Some(path) = id.vpath().resolve(root) else {
-      return Err(FileError::AccessDenied);
-    };
+    let path = id
+      .vpath()
+      .realize(root)
+      .map_err(|_| FileError::AccessDenied)?;
     std::fs::read(&path)
       .map(Bytes::new)
       .map_err(|err| FileError::from_io(err, &path))

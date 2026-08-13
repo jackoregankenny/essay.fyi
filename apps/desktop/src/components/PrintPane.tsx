@@ -27,7 +27,7 @@ export function PrintPane({ preview }: PrintPaneProps) {
   )
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[var(--essay-bg)]">
+    <div className="h-full min-h-0 overflow-y-auto bg-transparent">
       <div className="mx-auto max-w-[46rem] px-8 py-8">
         <div className="mb-4 flex h-5 items-center gap-3 text-[11px] tabular-nums text-[var(--essay-text-faint)]">
           {preview.status === 'rendering' ? (

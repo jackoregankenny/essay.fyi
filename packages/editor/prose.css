@@ -15,10 +15,16 @@
   caret-color: var(--essay-accent);
   max-width: var(--essay-measure);
   margin: 0 auto;
-  padding: 6rem 1.5rem 45vh;
+  padding: clamp(8rem, 16vh, 11rem) 1.5rem 45vh;
   outline: none;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Hang opening quotes/brackets into the margin and let trailing punctuation
+     fall out of the right edge: the text block reads optically straight
+     instead of only mathematically so. WebKit-only — and the Tauri WebView on
+     macOS IS WebKit, so the platform where designers will squint hardest gets
+     it; elsewhere the declaration is unknown and dropped, costing nothing. */
+  hanging-punctuation: first allow-end;
 }
 
 /* Reflow the source's line wrapping.
@@ -52,6 +58,35 @@
 
 .essay-prose > * + * {
   margin-top: 0.85em;
+}
+
+/* ——— Serif prose (data-prose-font='serif' on <html>) ———
+   The face swap itself happens in @essay/theme, mirroring data-theme; what
+   lives here is metrics, because the token alone is not enough. Charter and
+   its fallbacks carry a smaller x-height than Geist, so the same rem reads a
+   size smaller — the 4% bump restores apparent size without touching
+   --essay-editor-font-size, which stays the sans truth. And negative
+   tracking is a grotesque's habit: sans faces ship loose and want
+   tightening, text serifs are already fitted, so the headings' -0.012em
+   would push serifs into each other. */
+:root[data-prose-font='serif'] .essay-prose {
+  font-size: calc(var(--essay-editor-font-size) * 1.04);
+}
+
+:root[data-prose-font='serif'] .essay-prose h1,
+:root[data-prose-font='serif'] .essay-prose h2,
+:root[data-prose-font='serif'] .essay-prose h3,
+:root[data-prose-font='serif'] .essay-prose h4 {
+  letter-spacing: 0;
+}
+
+/* 620 was graded against Geist Variable's low stroke contrast. Every face in
+   the serif stack is static, where anything past 500 resolves to the 700
+   bold regardless of the number written here — so this value changes nothing
+   today and exists for the author who installs a variable serif, where
+   Geist's 620 against real thick/thin contrast reads a step too heavy. */
+:root[data-prose-font='serif'] .essay-prose strong {
+  font-weight: 600;
 }
 
 /* ——— Headings ——— */
@@ -99,7 +134,39 @@
   margin-top: 1.5em;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--essay-text-muted);
+  color: var(--essay-prose-muted, var(--essay-text-muted));
+}
+
+/* Real small caps where the engine offers them; the uppercase rule above
+   stays as the universal fallback. Inside the block `text-transform` is
+   turned off so the glyphs render at small-cap height — quieter than a row
+   of full capitals, which is the register these minor headings live in.
+   Neither Geist nor most of the serif stack ships smcp glyphs, so WebKit
+   will synthesize — and synthesized small caps still beat letterspaced full
+   caps at this size, while an author-installed face that has real ones gets
+   them for free. Small caps carry their own fitting, so the tracking eases
+   from the 0.06em full caps need. */
+@supports (font-variant-caps: all-small-caps) {
+  .essay-prose h5,
+  .essay-prose h6 {
+    text-transform: none;
+    font-variant-caps: all-small-caps;
+    letter-spacing: 0.04em;
+  }
+}
+
+/* A heading belongs to the text below it. The `* + *` rhythm gives every
+   block the same 0.85em, which spaces a heading equally from its section and
+   from the section it ends — grouping by proximity asks for less below than
+   above. Pulling the first paragraph up makes the asymmetry read; the wide
+   margin-tops on h2–h6 above are the other half of the gesture. */
+.essay-prose h1 + :is(p, ul, ol, blockquote, pre, table),
+.essay-prose h2 + :is(p, ul, ol, blockquote, pre, table),
+.essay-prose h3 + :is(p, ul, ol, blockquote, pre, table),
+.essay-prose h4 + :is(p, ul, ol, blockquote, pre, table),
+.essay-prose h5 + :is(p, ul, ol, blockquote, pre, table),
+.essay-prose h6 + :is(p, ul, ol, blockquote, pre, table) {
+  margin-top: 0.55em;
 }
 
 /* ——— Inline ——— */
@@ -133,23 +200,27 @@
 .essay-prose code {
   font-family: var(--essay-font-mono);
   font-size: 0.85em;
-  background: color-mix(in oklab, var(--essay-text) 7%, transparent);
+  background: color-mix(in oklab, var(--essay-prose-ink) 7%, transparent);
   border-radius: 4px;
   padding: 0.15em 0.4em;
 }
 
 /* ——— Blockquote ——— */
 
+/* Editorial, not default-browser: a hairline, a step down in ink, roman type.
+   The blanket italic went. A quotation of any length set slanted is one long
+   shout, and it confiscated italics from the quoted author — their own
+   emphasis had to flip back to roman to register at all (the `em` inversion
+   this rule used to need was the tell). Roman at muted ink says "another
+   voice" while leaving the emphasis channel intact, and the hairline thinned
+   from 2px: the indent already does the structural work, so the rule only
+   needs to be findable, not load-bearing. */
 .essay-prose blockquote {
-  margin: 1.4em 0;
-  padding: 0.1em 0 0.1em 1.4em;
-  border-left: 2px solid color-mix(in oklab, var(--essay-text) 30%, transparent);
-  color: var(--essay-text-muted);
-  font-style: italic;
-}
-
-.essay-prose blockquote em {
-  font-style: normal;
+  margin: 1.6em 0;
+  padding: 0.15em 0 0.15em 1.4em;
+  border-left: 1px solid
+    color-mix(in oklab, var(--essay-prose-ink) 35%, transparent);
+  color: var(--essay-prose-muted, var(--essay-text-muted));
 }
 
 /* ——— Lists ——— */
@@ -164,7 +235,7 @@
 }
 
 .essay-prose li::marker {
-  color: var(--essay-text-faint);
+  color: var(--essay-prose-faint, var(--essay-text-faint));
 }
 
 .essay-prose li > p {
@@ -197,7 +268,7 @@
 }
 
 .essay-prose ul[data-type='taskList'] li[data-checked='true'] > div {
-  color: var(--essay-text-faint);
+  color: var(--essay-prose-faint, var(--essay-text-faint));
 }
 
 /* ——— Code blocks ——— */
@@ -206,7 +277,7 @@
   font-family: var(--essay-font-mono);
   font-size: 0.85em;
   line-height: 1.6;
-  background: color-mix(in oklab, var(--essay-text) 5%, transparent);
+  background: color-mix(in oklab, var(--essay-prose-ink) 5%, transparent);
   border: 1px solid var(--essay-border);
   border-radius: 8px;
   padding: 1em 1.25em;
@@ -231,7 +302,7 @@
 .essay-prose pre[data-essay-html] {
   border-style: dashed;
   background: none;
-  color: var(--essay-text-muted);
+  color: var(--essay-prose-muted, var(--essay-text-muted));
 }
 
 /* The same thing mid-sentence: a single tag Essay is keeping verbatim.
@@ -244,7 +315,7 @@
 .essay-prose [data-essay-html-inline] {
   font-family: var(--essay-font-mono);
   font-size: 0.85em;
-  color: var(--essay-text-faint);
+  color: var(--essay-prose-faint, var(--essay-text-faint));
 }
 
 /* ——— Tables: book style — horizontal rules only, no grid ——— */
@@ -255,14 +326,17 @@
   border-collapse: collapse;
   font-size: 0.92em;
   line-height: 1.5;
-  border-top: 2px solid color-mix(in oklab, var(--essay-text) 70%, transparent);
-  border-bottom: 2px solid color-mix(in oklab, var(--essay-text) 70%, transparent);
+  border-top: 2px solid
+    color-mix(in oklab, var(--essay-prose-ink) 70%, transparent);
+  border-bottom: 2px solid
+    color-mix(in oklab, var(--essay-prose-ink) 70%, transparent);
 }
 
 .essay-prose th {
   font-weight: 650;
   text-align: left;
-  border-bottom: 1px solid color-mix(in oklab, var(--essay-text) 70%, transparent);
+  border-bottom: 1px solid
+    color-mix(in oklab, var(--essay-prose-ink) 70%, transparent);
 }
 
 .essay-prose th,
@@ -295,6 +369,24 @@
   pointer-events: none;
 }
 
+/* Wide tables scroll inside their own container instead of widening the
+   prose column. The container is Tiptap's own .tableWrapper div, which the
+   host must switch on (Table.configure({ renderWrapper: true })) — a bare
+   <table> cannot be its own scroll container without giving up table layout.
+   The block margin moves to the wrapper so the scrollbar hugs the table. */
+.essay-prose .tableWrapper {
+  margin: 1.6em 0;
+  overflow-x: auto;
+}
+
+.essay-prose .tableWrapper > table {
+  margin: 0;
+}
+
+/* Cells carry per-column alignment as an inline text-align (the `align`
+   attr, serialized to GFM's :--- markers). The header's default left
+   alignment above is what the inline style overrides. */
+
 /* ——— Figures ——— */
 
 .essay-prose img {
@@ -309,6 +401,61 @@
   outline-offset: 2px;
 }
 
+/* The image node view (ManuscriptImage in image.ts). The wrapper owns the
+   block rhythm and the selection ring; the <img> keeps the figure styling
+   above minus its own margin. */
+.essay-prose .essay-image {
+  margin: 1.6em auto;
+  max-width: 100%;
+}
+
+.essay-prose .essay-image img {
+  margin: 0 auto;
+}
+
+.essay-prose .essay-image.ProseMirror-selectednode img,
+.essay-prose .essay-image.is-broken.ProseMirror-selectednode .essay-image-broken {
+  outline: 2px solid var(--essay-accent);
+  outline-offset: 2px;
+}
+
+/* A path that fails to load stays a visible, selectable block — the dashed
+   border says "kept, not rendered", same register as raw HTML above. The
+   original path is shown verbatim (mono) so the author can see what to fix;
+   the node view swaps `.is-broken` on the img's error/load events. */
+.essay-prose .essay-image .essay-image-broken {
+  display: none;
+}
+
+.essay-prose .essay-image.is-broken img {
+  display: none;
+}
+
+.essay-prose .essay-image.is-broken .essay-image-broken {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  border: 1px dashed var(--essay-border-strong, var(--essay-border));
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  color: var(--essay-prose-muted, var(--essay-text-muted));
+  font-size: 0.85em;
+}
+
+.essay-prose .essay-image-broken svg {
+  flex: 0 0 auto;
+}
+
+.essay-prose .essay-image-broken-path {
+  font-family: var(--essay-font-mono);
+  font-size: 0.9em;
+  word-break: break-all;
+}
+
+.essay-prose .essay-image-broken-alt {
+  color: var(--essay-prose-faint, var(--essay-text-faint));
+}
+
 /* ——— Section break: an asterism, not a rule ——— */
 
 .essay-prose hr {
@@ -319,7 +466,7 @@
 
 .essay-prose hr::before {
   content: '⁂';
-  color: var(--essay-text-faint);
+  color: var(--essay-prose-faint, var(--essay-text-faint));
   font-size: 1em;
   letter-spacing: 0.4em;
 }
@@ -328,8 +475,25 @@
   color: var(--essay-accent);
 }
 
-/* ——— Focus mode: dim everything but the block being written, and give
-       the typewriter scroll room to centre the first and last lines ——— */
+/* ——— Focus mode: a gradient of attention, and room for the typewriter
+       scroll to centre the first and last lines ———
+
+   Not a binary dim. The block being written carries full ink; its immediate
+   neighbours (.focus-d1, ±1) stay readable at 55% — the sentence you just
+   left and the one you are walking into are part of the thought — the next
+   ring (.focus-d2, ±2) is present at 35%, and everything further sits at
+   22%, far enough back to be texture rather than text. Only the current
+   block and the four nearest carry a class (FocusCurrentBlock in index.ts);
+   the base rule below is the resting state for the whole rest of the
+   document, so the ramp costs five decorations however long the manuscript.
+
+   Motion: the theme's regular speed and default ease — a caret move re-grades
+   five blocks at once and the eased opacity makes it read as a lamp swinging
+   down the page rather than lights switching. Opacity only, no transform, no
+   filter: this fires on every block change while writing, and opacity
+   composites without layout or paint of neighbours (invariant 5). Per
+   theme.css's reduced-motion rule, surfaces that move disable their own
+   animation: the swing IS motion, so it goes instant under the query. */
 
 .essay-prose.is-focus-mode {
   padding-top: 42vh;
@@ -337,12 +501,40 @@
 }
 
 .essay-prose.is-focus-mode > * {
-  opacity: 0.3;
-  transition: opacity 200ms var(--essay-ease-out, ease);
+  opacity: 0.22;
+  transition: opacity var(--essay-speed-regular, 250ms) var(--essay-ease-out, ease);
+}
+
+.essay-prose.is-focus-mode > .focus-d2 {
+  opacity: 0.35;
+}
+
+.essay-prose.is-focus-mode > .focus-d1 {
+  opacity: 0.55;
 }
 
 .essay-prose.is-focus-mode > .is-current-block {
   opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .essay-prose.is-focus-mode > * {
+    transition: none;
+  }
+}
+
+/* Saturated ink pulls through a dim. A ==come back to this== mark or a
+   selection tint inside a dimmed paragraph still reads at full chroma
+   relative to its faded text and drags the eye out of the current block —
+   the one thing focus mode exists to prevent. Fold both toward transparent
+   in the dimmed rings so they fade with the prose they sit in; the current
+   block keeps them at full strength, where attention already is. */
+.essay-prose.is-focus-mode > :not(.is-current-block) mark {
+  background: color-mix(in oklab, var(--essay-highlight) 45%, transparent);
+}
+
+.essay-prose.is-focus-mode > :not(.is-current-block) ::selection {
+  background: color-mix(in oklab, var(--essay-selection) 45%, transparent);
 }
 
 /* ——— Placeholder ——— */
@@ -352,11 +544,77 @@
   float: left;
   height: 0;
   pointer-events: none;
-  color: var(--essay-text-faint);
+  color: color-mix(
+    in oklab,
+    var(--essay-prose-muted, var(--essay-text-muted)) 72%,
+    transparent
+  );
+  font-size: 1.08em;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
 }
 
 /* ——— ProseMirror mechanics ——— */
 
 .essay-prose .ProseMirror-gapcursor::after {
-  border-top: 1px solid var(--essay-text);
+  border-top: 1px solid var(--essay-prose-ink, var(--essay-text));
+}
+
+/* ——— Decoration layers (src/decorations.ts) ———
+
+   One substrate for find, comments, spellcheck and agent presence. Overlapping
+   ranges land every layer's class on the same span, so the rule ORDER here IS
+   the precedence — keep these in layer order (agent < spelling < comment <
+   find < find-active) and the higher layer wins the ties. Backgrounds stay
+   translucent so a range under two layers reads as both. ::selection is not
+   restyled: the author's selection must stay legible over any of these. */
+
+/* Where the agent is reading or editing: the accent at a murmur. */
+.essay-prose .essay-deco-agent {
+  background: color-mix(in oklab, var(--essay-accent) 12%, transparent);
+  border-radius: 2px;
+}
+
+/* Reserved for a local dictionary engine (authoring backlog item 2). The
+   native WebView spellcheck draws its own marks and never uses this class. */
+.essay-prose .essay-deco-spelling {
+  text-decoration: underline dotted
+    color-mix(in oklab, var(--essay-diff-remove) 75%, transparent);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+}
+
+/* A comment's range at rest: findable, never a highlighter across the page.
+   The comments UI strengthens the active thread with its own extra class. */
+.essay-prose .essay-deco-comment {
+  border-bottom: 1px dotted
+    color-mix(in oklab, var(--essay-prose-ink) 45%, transparent);
+}
+
+/* Pointing at a range asks for it back — per span only, which is enough of
+   an answer for "is this commented?". */
+.essay-prose .essay-deco-comment:hover {
+  border-bottom-color: color-mix(in oklab, var(--essay-prose-ink) 70%, transparent);
+}
+
+/* The open thread's exact range (and the composer's pending one): clear but
+   not loud, translucent so overlaps and find matches still read through it.
+   Accent, not highlight — ==marks== own that colour. */
+.essay-prose .essay-deco-comment.is-active {
+  background: color-mix(in oklab, var(--essay-accent) 15%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--essay-accent) 60%, transparent);
+  border-radius: 2px;
+}
+
+/* Find: every match visible but quiet, the active one unmistakable. The
+   selection-match/selection token pair already carries the two strengths in
+   both themes, so no new color is minted here. */
+.essay-prose .essay-deco-find {
+  background: var(--essay-selection-match);
+  border-radius: 2px;
+}
+
+.essay-prose .essay-deco-find-active {
+  background: var(--essay-selection);
+  border-radius: 2px;
 }

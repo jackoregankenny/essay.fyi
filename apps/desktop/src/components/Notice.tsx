@@ -29,8 +29,15 @@ export function Notice({
     <div
       role="status"
       className={cn(
-        'essay-pop flex items-center gap-3 border-b border-[var(--essay-border)]',
-        'bg-[var(--essay-surface)] px-3 py-2 text-[12px] text-[var(--essay-text-muted)]',
+        // Entrance: slide down from under the header and fade, at
+        // regular/ease-swift — a layer arriving over the manuscript, not a
+        // popover popping at the pointer. Transform + opacity only, so the
+        // editor beneath never repaints. Reduced motion keeps the fade: the
+        // bar appearing is a state cue, the slide is choreography.
+        'motion-safe:animate-[essay-pop_var(--essay-speed-regular)_var(--essay-ease-swift)_both]',
+        'motion-reduce:animate-[essay-fade_var(--essay-speed-regular)_var(--essay-ease-out)_both]',
+        'flex items-center gap-3 border-b border-[var(--essay-border)]',
+        'bg-[var(--essay-surface)] py-2 pr-2 pl-3.5 text-[12px] leading-[1.45] text-[var(--essay-text-muted)]',
       )}
     >
       <p className="min-w-0 flex-1">{children}</p>
@@ -40,11 +47,15 @@ export function Notice({
           type="button"
           onClick={action.onClick}
           className={cn(
-            'h-6 shrink-0 rounded-md px-2 text-[12px] font-[var(--essay-weight-medium)]',
-            'transition-colors duration-100',
+            'h-6 shrink-0 rounded-md px-2.5 text-[12px] font-[var(--essay-weight-medium)]',
+            'transition-colors duration-[var(--essay-speed-quick)] ease-[var(--essay-ease-out)]',
             'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]',
             action.primary
-              ? 'bg-[var(--essay-accent-tint)] text-[var(--essay-accent)] hover:brightness-125'
+              ? // Primary is accent ink on the accent tint — visibly the
+                // likely answer without shouting; hover deepens the tint in
+                // the token's own space rather than filter-brightening, which
+                // washes the light theme out and blooms the dark one.
+                'bg-[var(--essay-accent-tint)] text-[var(--essay-accent)] hover:bg-[color-mix(in_oklch,var(--essay-accent-tint),var(--essay-accent)_10%)]'
               : 'text-[var(--essay-text-muted)] hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]',
           )}
         >
