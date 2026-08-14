@@ -65,7 +65,7 @@ import {
   type ProseFontId,
 } from '#/lib/proseFont'
 import { commandKey, isMac, shortcut } from '#/lib/platform'
-import { SettingsIcon } from '#/lib/icons'
+import { CloseIcon, SettingsIcon } from '#/lib/icons'
 import {
   loadAccent,
   loadTheme,
@@ -260,6 +260,10 @@ export function Workspace() {
   /** Settings, the same kind of surface for the same reason: preferences are
       the machine's and the person's, never the manuscript's. */
   const [settingsOpen, setSettingsOpen] = useState(false)
+  /** The proof at a size it can be read at. The companion column is 21rem, so
+      an A4 page in it is a 330px thumbnail — enough to see that a page exists,
+      not enough to judge one. This is the same pages over the whole canvas. */
+  const [proofOpen, setProofOpen] = useState(false)
   /** Appearance. Loaded once at boot by `startAppearance` (main.tsx) and
       mirrored here only so the controls can show what is current — the
       writing happens through `setTheme`/`setAccent`, which persist and paint. */
@@ -1170,6 +1174,14 @@ export function Workspace() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // First in the cascade: the proof covers the canvas, so while it is up
+      // it is the only thing Escape can sensibly mean.
+      if (event.key === 'Escape' && !event.defaultPrevented && proofOpen) {
+        event.preventDefault()
+        setProofOpen(false)
+        editor?.commands.focus()
+        return
+      }
       if (
         event.key === 'Escape' &&
         !event.defaultPrevented &&
@@ -1178,7 +1190,8 @@ export function Workspace() {
         !paletteOpen &&
         !review &&
         !fontsOpen &&
-        !settingsOpen
+        !settingsOpen &&
+        !proofOpen
       ) {
         event.preventDefault()
         setExplorerOpen(false)
@@ -1192,7 +1205,8 @@ export function Workspace() {
         !paletteOpen &&
         !review &&
         !fontsOpen &&
-        !settingsOpen
+        !settingsOpen &&
+        !proofOpen
       ) {
         // Reaching here means focus is in the manuscript — Esc pressed in
         // the strip's own inputs closes it there and arrives here already
@@ -1211,7 +1225,8 @@ export function Workspace() {
         !review &&
         !explorerOpen &&
         !fontsOpen &&
-        !settingsOpen
+        !settingsOpen &&
+        !proofOpen
       ) {
         event.preventDefault()
         setTenant(null)
@@ -1313,6 +1328,7 @@ export function Workspace() {
     explorerOpen,
     fontsOpen,
     settingsOpen,
+    proofOpen,
     findOpen,
     summonFind,
     setTenant,
@@ -1594,7 +1610,7 @@ export function Workspace() {
             // toggles for what is behind a modal should not look live. A diff
             // is deliberately *not* modal — the transcript sits beside it and
             // opening or closing that transcript mid-review is reasonable.
-            suppressed={settingsOpen || fontsOpen}
+            suppressed={settingsOpen || fontsOpen || proofOpen}
           />
 
           <main
@@ -1775,6 +1791,35 @@ export function Workspace() {
                   />
                 </Suspense>
               )}
+              {proofOpen && (
+                <Suspense fallback={null}>
+                  {/* The same component, the same preview state — a proof that
+                      differed from the thumbnail it was opened from would be
+                      the one thing a proof must never be. */}
+                  <div className="essay-fade absolute inset-0 z-[var(--essay-z-claim)] bg-[var(--essay-editor-bg)]">
+                    <PrintPane
+                      preview={preview}
+                      formats={formats}
+                      currentFormat={documentFormat}
+                      onFormat={chooseFormat}
+                      onExport={exportPdf}
+                      wide
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProofOpen(false)
+                        editor?.commands.focus()
+                      }}
+                      aria-label="Close proof"
+                      title={`Close proof — ${shortcut('Esc')}`}
+                      className="essay-chip absolute top-4 right-4 flex size-7 items-center justify-center"
+                    >
+                      <CloseIcon size={14} />
+                    </button>
+                  </div>
+                </Suspense>
+              )}
               {settingsOpen && (
                 <Suspense fallback={null}>
                   <SettingsPage
@@ -1939,6 +1984,7 @@ export function Workspace() {
                   currentFormat={documentFormat}
                   onFormat={chooseFormat}
                   onExport={exportPdf}
+                  onExpand={() => setProofOpen(true)}
                 />
               </Suspense>
             }

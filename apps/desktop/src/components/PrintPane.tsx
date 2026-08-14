@@ -32,6 +32,11 @@ interface PrintPaneProps {
    * no evidence anything happened.
    */
   onExport: () => void | Promise<void>
+  /** Open the same pages at a size they can be read at. Absent in the full
+      view itself, which is already that. */
+  onExpand?: () => void
+  /** Laid out for the whole canvas rather than a 21rem column. */
+  wide?: boolean
 }
 
 /**
@@ -53,6 +58,8 @@ export function PrintPane({
   currentFormat,
   onFormat,
   onExport,
+  onExpand,
+  wide = false,
 }: PrintPaneProps) {
   const pageUrls = useMemo(
     () =>
@@ -89,7 +96,7 @@ export function PrintPane({
     <div className="flex h-full min-h-0 flex-col bg-transparent">
       {(canPick || canExport) && (
         <div className="shrink-0 px-8 pt-8 pb-3">
-          <div className="mx-auto flex max-w-[46rem] items-center gap-2">
+          <div className={cn('mx-auto flex items-center gap-2', wide ? 'max-w-[60rem]' : 'max-w-[46rem]')}>
             {canPick && (
               <FormatSelect
                 formats={formats}
@@ -114,7 +121,7 @@ export function PrintPane({
           !canPick && !canExport && 'pt-8',
         )}
       >
-        <div className="mx-auto max-w-[46rem]">
+        <div className={cn('mx-auto', wide ? 'max-w-[60rem]' : 'max-w-[46rem]')}>
           <div className="mb-4 flex h-5 items-center gap-3 text-[11px] tabular-nums text-[var(--essay-text-faint)]">
             {preview.status === 'rendering' ? (
               <span className="flex items-center gap-1.5">
@@ -156,14 +163,34 @@ export function PrintPane({
             </p>
           ) : (
             <div className="flex flex-col gap-6 pb-16">
-              {pageUrls.map((url, index) => (
-                <img
-                  key={`${index}-${url}`}
-                  src={url}
-                  alt={`Page ${index + 1}`}
-                  className="w-full rounded-[3px] bg-white shadow-[var(--essay-shadow-medium)] ring-1 ring-black/10"
-                />
-              ))}
+              {pageUrls.map((url, index) =>
+                onExpand ? (
+                  // In the column the pages are ~330px wide, which is a
+                  // thumbnail of an A4 page rather than a proof of one. The
+                  // whole point of a proof is reading it, so the thumbnail's
+                  // job is to be clicked.
+                  <button
+                    key={`${index}-${url}`}
+                    type="button"
+                    onClick={onExpand}
+                    title="Open at full size"
+                    className="block w-full cursor-zoom-in rounded-[3px] transition-transform duration-[var(--essay-speed-quick)] ease-[var(--essay-ease-out)] hover:scale-[1.01] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--essay-accent)]"
+                  >
+                    <img
+                      src={url}
+                      alt={`Page ${index + 1} — open at full size`}
+                      className="w-full rounded-[3px] bg-white shadow-[var(--essay-shadow-medium)] ring-1 ring-black/10"
+                    />
+                  </button>
+                ) : (
+                  <img
+                    key={`${index}-${url}`}
+                    src={url}
+                    alt={`Page ${index + 1}`}
+                    className="w-full rounded-[3px] bg-white shadow-[var(--essay-shadow-medium)] ring-1 ring-black/10"
+                  />
+                ),
+              )}
               {preview.status === 'error' && (
                 <Diagnostics message={preview.error} stale />
               )}

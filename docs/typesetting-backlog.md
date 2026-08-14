@@ -106,13 +106,59 @@ directory, no accounts. `essay format export <name>` / `essay format import
   (`typst-assets` fonts off, 9.23 MB, two of four families reached); a format
   names a stack precisely because the binary does not carry faces.
 
+## Author-supplied formats, and the variables they get
+
+Added 2026-08-14, from use. Two things the built-ins cannot cover.
+
+**A format has to be a file you can be handed.** Settings needs an import, and
+the unit it imports has to be a single file — one `.typ` — because the moment
+it is a folder it is a thing people get wrong over email. Import copies it into
+the app data dir beside the installed fonts, which is where machine-level
+things already live and which the resolution order already reaches. Export
+writes the reverse. No registry and no fetch: importing a format is reading a
+file the author already has, and that is the same reasoning that kept Typst
+Universe out of `world.rs`.
+
+The safety property has to be stated rather than assumed, because a format is
+executable Typst written by somebody else. `EssayWorld` today serves a fixed
+map of virtual sources, has no package resolution, and resolves file reads
+against the document's own folder. That is already a sandbox; it is currently
+an accident of the implementation rather than a promise, and it should become
+a promise with a test that a format cannot read outside the document root.
+
+**A format needs a documented surface.** Right now `doc(title, author, date,
+face, body)` is the whole contract and everything else is hardcoded inside each
+template. An author writing their own has nothing to copy but the built-ins.
+So: a `templates/format-template.typ` that is a working, heavily commented
+starting point, and a named set of parameters every format is expected to
+accept — page size and margins, base size and leading, justification, heading
+scale, and the three stacks. `base.typ` already holds most of these as
+defaults; the work is making them parameters rather than constants and writing
+down which ones a format may ignore.
+
+Those parameters are also what the Proof pane's toggles operate on. The
+sequencing matters: expose them as template parameters first, then surface the
+subset worth a control. A toggle that writes a value no format reads is worse
+than no toggle.
+
+## Reading the proof
+
+The companion column is 21rem, so an A4 page in it is a 330px thumbnail — it
+shows that pages exist, not whether one is any good. Clicking a page opens the
+same component over the whole canvas (landed 2026-08-14). Export stays
+available in both, because the reason to be in the full view is to decide the
+document is finished.
+
+Still open: page-level zoom, and whether the full view should scroll by page
+rather than continuously.
+
 ## Order
 
-1. Document face as a stack, chosen in `FontsPage`, resolved and reported in
-   Proof. Smallest, and it removes the "installed a typeface, cannot use it"
-   trap.
-2. Format resolution order, with the built-in as the fallback rather than the
-   only path. Unblocks everything else.
-3. Format choice and knobs in the Proof companion.
-4. Export/import, plus the three stub templates written as real formats so
-   there is something to choose between.
+1. ~~Document face as a stack, chosen in `FontsPage`~~ — done.
+2. ~~Format resolution order, with the built-in as the fallback~~ — done.
+3. ~~Format choice in the Proof companion~~, and a readable proof — done.
+4. Parameterise `base.typ`, and write `templates/format-template.typ` as the
+   documented starting point. Everything below depends on this existing.
+5. Import and export a format from Settings, plus the sandbox test that makes
+   running someone else's Typst a stated property rather than a hope.
+6. The subset of parameters worth a toggle, in Proof.
