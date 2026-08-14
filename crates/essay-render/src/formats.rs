@@ -65,6 +65,15 @@ pub const FORMATS: &[Format] = &[
 
 pub const DEFAULT_FORMAT: &str = "essay";
 
+/// The documented starting point an author copies to write their own format.
+///
+/// Not in `FORMATS` — it is a file to be copied, not a format to be chosen,
+/// and offering it in the picker would put a fifth entry in the menu that is
+/// just Essay with more comments. It is compiled here anyway, because a
+/// starting point that does not typeset is worse than none: the author who
+/// copies it inherits the fault and has no way to tell it was not theirs.
+pub const FORMAT_TEMPLATE: &str = include_str!("../../../templates/format-template.typ");
+
 /// What a lookup produced, and whether the document got what it asked for.
 pub struct Resolved {
   pub format: &'static Format,
@@ -181,6 +190,27 @@ mod tests {
     let used = resolve(Some("memo")).used();
     assert_eq!(used.id, "memo");
     assert!(used.requested.is_none());
+  }
+
+  /// The file authors are told to copy has to be a file that works. This is
+  /// the cheapest possible statement of that: it defines `doc` like every
+  /// other format, so `build_main_source` can call it. Whether it *typesets*
+  /// is asserted in `lib.rs`, which is where a compiler is available.
+  #[test]
+  fn the_starting_point_signs_the_same_contract() {
+    assert!(FORMAT_TEMPLATE.contains("#let doc("));
+    // The two mistakes most likely to be copied outward, both of which
+    // produce a page that looks fine on the machine that wrote it: a face
+    // used instead of passed on, and typography applied to the body alone so
+    // the title silently renders in Typst's default.
+    assert!(
+      FORMAT_TEMPLATE.contains("face: face"),
+      "the template must pass the author's face through, not consume it"
+    );
+    assert!(
+      FORMAT_TEMPLATE.contains("show: typography.with("),
+      "the template must apply typography with `show:`, or its title block        falls outside the document's own face"
+    );
   }
 
   /// The picker reads this list off the wire, so the three strings it shows

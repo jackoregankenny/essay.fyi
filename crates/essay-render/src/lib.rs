@@ -312,6 +312,33 @@ mod tests {
     }
   }
 
+  /// `templates/format-template.typ` is what an author copies to write a
+  /// format, so it has to typeset — and it has to keep typesetting as
+  /// `base.typ` changes underneath it, which is the failure this catches.
+  /// Compiled through the same path a real format takes, by standing it up as
+  /// one; it is deliberately absent from `FORMATS`, so nothing else would.
+  #[test]
+  fn the_format_template_an_author_copies_actually_works() {
+    const STARTING_POINT: formats::Format = formats::Format {
+      id: "format-template",
+      label: "Starting point",
+      description: "The documented file an author copies.",
+      source: formats::FORMAT_TEMPLATE,
+    };
+    let source = format!("---
+title: Test
+author: Jack
+---
+
+{SAMPLE_BODY}");
+    let converted = markdown_to_typst(&source, false);
+    let main = build_main_source(&converted, None);
+    let world = EssayWorld::new(main, &formats::library(&STARTING_POINT), None);
+    let result = typst::compile::<PagedDocument>(&world);
+    let errors = result.output.err().map(|e| format_diagnostics(&e));
+    assert!(errors.is_none(), "the starting point does not typeset: {errors:?}");
+  }
+
   /// The report format emits a title page, so it must reach two pages where
   /// the essay format does not — the cheapest proof that the formats are
   /// actually different documents rather than the same one relabelled.
