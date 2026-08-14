@@ -1,4 +1,5 @@
 mod comments;
+mod images;
 
 use essay_agents::{
   AcceptOutcome, AgentEvent, AgentHost, AgentInfo, ChangeSet, HostObserver, PermissionDecision,
@@ -758,6 +759,9 @@ pub fn run() {
       comments::delete_comment,
       comments::reattach_comment,
       comments::refresh_comment_anchors,
+      images::write_image_bytes,
+      images::relocate_image,
+      images::image_app_dir,
       list_markdown_tree,
       watch_workspace_roots,
       search_document,

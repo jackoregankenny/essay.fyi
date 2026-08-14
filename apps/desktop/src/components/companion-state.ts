@@ -36,10 +36,22 @@ function loadTenantMap(): Record<string, SavedTenant> {
   }
 }
 
+/**
+ * The companion a document opens with, or null for none.
+ *
+ * An unseen document opens with **nothing**. The margin used to default to
+ * Agent, on the theory that it was a quiet working surface — but a panel the
+ * author did not ask for is not quiet, it is the first thing they have to
+ * close, and it pre-warms an adapter for someone who may never prompt it.
+ * Nothing is the honest default; the pane is one Ctrl+Shift+A away.
+ *
+ * Explicit choices are still remembered per document, in both directions:
+ * having opened Structure here once, it opens with Structure next time.
+ */
 export function loadCompanionTenant(docKey: string): CompanionTenant | null {
   const saved = loadTenantMap()[docKey]
   if (saved === 'closed') return null
-  return saved ?? 'agent'
+  return saved ?? null
 }
 
 export function saveCompanionTenant(

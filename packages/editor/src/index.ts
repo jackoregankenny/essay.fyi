@@ -33,6 +33,7 @@ import { ManuscriptCodeBlock } from './markdown-code'
 import { MinimalEscaping } from './markdown-escapes'
 import { ManuscriptHtmlBlock } from './markdown-html'
 import { ManuscriptHtmlInline } from './markdown-html-inline'
+import { MarkdownPaste } from './markdown-paste'
 import {
   ManuscriptBulletList,
   ManuscriptListItem,
@@ -349,6 +350,8 @@ export function manuscriptExtensions(
     ManuscriptOrderedList,
     ManuscriptListItem,
     Markdown,
+    // Parse/serialize is all @tiptap/markdown does; the clipboard is ours.
+    MarkdownPaste,
     TableKit.configure({
       table: false,
       // The stock table serializer pads every cell to its column width and

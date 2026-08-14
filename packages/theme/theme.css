@@ -95,11 +95,26 @@
   --essay-text-faint: oklch(0.595 0.008 250);
   /* Azure, not indigo: the accent moved off the violet the old chrome wore.
      One saturated element in the frame — the caret, the lit tick, the
-     waiting dot — everything else stays graphite. */
-  --essay-accent: oklch(0.71 0.135 240);
-  --essay-accent-tint: oklch(0.225 0.04 240);
-  --essay-selection: color-mix(in oklch, oklch(0.55 0.14 240), black 12%);
-  --essay-selection-match: color-mix(in oklch, oklch(0.62 0.14 240), transparent 72%);
+     waiting dot — everything else stays graphite.
+
+     Only the hue is a variable, and that is the point: lightness and chroma
+     are what keep the accent legible on this ground and equal in weight to
+     the other themed surfaces, so they are not the author's to move. Turning
+     the dial changes which colour the one saturated element is, never how
+     loud it is. Settings writes `--essay-accent-hue` as an inline style on
+     <html>, which outranks every rule here — including the light block's own
+     default — so each theme keeps its untouched value and the author's choice
+     still carries across both. */
+  --essay-accent-hue: 240;
+  /* Published so a swatch can draw the colour it is offering at the exact
+     lightness and chroma this theme would give it — a picker that shows a
+     different colour from the one you get is worse than no picker. */
+  --essay-accent-l: 0.71;
+  --essay-accent-c: 0.135;
+  --essay-accent: oklch(var(--essay-accent-l) var(--essay-accent-c) var(--essay-accent-hue));
+  --essay-accent-tint: oklch(0.225 0.04 var(--essay-accent-hue));
+  --essay-selection: color-mix(in oklch, oklch(0.55 0.14 var(--essay-accent-hue)), black 12%);
+  --essay-selection-match: color-mix(in oklch, oklch(0.62 0.14 var(--essay-accent-hue)), transparent 72%);
   --essay-highlight: oklch(0.46 0.085 92);
 
   /* Review surfaces. Two hues held at the same lightness so neither side of
@@ -135,10 +150,15 @@
   --essay-text: oklch(0.27 0.01 255);
   --essay-text-muted: oklch(0.53 0.012 250);
   --essay-text-faint: oklch(0.56 0.012 250);
-  --essay-accent: oklch(0.54 0.155 245);
-  --essay-accent-tint: oklch(0.955 0.022 240);
-  --essay-selection: color-mix(in oklch, oklch(0.54 0.155 245), transparent 74%);
-  --essay-selection-match: color-mix(in oklch, oklch(0.54 0.155 245), transparent 86%);
+  /* Paper's own azure sits a touch warmer than the screen's; this default
+     survives because Settings writes the author's hue inline, above it. */
+  --essay-accent-hue: 245;
+  --essay-accent-l: 0.54;
+  --essay-accent-c: 0.155;
+  --essay-accent: oklch(var(--essay-accent-l) var(--essay-accent-c) var(--essay-accent-hue));
+  --essay-accent-tint: oklch(0.955 0.022 var(--essay-accent-hue));
+  --essay-selection: color-mix(in oklch, oklch(0.54 0.155 var(--essay-accent-hue)), transparent 74%);
+  --essay-selection-match: color-mix(in oklch, oklch(0.54 0.155 var(--essay-accent-hue)), transparent 86%);
   --essay-highlight: oklch(0.93 0.085 95);
 
   --essay-diff-insert: oklch(0.472 0.108 152);

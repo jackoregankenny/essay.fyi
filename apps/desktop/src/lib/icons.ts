@@ -34,6 +34,7 @@ import {
   Prohibit,
   Robot,
   SidebarSimple,
+  SlidersHorizontal,
   Stop,
   Terminal,
   TextAa,
@@ -103,5 +104,7 @@ export const RewriteIcon = ArrowsClockwise
 export const SidebarIcon = SidebarSimple
 /** A typeface, and the pane that manages them. */
 export const FontIcon = TextAa
+/** Preferences — the page, and the mark in the footer that summons it. */
+export const SettingsIcon = SlidersHorizontal
 /** Removing something the author installed. */
 export const RemoveIcon = Trash

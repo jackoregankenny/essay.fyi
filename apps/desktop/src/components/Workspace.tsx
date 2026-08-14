@@ -3,6 +3,7 @@ import {
   lazy,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -59,7 +60,17 @@ import {
   saveProseFont,
   type ProseFontId,
 } from '#/lib/proseFont'
-import { commandKey, shortcut } from '#/lib/platform'
+import { commandKey, isMac, shortcut } from '#/lib/platform'
+import { SettingsIcon } from '#/lib/icons'
+import {
+  loadAccent,
+  loadTheme,
+  setAccent,
+  setTheme,
+  themeLabel,
+  nextTheme,
+  type ThemeId,
+} from '#/lib/appearance'
 import {
   authorLabel,
   checkpointDocument,
@@ -77,6 +88,14 @@ import {
 } from '#/lib/search'
 import { insertImage, setImageBase } from '#/lib/images'
 import { attachImageDrop } from '#/lib/imageDrop'
+import { attachImagePaste, relocateStagedImages } from '#/lib/imagePaste'
+import {
+  imageStoreLabel,
+  loadImageStore,
+  nextImageStore,
+  saveImageStore,
+  type ImageStoreId,
+} from '#/lib/imageStore'
 import { useComments, type CommentRange } from '#/lib/useComments'
 import { documentDir, usePreview } from '#/lib/usePreview'
 import { loadWorkspaceFolders } from '#/lib/workspace'
@@ -100,6 +119,7 @@ import { DocName, Notice } from './Notice'
 import { SelectionToolbar } from './SelectionToolbar'
 import { Sidebar } from './Sidebar'
 import { SlashMenu } from './SlashMenu'
+import { DocumentTabs, type OpenTab } from './DocumentTabs'
 import { TopBar } from './TopBar'
 import { WorkspaceRail } from './WorkspaceRail'
 import { TooltipProvider } from './ui/tooltip'
@@ -121,10 +141,21 @@ const PrintPane = lazy(() =>
 const FontsPage = lazy(() =>
   import('./FontsPage').then((module) => ({ default: module.FontsPage })),
 )
+const SettingsPage = lazy(() =>
+  import('./SettingsPage').then((module) => ({ default: module.SettingsPage })),
+)
 const DiffReview = lazy(() =>
   import('./DiffReview').then((module) => ({ default: module.DiffReview })),
 )
 const UNTITLED: DocumentRef = { path: null, name: 'untitled.md' }
+
+/**
+ * The one binding that is not Ctrl→⌘. ⌘Tab is the macOS application switcher
+ * and never reaches a window, so document cycling stays on Control there;
+ * the handler already accepts either modifier, so only the label moves.
+ */
+const CYCLE_TAB_LABEL = isMac ? '⌃Tab' : 'Ctrl+Tab'
+const CYCLE_TAB_BACK_LABEL = isMac ? '⌃⇧Tab' : 'Ctrl+Shift+Tab'
 
 /** How long after the last keystroke the buffer is journalled for crash
     recovery. Well ahead of autosave, and the only protection an untitled
@@ -173,6 +204,24 @@ function citationIndex(markdown: string): Array<{ key: string; count: number }> 
   return Array.from(counts, ([key, count]) => ({ key, count }))
 }
 
+/**
+ * The soft edge of the manuscript: a short blur ramp under a wash of the
+ * canvas colour, so a line leaving the viewport comes apart instead of being
+ * sliced off at the running head.
+ *
+ * Purely decorative — `aria-hidden`, `pointer-events: none`. The geometry all
+ * lives in `.essay-edge-fade` in styles.css.
+ */
+function EdgeFade({ edge }: { edge: 'top' | 'bottom' }) {
+  return (
+    <div className={`essay-edge-fade essay-edge-fade--${edge}`} aria-hidden>
+      <div className="essay-edge-fade__blur" data-step="1" />
+      <div className="essay-edge-fade__blur" data-step="2" />
+      <div className="essay-edge-fade__wash" />
+    </div>
+  )
+}
+
 /** The welcome manuscript appears once, on first launch; after that new
     documents start empty. */
 function initialManuscript(): string {
@@ -190,6 +239,10 @@ export function Workspace() {
   const [initialDoc] = useState(initialManuscript)
   const [docRef, setDocRef] = useState<DocumentRef>(UNTITLED)
   const [dirty, setDirty] = useState(false)
+  /** Saved documents opened this session. Pure bookkeeping for the tab strip:
+      Essay holds one buffer, so a tab is a bookmark to a path and nothing is
+      held open behind it. */
+  const [openTabs, setOpenTabs] = useState<DocumentRef[]>([])
   /** The content hash Essay believes is on disk — the write guard. */
   const [baseHash, setBaseHash] = useState<string | null>(null)
   const [conflict, setConflict] = useState<DiskConflict | null>(null)
@@ -200,6 +253,14 @@ export function Workspace() {
   /** The fonts page, over the manuscript. A machine-level surface rather than
       a document one, so it is not in the sidebar. */
   const [fontsOpen, setFontsOpen] = useState(false)
+  /** Settings, the same kind of surface for the same reason: preferences are
+      the machine's and the person's, never the manuscript's. */
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  /** Appearance. Loaded once at boot by `startAppearance` (main.tsx) and
+      mirrored here only so the controls can show what is current — the
+      writing happens through `setTheme`/`setAccent`, which persist and paint. */
+  const [theme, setThemeState] = useState<ThemeId>(loadTheme)
+  const [accent, setAccentState] = useState<string>(loadAccent)
   /** File navigation is a non-modal popover from the running head. It never
       claims manuscript width and closes as soon as a file is chosen. */
   const [explorerOpen, setExplorerOpen] = useState(false)
@@ -222,11 +283,22 @@ export function Workspace() {
   /** What the companion slot holds, or null when the author has the page to
       themselves. One slot, one tenant — the whole layout discipline
       (docs/ui-overhaul.md). Restored per document in `loadIntoEditor`. */
-  const [tenant, setTenantState] = useState<CompanionTenant | null>('agent')
+  /* Nothing, until the author asks. Launching straight into a companion —
+     the agent panel most of all — spends the first moment of a writing
+     session on a panel to close, and pre-warms an adapter for someone who may
+     never prompt it. A document that was left with one open still reopens
+     with it; see loadCompanionTenant. */
+  const [tenant, setTenantState] = useState<CompanionTenant | null>(null)
   const [compact, setCompact] = useState(
     () => window.matchMedia?.(COMPACT_QUERY).matches ?? false,
   )
   const [measure, setMeasureState] = useState<MeasureId>(loadMeasure)
+  /** Where pasted image bytes go. A ref beside the state because the paste
+      listener is attached once and must read the current answer, not the one
+      that was current when the editor mounted. */
+  const [imageStore, setImageStoreState] = useState<ImageStoreId>(loadImageStore)
+  const imageStoreRef = useRef<ImageStoreId>(imageStore)
+  imageStoreRef.current = imageStore
   /** The manuscript's face — Geist or the machine's best serif. A root
       attribute rather than component state in spirit, but mirrored here so
       the palette command's title can name the current one. */
@@ -278,6 +350,27 @@ export function Workspace() {
   const setMeasure = useCallback((next: MeasureId) => {
     setMeasureState(next)
     saveMeasure(next)
+  }, [])
+
+  /* Changing this never moves an image that has already landed: a reference
+     that works has to keep working, so the preference only decides where the
+     *next* paste goes. */
+  const setImageStore = useCallback((next: ImageStoreId) => {
+    setImageStoreState(next)
+    saveImageStore(next)
+  }, [])
+
+  /* Appearance writes through immediately — a theme you have to confirm is a
+     theme you cannot judge. `setTheme`/`setAccent` persist and paint; the
+     state here only keeps the controls honest about what is current. */
+  const chooseTheme = useCallback((next: ThemeId) => {
+    setThemeState(next)
+    setTheme(next)
+  }, [])
+
+  const chooseAccent = useCallback((next: string) => {
+    setAccentState(next)
+    setAccent(next)
   }, [])
 
   // The face is applied at mount (the saved choice survives a relaunch) and
@@ -369,15 +462,23 @@ export function Workspace() {
 
       setManuscript(editor, contents)
       setDocRef(ref)
+      // Every arrival at a document comes through here — open, restore,
+      // agent patch, search result — so the strip cannot miss one.
+      if (ref.path) {
+        setOpenTabs((tabs) =>
+          tabs.some((tab) => tab.path === ref.path) ? tabs : [...tabs, ref],
+        )
+      }
       setBaseHash(hash)
       setDirty(options.dirty ?? false)
       setConflict(null)
       setReview(null)
       setLoadVersion((version) => version + 1)
       refreshStats(editor)
-      // The slot follows the document. An unseen document opens with Agent as
-      // its quiet working margin; an explicit close is remembered. Restoring
-      // Agent also pre-warms the last-used adapter in the background.
+      // The slot follows the document: an unseen one opens with nothing, and
+      // whatever the author last had open here comes back — including the
+      // decision to have nothing. Restoring Agent this way still pre-warms
+      // the last-used adapter, but only because the author chose it before.
       setTenantState(ref.path ? loadCompanionTenant(ref.path) : null)
       editor.commands.focus('start')
     },
@@ -410,8 +511,32 @@ export function Workspace() {
         void clearJournal(previousKey)
       }
       setDocRef(result.ref)
+      // A first save is where an untitled buffer acquires the path its tab
+      // has been standing in for.
+      if (result.ref.path) {
+        const path = result.ref.path
+        setOpenTabs((tabs) =>
+          tabs.some((tab) => tab.path === path) ? tabs : [...tabs, result.ref],
+        )
+      }
       setBaseHash(result.hash)
       setDirty(false)
+
+      // The document now has a folder, so anything that pasted into the
+      // staging directory while it did not can move in and be referenced
+      // relatively. After the save on purpose: the manuscript is already on
+      // disk, and this is tidying behind it. A rewrite makes the buffer dirty
+      // again, which autosave settles on its own.
+      if (result.ref.path) {
+        void relocateStagedImages(editor, result.ref.path, imageStoreRef.current)
+          .then((moved) => {
+            if (moved > 0) setDirty(true)
+          })
+          .catch(() => {
+            // Best-effort by design: the images still resolve from staging,
+            // so the document is not broken, only untidy.
+          })
+      }
       return true
     },
     [editor, docRef, baseHash],
@@ -452,6 +577,59 @@ export function Workspace() {
     },
     [editor, docRef.path, settleUnsaved, loadIntoEditor],
   )
+
+  /** The strip's order, and the order the shortcuts count in: saved documents
+      as they were opened, then the untitled buffer if there is one. */
+  const tabOrder = useMemo<DocumentRef[]>(
+    () => (docRef.path ? openTabs : [...openTabs, docRef]),
+    [openTabs, docRef],
+  )
+
+  const activeTabIndex = tabOrder.findIndex(
+    (tab) => (tab.path ?? null) === (docRef.path ?? null),
+  )
+
+  /**
+   * Closing a tab is only ever bookkeeping: a saved document has already been
+   * written, so there is nothing to lose and nothing to ask about. Closing the
+   * one you are looking at has to put something else in front of you — the
+   * neighbour if there is one, an empty buffer if there is not.
+   */
+  const closeTab = useCallback(
+    (tab: OpenTab) => {
+      const remaining = openTabs.filter((open) => open.path !== tab.path)
+      setOpenTabs(remaining)
+      if (tab.path !== docRef.path) return
+      const next = remaining[remaining.length - 1]
+      if (next?.path) void openByPath(next.path)
+      else void newDocument()
+    },
+    [openTabs, docRef.path, openByPath, newDocument],
+  )
+
+  /** Ctrl+1…8 by position, Ctrl+9 for the last one — the convention every
+      browser and editor shares, so the muscle memory is already there. */
+  const selectTabAt = useCallback(
+    (index: number) => {
+      const target = index === -1 ? tabOrder[tabOrder.length - 1] : tabOrder[index]
+      if (target?.path && target.path !== docRef.path) void openByPath(target.path)
+    },
+    [tabOrder, docRef.path, openByPath],
+  )
+
+  const cycleTab = useCallback(
+    (delta: number) => {
+      if (tabOrder.length < 2 || activeTabIndex === -1) return
+      const next = (activeTabIndex + delta + tabOrder.length) % tabOrder.length
+      selectTabAt(next)
+    },
+    [tabOrder.length, activeTabIndex, selectTabAt],
+  )
+
+  const closeActiveTab = useCallback(() => {
+    const active = tabOrder[activeTabIndex]
+    if (active) closeTab({ ...active, dirty })
+  }, [tabOrder, activeTabIndex, dirty, closeTab])
 
   const exportPdf = useCallback(async () => {
     if (!editor) return
@@ -908,7 +1086,8 @@ export function Workspace() {
         !findOpen &&
         !paletteOpen &&
         !review &&
-        !fontsOpen
+        !fontsOpen &&
+        !settingsOpen
       ) {
         event.preventDefault()
         setExplorerOpen(false)
@@ -921,7 +1100,8 @@ export function Workspace() {
         findOpen &&
         !paletteOpen &&
         !review &&
-        !fontsOpen
+        !fontsOpen &&
+        !settingsOpen
       ) {
         // Reaching here means focus is in the manuscript — Esc pressed in
         // the strip's own inputs closes it there and arrives here already
@@ -939,7 +1119,8 @@ export function Workspace() {
         !paletteOpen &&
         !review &&
         !explorerOpen &&
-        !fontsOpen
+        !fontsOpen &&
+        !settingsOpen
       ) {
         event.preventDefault()
         setTenant(null)
@@ -965,7 +1146,11 @@ export function Workspace() {
       } else if (key === 's') {
         event.preventDefault()
         void saveDocument(event.shiftKey)
-      } else if (key === 'n') {
+      } else if (key === 'n' || key === 't') {
+        // Ctrl+T as well as Ctrl+N: in a workspace that shows open documents
+        // as tabs, "new tab" is the reflex, and here a new tab *is* a new
+        // document. WebView2 reads an unhandled Ctrl+T as its own new-tab, so
+        // preventDefault is doing real work rather than being tidy.
         event.preventDefault()
         void newDocument()
       } else if (key === 'b') {
@@ -974,6 +1159,11 @@ export function Workspace() {
       } else if (key === 'k') {
         event.preventDefault()
         setPaletteOpen((open) => !open)
+      } else if (key === ',') {
+        // The one binding every desktop app already agreed on. Toggles rather
+        // than opens, so the same keystroke puts the author back on the page.
+        event.preventDefault()
+        setSettingsOpen((open) => !open)
       } else if (key === 'f' && event.shiftKey) {
         // Shifted find is focus: the author asking for the room to themselves.
         event.preventDefault()
@@ -992,6 +1182,21 @@ export function Workspace() {
         // mid-sentence must never lose their selection to a panel.
         event.preventDefault()
         toggleTenant('agent')
+      } else if (key === 'tab') {
+        // Ctrl+Tab is only ever a document switch here: there are no browser
+        // tabs behind this window to compete for it, and ProseMirror binds
+        // bare Tab (lists, table cells), never the modified one.
+        event.preventDefault()
+        cycleTab(event.shiftKey ? -1 : 1)
+      } else if (key === 'w') {
+        // preventDefault first and unconditionally: unhandled, WebView2 reads
+        // Ctrl+W as close-the-window, and an author who meant "close this
+        // document" must not lose the others.
+        event.preventDefault()
+        closeActiveTab()
+      } else if (/^[1-9]$/.test(key)) {
+        event.preventDefault()
+        selectTabAt(key === '9' ? -1 : Number(key) - 1)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -1000,12 +1205,16 @@ export function Workspace() {
     openDocument,
     saveDocument,
     newDocument,
+    cycleTab,
+    closeActiveTab,
+    selectTabAt,
     toggleTenant,
     tenant,
     paletteOpen,
     review,
     explorerOpen,
     fontsOpen,
+    settingsOpen,
     findOpen,
     summonFind,
     setTenant,
@@ -1028,6 +1237,18 @@ export function Workspace() {
   useEffect(() => {
     if (!editor) return
     return attachImageDrop(editor)
+  }, [editor])
+
+  // Pasted images have no source path, so their bytes are written before they
+  // can be referenced. The context is read at paste time rather than captured
+  // here: re-attaching the listener on every document or preference change
+  // would drop a paste that landed mid-swap.
+  useEffect(() => {
+    if (!editor) return
+    return attachImagePaste(editor, () => ({
+      documentPath: liveRef.current.path,
+      store: imageStoreRef.current,
+    }))
   }, [editor])
 
   // The chrome recedes as the author sinks into the writing — not on the
@@ -1145,10 +1366,13 @@ export function Workspace() {
       // Shortcuts are declared in Windows/Linux spelling and translated here
       // (see `shortcut`): the handler has always accepted Cmd as well as Ctrl,
       // so on a Mac these labels were the only part that was wrong.
-      { id: 'file.new', title: 'New document', group: 'File', shortcut: shortcut('Ctrl+N'), run: () => void newDocument() },
+      { id: 'file.new', title: 'New document', group: 'File', shortcut: `${shortcut('Ctrl+N')} · ${shortcut('Ctrl+T')}`, keywords: 'new tab blank untitled create', run: () => void newDocument() },
       { id: 'file.open', title: 'Open file…', group: 'File', shortcut: shortcut('Ctrl+O'), run: () => void openDocument() },
       { id: 'file.save', title: 'Save', group: 'File', shortcut: shortcut('Ctrl+S'), run: () => void saveDocument() },
       { id: 'file.saveAs', title: 'Save as…', group: 'File', shortcut: shortcut('Ctrl+Shift+S'), run: () => void saveDocument(true) },
+      { id: 'file.closeTab', title: 'Close document', group: 'File', shortcut: shortcut('Ctrl+W'), keywords: 'close tab dismiss', run: closeActiveTab },
+      { id: 'file.nextTab', title: 'Next document', group: 'File', shortcut: CYCLE_TAB_LABEL, keywords: 'switch tab cycle forward', run: () => cycleTab(1) },
+      { id: 'file.prevTab', title: 'Previous document', group: 'File', shortcut: CYCLE_TAB_BACK_LABEL, keywords: 'switch tab cycle back', run: () => cycleTab(-1) },
       { id: 'file.exportPdf', title: 'Export PDF…', group: 'File', keywords: 'typeset print render', run: () => void exportPdf() },
       { id: 'file.checkpoint', title: 'Mark this version', group: 'File', keywords: 'checkpoint history revision snapshot milestone draft sent', run: () => void checkpoint() },
       { id: 'comment.selection', title: 'Comment on selection', group: 'File', keywords: 'comment annotate note thread discuss passage review', run: beginComment },
@@ -1162,13 +1386,13 @@ export function Workspace() {
       { id: 'view.focus', title: 'Toggle focus mode', group: 'View', shortcut: shortcut('Ctrl+Shift+F'), keywords: 'zen typewriter dim centre center', run: () => setFocusModeState((on) => !on) },
       { id: 'view.measure', title: `Writing width: ${measureLabel(measure)}`, group: 'View', keywords: 'column measure line length narrow wide', run: () => setMeasure(nextMeasure(measure)) },
       { id: 'view.proseFont', title: `Prose face: ${proseFontLabel(proseFont)}`, group: 'View', keywords: 'font serif sans typeface geist charter georgia face typography', run: cycleProseFont },
+      { id: 'insert.imageStore', title: `Pasted images: ${imageStoreLabel(imageStore)}`, group: 'Insert', keywords: 'image paste screenshot assets folder library where store attachments', run: () => setImageStore(nextImageStore(imageStore)) },
       { id: 'view.fonts', title: 'Fonts…', group: 'View', keywords: 'typeface font family install add serif typography', run: () => setFontsOpen(true) },
       // Dark is the identity (theme.css); light is the explicit departure.
-      { id: 'view.light', title: 'Toggle light mode', group: 'View', keywords: 'theme dark appearance day night', run: () => {
-        const root = document.documentElement
-        if (root.dataset.theme === 'light') delete root.dataset.theme
-        else root.dataset.theme = 'light'
-      } },
+      // This used to write `data-theme` straight onto the root and remember
+      // nothing, so an author who preferred paper chose it again every launch.
+      { id: 'view.theme', title: `Theme: ${themeLabel(theme)}`, group: 'View', keywords: 'theme dark light appearance day night system', run: () => chooseTheme(nextTheme(theme)) },
+      { id: 'app.settings', title: 'Settings…', group: 'View', shortcut: shortcut('Ctrl+,'), keywords: 'preferences options configure appearance accent colour color theme width font images', run: () => setSettingsOpen(true) },
       { id: 'format.h1', title: 'Heading 1', group: 'Format', keywords: 'title turn into', run: () => { chain().toggleHeading({ level: 1 }).run() } },
       { id: 'format.h2', title: 'Heading 2', group: 'Format', keywords: 'section turn into', run: () => { chain().toggleHeading({ level: 2 }).run() } },
       { id: 'format.h3', title: 'Heading 3', group: 'Format', keywords: 'subsection turn into', run: () => { chain().toggleHeading({ level: 3 }).run() } },
@@ -1185,7 +1409,7 @@ export function Workspace() {
     ]
     const unregister = commands.map(registerCommand)
     return () => unregister.forEach((fn) => fn())
-  }, [editor, newDocument, openDocument, saveDocument, exportPdf, checkpoint, beginComment, measure, setMeasure, toggleTenant, setTenant, proseFont, cycleProseFont, docRef.path, openFiles, summonFind])
+  }, [editor, newDocument, openDocument, saveDocument, exportPdf, checkpoint, beginComment, measure, setMeasure, toggleTenant, setTenant, proseFont, cycleProseFont, docRef.path, openFiles, summonFind, closeActiveTab, cycleTab, imageStore, setImageStore, theme, chooseTheme])
 
   useEffect(() => {
     const title = `${docRef.name}${dirty ? ' •' : ''} — Essay`
@@ -1210,6 +1434,14 @@ export function Workspace() {
 
   const recovering = recoverable[0]
 
+  /* Only the document you are looking at can be dirty: leaving a saved one
+     writes it on the way out, so every other tab is by definition on disk. */
+  const activeTabKey = docRef.path ?? 'untitled'
+  const tabs: OpenTab[] = tabOrder.map((tab, index) => ({
+    ...tab,
+    dirty: index === activeTabIndex && dirty,
+  }))
+
   return (
     <TooltipProvider>
       {/* One continuous canvas: file navigation floats from the running head,
@@ -1225,6 +1457,15 @@ export function Workspace() {
           sectionName={activeOutlineItem?.text}
           dirty={dirty}
           conflict={conflict !== null}
+          nameless={tabs.length > 1}
+          tabs={
+            <DocumentTabs
+              tabs={tabs}
+              activeKey={activeTabKey}
+              onSelect={(tab) => (tab.path ? void openByPath(tab.path) : undefined)}
+              onClose={closeTab}
+            />
+          }
           files={
             <FilesPanel
               open={explorerOpen}
@@ -1243,6 +1484,12 @@ export function Workspace() {
             waitingOnAuthor={waitingOnAuthor}
             openComments={openCommentCount}
             onToggleTenant={toggleTenant}
+            // Every surface that fills the manuscript column, not just the two
+            // that are modal: the controls overlap the same corner in all
+            // three cases, and a diff's Close is as easy to miss as settings'.
+            // The transcript still sits beside a diff — this hides the
+            // toggles, not the companion they toggle.
+            suppressed={settingsOpen || fontsOpen || review !== null}
           />
 
           <main
@@ -1343,6 +1590,11 @@ export function Workspace() {
                   </>
                 )}
               </div>
+              {/* Above the prose, below the selection furniture (z-40) and the
+                  slash menu (z-50): the edge softens the manuscript, never the
+                  controls the author is aiming at. */}
+              <EdgeFade edge="top" />
+              <EdgeFade edge="bottom" />
               {/* The composer holds the range it was opened on (mapped through
                   any edits); saving clears the selection but the quiet range
                   decoration stays — that is the comment now. */}
@@ -1412,6 +1664,41 @@ export function Workspace() {
                   />
                 </Suspense>
               )}
+              {settingsOpen && (
+                <Suspense fallback={null}>
+                  <SettingsPage
+                    className="absolute inset-0 z-20"
+                    theme={theme}
+                    onTheme={chooseTheme}
+                    accent={accent}
+                    onAccent={chooseAccent}
+                    measure={measure}
+                    onMeasure={setMeasure}
+                    proseFont={proseFont}
+                    onProseFont={(next) => {
+                      setProseFontState(next)
+                      saveProseFont(next)
+                    }}
+                    imageStore={imageStore}
+                    onImageStore={setImageStore}
+                    // Typefaces and folders keep their own surfaces — both
+                    // need room this page does not have, and duplicating them
+                    // here would be two lists that can disagree.
+                    onOpenFonts={() => {
+                      setSettingsOpen(false)
+                      setFontsOpen(true)
+                    }}
+                    onOpenFolders={() => {
+                      setSettingsOpen(false)
+                      openFiles()
+                    }}
+                    onClose={() => {
+                      setSettingsOpen(false)
+                      editor?.commands.focus()
+                    }}
+                  />
+                </Suspense>
+              )}
             </div>
 
             {/* Reserved, not overlaid: manuscript text can scroll to the last
@@ -1420,6 +1707,19 @@ export function Workspace() {
                 shadow, or separate status-bar material. */}
             <footer className="essay-chrome pointer-events-none z-30 h-10 shrink-0 text-[11px] font-[510] text-[var(--essay-text-muted)]">
               <div className="essay-manuscript-orbit mx-auto flex h-full min-w-0 items-center gap-3">
+                {/* The only affordance in the footer that is not a fact about
+                    the document, so it is the smallest thing there and sits
+                    outside the counts rather than among them: faint until
+                    pointed at, and the same size as the text beside it. */}
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen(true)}
+                  aria-label="Settings"
+                  title={`Settings — ${shortcut('Ctrl+,')}`}
+                  className="pointer-events-auto -ml-0.5 shrink-0 rounded text-[var(--essay-text-faint)] transition-colors duration-[var(--essay-speed-quick)] hover:text-[var(--essay-text)]"
+                >
+                  <SettingsIcon size={13} />
+                </button>
                 <span className="shrink-0 tabular-nums">
                   {words.toLocaleString()} words
                 </span>
