@@ -7,6 +7,7 @@
 //! off the UI thread.
 
 mod convert;
+pub mod formats;
 mod world;
 
 use std::path::PathBuf;
@@ -25,9 +26,6 @@ pub use world::{
   FontFamily,
 };
 
-/// The default Essay template, embedded so rendering works with zero
-/// filesystem setup. Authors will be able to override it per project.
-const ESSAY_TEMPLATE: &str = include_str!("../../../templates/essay/essay.typ");
 
 #[derive(Debug, Error)]
 pub enum RenderError {
@@ -151,22 +149,66 @@ fn compile(
   let converted = markdown_to_typst(markdown_source, bibliography.is_some());
   // A stray `.bib` must not give an uncited document a References section.
   let main = build_main_source(&converted, bibliography.filter(|_| converted.has_citations));
-  let world = EssayWorld::new(main, ESSAY_TEMPLATE, root);
+  let resolved = formats::resolve(converted.front_matter.format.as_deref());
+  let world = EssayWorld::new(main, &formats::library(resolved.format), root);
   let result = typst::compile::<PagedDocument>(&world);
-  let warnings = result
+  // A format names a *stack*, so most of its families are expected to be
+  // absent — that is the mechanism working, not a fault. Typst warns once per
+  // miss regardless, which on a machine without Libertinus put nine lines in
+  // the Proof pane on every keystroke and taught the author to ignore it.
+  // Suppressed here, and replaced below by the one fact that is actionable:
+  // whether the face *you asked for* is on this machine.
+  let mut warnings: Vec<String> = result
     .warnings
     .iter()
     .map(|w| w.message.to_string())
+    .filter(|message| !message.starts_with("unknown font family:"))
     .collect();
+  if let Some(face) = &converted.front_matter.font {
+    if !face_installed(face) {
+      warnings.insert(
+        0,
+        format!(
+          "“{face}” is not installed on this machine, so {} used its own face. \
+           The document still asks for it, and it will be used wherever it is installed.",
+          resolved.format.label
+        ),
+      );
+    }
+  }
+  // Reported as a warning rather than swallowed: the document asked for
+  // something it did not get, and the page it did get looks entirely fine,
+  // which is exactly why nobody would notice.
+  if let Some(missing) = &resolved.fell_back_from {
+    warnings.insert(
+      0,
+      format!(
+        "no format named “{missing}” — set in {} instead",
+        resolved.format.label
+      ),
+    );
+  }
   match result.output {
     Ok(document) => Ok((document, warnings)),
     Err(errors) => Err(RenderError::Compilation(format_diagnostics(&errors))),
   }
 }
 
+/// Case-insensitively, because a family is spelled by a human into front
+/// matter and Typst matches families case-insensitively too.
+fn face_installed(face: &str) -> bool {
+  let wanted = face.trim().to_lowercase();
+  families()
+    .iter()
+    .any(|family| family.name.to_lowercase() == wanted)
+}
+
 fn build_main_source(converted: &Converted, bibliography: Option<&str>) -> String {
   let fm = &converted.front_matter;
-  let mut main = String::from("#import \"/template.typ\": essay\n#show: essay.with(");
+  // `/format.typ` and `doc` regardless of which format resolved — the entry
+  // point is part of the contract a format signs, so this string never has to
+  // know which one it is calling.
+  let mut main = String::from("#import \"/format.typ\": doc\n#show: doc.with(");
   if let Some(title) = &fm.title {
     main.push_str(&format!("title: \"{}\", ", escape_str(title)));
   }
@@ -175,6 +217,9 @@ fn build_main_source(converted: &Converted, bibliography: Option<&str>) -> Strin
   }
   if let Some(date) = &fm.date {
     main.push_str(&format!("date: \"{}\", ", escape_str(date)));
+  }
+  if let Some(font) = &fm.font {
+    main.push_str(&format!("face: \"{}\", ", escape_str(font)));
   }
   main.push_str(")\n\n");
   main.push_str(&converted.body);
@@ -207,6 +252,11 @@ mod tests {
 
   const SAMPLE: &str = "---\ntitle: Test Document\n---\n\n# Introduction\n\nSome **bold** text with a [link](https://example.com).\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n- [x] done\n- [ ] todo\n\n> A quote about ==important things==.\n";
 
+  /// Body only, so a test can put its own front matter in front of it.
+  /// Deliberately exercises every construct a format restyles: headings at
+  /// three levels, a quote, a table, a list, code, and a link.
+  const SAMPLE_BODY: &str = "# One\n\nBody text with a [link](https://example.com) and `code`.\n\n## Two\n\n> A quote.\n\n### Three\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n\n- first\n- second\n\n```rust\nfn main() {}\n```\n";
+
   #[test]
   fn compiles_sample_to_pages() {
     let pages = render_svg_pages(SAMPLE, None).expect("compiles");
@@ -218,6 +268,85 @@ mod tests {
   fn produces_pdf_bytes() {
     let pdf = render_pdf(SAMPLE, None).expect("pdf");
     assert!(pdf.starts_with(b"%PDF-"));
+  }
+
+  /// Every built-in format has to typeset a real document, not merely parse.
+  /// A format is Typst source embedded at compile time, so a mistake in one is
+  /// invisible until an author picks it — this is the only place that notices.
+  #[test]
+  fn every_format_typesets_a_real_document() {
+    for format in formats::FORMATS {
+      let source = format!(
+        "---\ntitle: Test\nauthor: Jack\ndate: 2026-08-14\nformat: {}\n---\n\n{}",
+        format.id, SAMPLE_BODY
+      );
+      let pages = render_svg_pages(&source, None)
+        .unwrap_or_else(|err| panic!("{} failed to typeset: {err}", format.id));
+      assert!(!pages.svgs.is_empty(), "{} produced no pages", format.id);
+      assert!(
+        pages.warnings.is_empty(),
+        "{} warned: {:?}",
+        format.id,
+        pages.warnings
+      );
+    }
+  }
+
+  /// The report format emits a title page, so it must reach two pages where
+  /// the essay format does not — the cheapest proof that the formats are
+  /// actually different documents rather than the same one relabelled.
+  #[test]
+  fn formats_produce_different_pages() {
+    let with = |id: &str| {
+      let source = format!("---\ntitle: Test\nformat: {id}\n---\n\n{SAMPLE_BODY}");
+      render_svg_pages(&source, None).expect("typesets").svgs.len()
+    };
+    assert!(
+      with("report") > with("essay"),
+      "report's title page did not produce an extra page"
+    );
+  }
+
+  #[test]
+  fn an_unknown_format_still_typesets_and_warns() {
+    let source = format!("---\ntitle: Test\nformat: nope\n---\n\n{SAMPLE_BODY}");
+    let pages = render_svg_pages(&source, None).expect("falls back rather than failing");
+    assert!(!pages.svgs.is_empty());
+    assert!(
+      pages.warnings.iter().any(|w| w.contains("nope")),
+      "the fallback was silent: {:?}",
+      pages.warnings
+    );
+  }
+
+  /// A face the machine does not have must fall through the format's stack
+  /// rather than fail the render — the whole reason a format names a stack.
+  #[test]
+  fn an_uninstalled_face_does_not_break_the_page() {
+    let source =
+      format!("---\ntitle: Test\nfont: No Such Family At All\n---\n\n{SAMPLE_BODY}");
+    let pages = render_svg_pages(&source, None).expect("typesets anyway");
+    assert!(!pages.svgs.is_empty());
+    // Said once, in the author's terms, rather than as Typst's per-family
+    // misses — and it has to say the document still asks for the face, or the
+    // author deletes a correct choice because their laptop lacks the font.
+    assert_eq!(pages.warnings.len(), 1, "{:?}", pages.warnings);
+    assert!(pages.warnings[0].contains("No Such Family At All"));
+  }
+
+  /// The stack's own misses must never reach the author. This is the warning
+  /// that flooded the Proof pane nine lines at a time.
+  #[test]
+  fn a_formats_own_fallbacks_are_not_reported() {
+    let pages = render_svg_pages(SAMPLE, None).expect("typesets");
+    assert!(
+      !pages
+        .warnings
+        .iter()
+        .any(|w| w.contains("unknown font family")),
+      "{:?}",
+      pages.warnings
+    );
   }
 
   #[test]

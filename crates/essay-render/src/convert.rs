@@ -13,6 +13,10 @@ pub struct FrontMatter {
   pub title: Option<String>,
   pub author: Option<String>,
   pub date: Option<String>,
+  /// The format id this document asks to be set in, lowercased.
+  pub format: Option<String>,
+  /// A font family to put in front of the format's stack.
+  pub font: Option<String>,
 }
 
 pub struct Converted {
@@ -78,6 +82,12 @@ fn parse_front_matter(yaml: &str) -> FrontMatter {
       "title" => fm.title = Some(value),
       "author" => fm.author = Some(value),
       "date" => fm.date = Some(value),
+      // How the document is dressed lives in the document, not in a
+      // preference: two people opening the same file should get the same
+      // page. Both degrade rather than fail — an unknown format falls back to
+      // the default, an uninstalled face falls through the format's stack.
+      "format" => fm.format = Some(value.to_lowercase()),
+      "font" => fm.font = Some(value),
       _ => {}
     }
   }

@@ -309,12 +309,26 @@ pub struct EssayWorld {
 }
 
 impl EssayWorld {
-  pub fn new(main_source: String, template_source: &str, root: Option<PathBuf>) -> Self {
+  /// `library` is the virtual files the document may import, by absolute
+  /// project path — the chosen format and whatever it imports.
+  ///
+  /// A map rather than the single template this used to take, because formats
+  /// share their typography through `/base.typ`. One format that differs from
+  /// another only in page geometry and a title block should not restate every
+  /// rule about quotes, tables and code; when those rules improve, every
+  /// format should improve with them.
+  pub fn new(
+    main_source: String,
+    library: &[(&str, &str)],
+    root: Option<PathBuf>,
+  ) -> Self {
     let main = project_file("/main.typ");
-    let template = project_file("/template.typ");
     let mut sources = HashMap::new();
     sources.insert(main, Source::new(main, main_source));
-    sources.insert(template, Source::new(template, template_source.to_string()));
+    for (path, source) in library {
+      let id = project_file(path);
+      sources.insert(id, Source::new(id, (*source).to_string()));
+    }
     Self {
       main,
       sources,
