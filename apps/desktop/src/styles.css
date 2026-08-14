@@ -59,7 +59,48 @@ body {
 /* One manuscript and one optional margin. File navigation floats from the
    running head, so it never changes the page geometry. The companion claims
    a real margin, but uses the canvas itself rather than drawing a panel. */
+/* ——— Stacking tiers ———
+ *
+ * Named because the numbers alone lie. The trap this scale exists to stop is
+ * real and was shipped once: the companion and a settings layer both sat at
+ * 20, which reads as "same tier" and is not — they are two different roles
+ * that happened to share a number, and no single value for the reading
+ * controls can be correct against both.
+ *
+ * The controls have to be ABOVE the companion, because they float in the
+ * 3.75rem of right padding the open companion reserves for exactly that
+ * purpose, and they are how it is closed. Putting them below made the
+ * companion swallow its own toggle.
+ *
+ * They have to be BELOW anything that claims an answer, because they sit in
+ * the grid's right margin — precisely where a notice puts "Review changes"
+ * and a summoned layer puts "Close" — and a control that eats those clicks is
+ * worse than one that is hard to find.
+ *
+ * Both are true at once, so `companion` and `claim` cannot be one tier.
+ *
+ *   ambient       the page's own edges: the gutter's spine, the edge fades.
+ *   companion     the reading beside the page, as a column.
+ *   controls      what floats over that column and toggles it.
+ *   claim         surfaces inside the manuscript that are mid-sentence with
+ *                 the author: notices, the find strip, settings, fonts, a
+ *                 diff. These win over everything above.
+ *   canvas-owner  the companion again, at widths where it stops being a
+ *                 column and takes the whole canvas. There it has to cover
+ *                 the manuscript layers, because the manuscript is inert
+ *                 behind it and painting a diff over the transcript would be
+ *                 showing an inert surface on top of a live one.
+ *   float         popovers, the palette, selection furniture — anchored to a
+ *                 cursor or a control, above the lot by nature.
+ */
 .essay-shell {
+  --essay-z-ambient: 10;
+  --essay-z-companion: 20;
+  --essay-z-controls: 30;
+  --essay-z-claim: 40;
+  --essay-z-canvas-owner: 60;
+  --essay-z-float: 70;
+
   --essay-companion-track: 0px;
   --essay-companion-width: clamp(21rem, 25vw, 23rem);
 }
@@ -76,24 +117,9 @@ body {
   transition: grid-template-columns 220ms var(--essay-ease-swift);
 }
 
-/* ——— Stacking tiers inside the workspace grid ———
-   10  ambient chrome at the page's edges: the gutter's spine, the edge fades,
-       these reading controls. Always present, never asking for anything.
-   20  surfaces that claim the page or claim an answer: notices, the find
-       strip, the companion, and the layers summoned over the manuscript
-       (settings, fonts, a diff).
-   30+ things that float above everything by nature — the footer's status
-       line, popovers, the palette.
-
-   The controls used to be 30, which put them over every single tier-20
-   surface. That is not a near miss: they float in the *grid's* right margin,
-   which is exactly where a notice puts its buttons and a summoned layer puts
-   its Close, so "Review changes" and "Close" were both catchable by the
-   Structure toggle instead. Tier 10 is where they belong — ambient chrome
-   yields to anything that is mid-sentence with the author. */
 .essay-reading-controls {
   position: absolute;
-  z-index: 10;
+  z-index: var(--essay-z-controls);
   top: 1rem;
   right: 1.25rem;
 }
@@ -106,7 +132,7 @@ body {
 .essay-companion {
   grid-column: 2;
   grid-row: 1;
-  z-index: 20;
+  z-index: var(--essay-z-companion);
   visibility: hidden;
   pointer-events: none;
   opacity: 0;
@@ -167,6 +193,9 @@ body {
     grid-column: 1 / -1;
     grid-row: 1;
     inset: 0;
+    /* It is no longer a column beside the page, it *is* the page — so it
+       stops yielding to the manuscript's own layers and covers them. */
+    z-index: var(--essay-z-canvas-owner);
   }
 
   .essay-companion[data-open] {
@@ -381,7 +410,10 @@ html[data-typing] .essay-chrome:focus-within {
 .essay-edge-fade {
   position: absolute;
   inset-inline: 0;
-  z-index: 10;
+  /* Ambient, and it must stay there. The fade spans the manuscript's full
+     width, so at the top-right it runs under the reading controls; tied at
+     the same tier it won on paint order and blurred them out. */
+  z-index: var(--essay-z-ambient);
   pointer-events: none;
   height: var(--essay-edge-fade-height, 72px);
 }

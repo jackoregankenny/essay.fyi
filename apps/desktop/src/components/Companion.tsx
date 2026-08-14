@@ -40,7 +40,10 @@ export function Companion({
   return (
     <aside
       id="essay-companion-panel"
-      className="essay-companion z-20 flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+      // No z here: `.essay-companion` owns it, and it has to change with the
+      // width (a column beside the page, versus the whole canvas). A utility
+      // alongside it would be a second answer to the same question.
+      className="essay-companion flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
       data-open={open ? '' : undefined}
       data-tenant={visibleTenant}
       aria-hidden={!open}

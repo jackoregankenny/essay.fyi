@@ -1484,12 +1484,13 @@ export function Workspace() {
             waitingOnAuthor={waitingOnAuthor}
             openComments={openCommentCount}
             onToggleTenant={toggleTenant}
-            // Every surface that fills the manuscript column, not just the two
-            // that are modal: the controls overlap the same corner in all
-            // three cases, and a diff's Close is as easy to miss as settings'.
-            // The transcript still sits beside a diff — this hides the
-            // toggles, not the companion they toggle.
-            suppressed={settingsOpen || fontsOpen || review !== null}
+            // Only the modal surfaces. The stacking tiers now stop these
+            // controls eating a layer's Close, so this is about intent rather
+            // than collision: settings and fonts declare `aria-modal`, and
+            // toggles for what is behind a modal should not look live. A diff
+            // is deliberately *not* modal — the transcript sits beside it and
+            // opening or closing that transcript mid-review is reasonable.
+            suppressed={settingsOpen || fontsOpen}
           />
 
           <main
@@ -1501,7 +1502,7 @@ export function Workspace() {
             {/* Notices ask the author a question about their own words and
                 therefore remain in flow above the manuscript. */}
             {recovering && (
-              <div className="relative z-20">
+              <div className="relative z-[var(--essay-z-claim)]">
               <Notice
                 actions={[
                   {
@@ -1529,7 +1530,7 @@ export function Workspace() {
               // from the agent it is showing — there it is already a row with
               // better words on it, and two bars saying the same thing in
               // different language is how an author stops reading either.
-              <div className="relative z-20">
+              <div className="relative z-[var(--essay-z-claim)]">
               <Notice
                 actions={[
                   {
@@ -1559,7 +1560,7 @@ export function Workspace() {
                 Mounted only while open — the strip owns a live controller
                 whose highlights should not outlive the author's ask. */}
             {findOpen && editor && (
-              <div className="relative z-20">
+              <div className="relative z-[var(--essay-z-claim)]">
                 <FindBar
                   editor={editor}
                   summon={findSummon}
@@ -1623,7 +1624,7 @@ export function Workspace() {
                   the companion opens or closes. Hidden in focus mode — the
                   point of focus mode is that nothing else is lit. */}
               {!focusMode && (
-                <div className="essay-chrome essay-manuscript-gutter absolute inset-y-0 z-10 flex">
+                <div className="essay-chrome essay-manuscript-gutter absolute inset-y-0 z-[var(--essay-z-ambient)] flex">
                   <Gutter
                     outline={outline}
                     marks={marks}
@@ -1643,7 +1644,7 @@ export function Workspace() {
               {review && (
                 <Suspense fallback={null}>
                   <DiffReview
-                    className="absolute inset-0 z-20"
+                    className="absolute inset-0 z-[var(--essay-z-claim)]"
                     {...review}
                     onClose={closeReview}
                   />
@@ -1652,7 +1653,7 @@ export function Workspace() {
               {fontsOpen && (
                 <Suspense fallback={null}>
                   <FontsPage
-                    className="absolute inset-0 z-20"
+                    className="absolute inset-0 z-[var(--essay-z-claim)]"
                     // Installing a face changes how the document prints, so a
                     // preview that is open has to re-typeset against the new
                     // set rather than keep showing the fallback.
@@ -1667,7 +1668,7 @@ export function Workspace() {
               {settingsOpen && (
                 <Suspense fallback={null}>
                   <SettingsPage
-                    className="absolute inset-0 z-20"
+                    className="absolute inset-0 z-[var(--essay-z-claim)]"
                     theme={theme}
                     onTheme={chooseTheme}
                     accent={accent}
@@ -1705,7 +1706,7 @@ export function Workspace() {
                 line without ever passing under its counts or durability
                 state. This is still letters on the canvas — no fill, edge,
                 shadow, or separate status-bar material. */}
-            <footer className="essay-chrome pointer-events-none z-30 h-10 shrink-0 text-[11px] font-[510] text-[var(--essay-text-muted)]">
+            <footer className="essay-chrome pointer-events-none z-[var(--essay-z-controls)] h-10 shrink-0 text-[11px] font-[510] text-[var(--essay-text-muted)]">
               <div className="essay-manuscript-orbit mx-auto flex h-full min-w-0 items-center gap-3">
                 {/* The only affordance in the footer that is not a fact about
                     the document, so it is the smallest thing there and sits
