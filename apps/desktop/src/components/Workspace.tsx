@@ -20,7 +20,9 @@ import {
   revealHeading,
   revealPosition,
   setFocusMode,
+  setFrontMatter,
   setManuscript,
+  splitFrontMatter,
   wordCount,
   type DocumentMark,
   type DocumentTask,
@@ -44,6 +46,8 @@ import {
   type DocumentRef,
   type RecoverableBuffer,
 } from '#/lib/documentFile'
+import { readFrontMatter, setFrontMatterKeys } from '#/lib/frontMatter'
+import { listFormats, type Format } from '#/lib/formats'
 import {
   loadMeasure,
   measureLabel,
@@ -354,6 +358,26 @@ export function Workspace() {
     saveMeasure(next)
   }, [])
 
+  /**
+   * The typeface this document declares, read out of its own front matter.
+   *
+   * Derived rather than held, because the manuscript is the truth and it is
+   * not the only thing that writes to it: an agent's patch, a revision
+   * restored, or a document simply being opened all bring a different answer,
+   * and a mirrored copy would be the one that is wrong. Serializing costs
+   * something, so it is computed only while the page that asks is open —
+   * `renderVersion` moves with every change to the buffer, including the write
+   * below, which is what makes the page's mark follow the choice.
+   */
+  const documentFont = useMemo(
+    () =>
+      fontsOpen && editor
+        ? (readFrontMatter(getManuscript(editor)).font ?? null)
+        : null,
+    [fontsOpen, editor, renderVersion],
+  )
+
+
   /* Changing this never moves an image that has already landed: a reference
      that works has to keep working, so the preference only decides where the
      *next* paste goes. */
@@ -446,6 +470,71 @@ export function Workspace() {
     },
     [refreshStats],
   )
+
+  /**
+   * Write metadata into the document without disturbing the prose.
+   *
+   * Both of the choices that reach here — the face and the format — belong to
+   * the file rather than to this machine, so that the document prints the same
+   * in somebody else's hands. That makes them edits: the buffer goes dirty and
+   * autosave follows. Writing when nothing changed would spend an autosave on
+   * a click that asked for what was already true, so the source is compared
+   * first and an unchanged one returns.
+   *
+   * `setFrontMatter` rather than `setManuscript`, and the difference is not
+   * small. Front matter is held beside the editor, never inside it, so
+   * replacing the buffer to change two words of metadata would reparse and
+   * swap the whole ProseMirror document: every comment's live range collapsed
+   * and re-placed, and a full-document replacement pushed onto the undo stack,
+   * so one Ctrl+Z after choosing a format would take the format *and* whatever
+   * the author last typed. Nothing observes a WeakMap write, which is why
+   * `handleChanged` is called by hand — it is the same funnel a keystroke
+   * takes, so dirty state, the stats and the preview all follow from it.
+   */
+  const writeFrontMatter = useCallback(
+    (updates: Record<string, string | null>) => {
+      if (!editor) return
+      const source = getManuscript(editor)
+      const next = setFrontMatterKeys(source, updates)
+      if (next === source) return
+      setFrontMatter(editor, splitFrontMatter(next).frontMatter)
+      handleChanged(editor)
+    },
+    [editor, handleChanged],
+  )
+
+  /** The family the document is typeset in, or null to fall back to the
+      format's own stack. */
+  const chooseDocumentFont = useCallback(
+    (family: string | null) => writeFrontMatter({ font: family }),
+    [writeFrontMatter],
+  )
+
+  /** The format the document is dressed in. Never cleared to null from here:
+      picking one is always picking one, and the default is what an absent key
+      already means. */
+  const chooseFormat = useCallback(
+    (id: string) => writeFrontMatter({ format: id }),
+    [writeFrontMatter],
+  )
+
+  /** The document's declared format, read the same way as its face. Gated on
+      the proof pane being open for the same reason — serializing the
+      manuscript is not free, and nothing asks while it is shut. */
+  const documentFormat = useMemo(
+    () =>
+      tenant === 'proof' && editor
+        ? (readFrontMatter(getManuscript(editor)).format ?? null)
+        : null,
+    [tenant, editor, renderVersion],
+  )
+
+  /** The built-in formats, fetched once. Empty outside Tauri, which is what
+      makes the picker absent rather than broken in a browser preview. */
+  const [formats, setFormats] = useState<Format[]>([])
+  useEffect(() => {
+    void listFormats().then(setFormats)
+  }, [])
 
   const loadIntoEditor = useCallback(
     (
@@ -1673,6 +1762,12 @@ export function Workspace() {
                     // preview that is open has to re-typeset against the new
                     // set rather than keep showing the fallback.
                     onChanged={() => setRenderVersion((v) => v + 1)}
+                    // Which face this document is set in, and the way to
+                    // change it. A property of the manuscript rather than of
+                    // this machine, so it is read from and written to the
+                    // document's front matter — see `chooseDocumentFont`.
+                    documentFont={documentFont}
+                    onDocumentFont={chooseDocumentFont}
                     onClose={() => {
                       setFontsOpen(false)
                       editor?.commands.focus()
@@ -1838,7 +1933,13 @@ export function Workspace() {
               // its own, and a second one flashing in front of it for the
               // length of a disk read would read as two loads, not one.
               <Suspense fallback={null}>
-                <PrintPane preview={preview} />
+                <PrintPane
+                  preview={preview}
+                  formats={formats}
+                  currentFormat={documentFormat}
+                  onFormat={chooseFormat}
+                  onExport={exportPdf}
+                />
               </Suspense>
             }
             agent={

@@ -26,15 +26,35 @@ import {
  * Essay's own. What an author wants to know is which names they can put in a
  * template; where a face came from is a detail on the row rather than a reason
  * to keep two lists.
+ *
+ * Choosing one here writes `font:` into the document's own front matter, which
+ * is to say it edits the manuscript: the buffer goes dirty and the choice is
+ * undoable, because it is an edit the author made. That is the point rather
+ * than a cost — a typeface held in a preference would print differently on
+ * every machine the file reached, and this way the document carries its own
+ * answer. The face the document names need not exist here; a name this machine
+ * cannot resolve degrades to the format's own stack when it prints, so the
+ * page says so rather than hiding the choice.
  */
 interface FontsPageProps {
   /** Called after the installed set changes, so an open preview re-typesets. */
   onChanged: () => void
+  /** The family the open document's front matter names, verbatim, or null when
+      it leaves the typeface to the format. */
+  documentFont: string | null
+  /** Set the document's face; null clears it back to the format's own stack. */
+  onDocumentFont: (family: string | null) => void
   onClose: () => void
   className?: string
 }
 
-export function FontsPage({ onChanged, onClose, className }: FontsPageProps) {
+export function FontsPage({
+  onChanged,
+  documentFont,
+  onDocumentFont,
+  onClose,
+  className,
+}: FontsPageProps) {
   const [families, setFamilies] = useState<FontFamily[]>([])
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
@@ -108,6 +128,18 @@ export function FontsPage({ onChanged, onClose, className }: FontsPageProps) {
     : families
   const mine = families.filter((family) => family.installedByAuthor).length
 
+  // Case-insensitively: the renderer lowercases the format value on its way to
+  // a format id but leaves the font value alone, and family names come off the
+  // system with whatever casing they were built with. An author who typed
+  // `font: iowan old style` by hand is naming the same face as this list is.
+  const chosen = documentFont?.trim().toLowerCase() ?? null
+  const isChosen = (family: FontFamily) => family.name.toLowerCase() === chosen
+  // Only claimed once there is a list to claim it against — the families
+  // arrive a tick after the page does, and "this machine does not have it"
+  // flashing before the answer is known would be a lie the author reads.
+  const missing =
+    chosen !== null && families.length > 0 && !families.some(isChosen)
+
   return (
     <section
       aria-label="Fonts"
@@ -158,6 +190,43 @@ export function FontsPage({ onChanged, onClose, className }: FontsPageProps) {
         </p>
       )}
 
+      {/* The one place the current choice can always be seen and undone. The
+          row below carries the same mark, but a machine with three hundred
+          families and a filter box is a poor place to have to find it again —
+          and a face this machine cannot resolve has no row at all. */}
+      {documentFont !== null && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-[var(--essay-border)] px-3 py-2">
+          <p className="min-w-0 flex-1 truncate text-[12px] leading-[1.5] text-[var(--essay-text-muted)]">
+            {missing ? (
+              <>
+                This document asks for “{documentFont}”, which this machine
+                does not have — it will print in the format’s own typeface.
+              </>
+            ) : (
+              <>
+                This document is set in{' '}
+                {/* Named in its own face, like the rows: the answer to "which
+                    one is that?" is the shape of the letters. */}
+                <span
+                  className="text-[var(--essay-text)]"
+                  style={{ fontFamily: `"${documentFont}", var(--essay-font-ui)` }}
+                >
+                  {documentFont}
+                </span>
+                .
+              </>
+            )}
+          </p>
+          <button
+            type="button"
+            onClick={() => onDocumentFont(null)}
+            className="h-7 shrink-0 rounded-md px-2 text-[12px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
+          >
+            Use the format’s typeface
+          </button>
+        </div>
+      )}
+
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[42rem] px-4 py-4">
           {families.length > 12 && (
@@ -199,6 +268,38 @@ export function FontsPage({ onChanged, onClose, className }: FontsPageProps) {
                       {family.installedByAuthor ? ' · added by you' : ''}
                     </p>
                   </div>
+                  {/* Set is the row's verb, so it is the row's button:
+                      hover-revealed like Remove, because a column of three
+                      hundred buttons is a wall rather than an offer. The
+                      chosen one stays lit — it is a fact about the document
+                      and not an action waiting to be taken — and clicking it
+                      again is the way back, which the title says out loud
+                      since a check mark on its own never could. */}
+                  {isChosen(family) ? (
+                    <button
+                      type="button"
+                      onClick={() => onDocumentFont(null)}
+                      aria-pressed
+                      title="Set in this document — click to go back to the format’s own typeface"
+                      className="shrink-0 rounded-md bg-[var(--essay-selection)] px-2 py-1 text-[11px] text-[var(--essay-text)] transition-colors duration-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]"
+                    >
+                      This document
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onDocumentFont(family.name)}
+                      aria-label={`Set this document in ${family.name}`}
+                      title="Set this document in it"
+                      className={cn(
+                        'shrink-0 rounded-md px-2 py-1 text-[11px] text-[var(--essay-text-muted)] opacity-0 transition-opacity duration-100',
+                        'group-hover:opacity-100 focus-visible:opacity-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]',
+                        'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]',
+                      )}
+                    >
+                      Set
+                    </button>
+                  )}
                   {family.installedByAuthor && (
                     <button
                       type="button"
@@ -221,9 +322,11 @@ export function FontsPage({ onChanged, onClose, className }: FontsPageProps) {
 
           <p className="pt-4 text-[11px] leading-[1.6] text-[var(--essay-text-faint)]">
             Essay does not ship fonts of its own — it typesets with what this
-            machine has. Name a typeface in your template to use it. Browsing
-            and downloading open-source families from inside Essay is planned;
-            for now, add files you already have.
+            machine has. Setting a document in one writes the family’s name
+            into the document itself, so the choice travels with the file;
+            a machine without that family prints it in the format’s own
+            typeface instead. Browsing and downloading open-source families
+            from inside Essay is planned; for now, add files you already have.
           </p>
         </div>
       </div>

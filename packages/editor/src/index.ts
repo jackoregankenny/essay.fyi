@@ -57,6 +57,7 @@ export {
 export {
   clearFrontMatter,
   getManuscript,
+  setFrontMatter,
   setManuscript,
   splitFrontMatter,
   type SplitManuscript,

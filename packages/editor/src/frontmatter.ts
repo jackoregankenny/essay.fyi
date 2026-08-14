@@ -123,6 +123,38 @@ export function getManuscript(editor: Editor): string {
   return kept.frontMatter + body + tail
 }
 
+/**
+ * Replace the held front matter, leaving the document alone.
+ *
+ * Metadata is the one part of a manuscript the editor never contains, so
+ * changing it should not touch the editor — and going through `setManuscript`
+ * to do it costs far more than it looks. That reparses the source and swaps
+ * the whole ProseMirror document, which means: every comment's live range is
+ * collapsed and has to be re-placed, the undo stack gains a full-document
+ * replacement so one Ctrl+Z after choosing a format reverts far more than the
+ * format, and the work is proportional to the manuscript rather than to the
+ * two words that changed.
+ *
+ * None of that is necessary. The front matter is a string in a WeakMap; this
+ * sets the string.
+ *
+ * No transaction reaches the editor, so nothing observes this: no `update`
+ * fires, the buffer does not go dirty on its own, and the preview does not
+ * re-run. That is the caller's job, and deliberately so — the host already
+ * owns dirty state and knows which of its own bookkeeping applies.
+ */
+export function setFrontMatter(editor: Editor, frontMatter: string): void {
+  const kept = held.get(editor)
+  if (kept) {
+    held.set(editor, { ...kept, frontMatter })
+    return
+  }
+  // No entry means nothing was ever loaded through `setManuscript`. Defaulting
+  // rather than refusing: the alternative is metadata that silently fails to
+  // stick on a buffer that never went through the front door.
+  held.set(editor, { frontMatter, trailingNewline: '', crlf: false })
+}
+
 /** Forget any held front matter — for a new, empty document. */
 export function clearFrontMatter(editor: Editor): void {
   held.delete(editor)
