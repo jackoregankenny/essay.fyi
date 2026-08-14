@@ -38,6 +38,47 @@
   --essay-weight-medium: 510;
   --essay-weight-semibold: 590;
 
+/* ——— Stacking tiers ———
+ *
+ * Named because the numbers alone lie. The trap this scale exists to stop is
+ * real and was shipped once: the companion and a settings layer both sat at
+ * 20, which reads as "same tier" and is not — they are two different roles
+ * that happened to share a number, and no single value for the reading
+ * controls can be correct against both.
+ *
+ * The controls have to be ABOVE the companion, because they float in the
+ * 3.75rem of right padding the open companion reserves for exactly that
+ * purpose, and they are how it is closed. Putting them below made the
+ * companion swallow its own toggle.
+ *
+ * They have to be BELOW anything that claims an answer, because they sit in
+ * the grid's right margin — precisely where a notice puts "Review changes"
+ * and a summoned layer puts "Close" — and a control that eats those clicks is
+ * worse than one that is hard to find.
+ *
+ * Both are true at once, so `companion` and `claim` cannot be one tier.
+ *
+ *   ambient       the page's own edges: the gutter's spine, the edge fades.
+ *   companion     the reading beside the page, as a column.
+ *   controls      what floats over that column and toggles it.
+ *   claim         surfaces inside the manuscript that are mid-sentence with
+ *                 the author: notices, the find strip, settings, fonts, a
+ *                 diff. These win over everything above.
+ *   canvas-owner  the companion again, at widths where it stops being a
+ *                 column and takes the whole canvas. There it has to cover
+ *                 the manuscript layers, because the manuscript is inert
+ *                 behind it and painting a diff over the transcript would be
+ *                 showing an inert surface on top of a live one.
+ *   float         popovers, the palette, selection furniture — anchored to a
+ *                 cursor or a control, above the lot by nature.
+ */
+  --essay-z-ambient: 10;
+  --essay-z-companion: 20;
+  --essay-z-controls: 30;
+  --essay-z-claim: 40;
+  --essay-z-canvas-owner: 60;
+  --essay-z-float: 70;
+
   --essay-radius-4: 4px;
   --essay-radius-6: 6px;
   --essay-radius-8: 8px;

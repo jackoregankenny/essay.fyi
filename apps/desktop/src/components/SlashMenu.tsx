@@ -222,7 +222,7 @@ export function SlashMenu({ editor }: { editor: Editor }) {
     <div
       role="menu"
       aria-label="Insert block"
-      className="essay-slash-menu essay-pop fixed z-50 w-72 overflow-hidden rounded-[var(--essay-radius-8)] border border-[var(--essay-border)] bg-[var(--essay-surface)] shadow-[var(--essay-shadow-palette)]"
+      className="essay-floating essay-slash-menu essay-pop fixed w-72 overflow-hidden"
       style={{ left: state.left, top: state.top }}
     >
       <div className="border-b border-[var(--essay-border)] px-3 py-2 text-[10px] font-[590] tracking-wider text-[var(--essay-text-faint)] uppercase">

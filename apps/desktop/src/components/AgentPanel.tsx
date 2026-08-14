@@ -958,9 +958,9 @@ function OptionSelect({
           align="start"
           sideOffset={4}
           alignItemWithTrigger={false}
-          className="z-50"
+          className="z-[var(--essay-z-float)]"
         >
-          <Select.Popup className="essay-pop max-h-[320px] min-w-[200px] overflow-y-auto rounded-lg border border-[var(--essay-border)] bg-[var(--essay-surface)] p-1 shadow-[var(--essay-shadow-palette)] outline-none">
+          <Select.Popup className="essay-floating essay-pop max-h-[320px] min-w-[200px] overflow-y-auto p-1 outline-none">
             <Select.List>
               {option.choices.map((choice) => (
                 <Select.Item

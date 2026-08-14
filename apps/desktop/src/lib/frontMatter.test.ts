@@ -10,10 +10,8 @@
  * are the renderer's quirks, and a drift between the two sides means the UI
  * would start reporting a page the typesetter is not setting.
  */
-// @ts-ignore - `bun:test` has no types installed: the app's tsconfig covers
-// `**/*.ts`, and CI installs with `--frozen-lockfile`, so adding `@types/bun`
-// for one import is not free. The runner resolves it; only tsc cannot.
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 
 import { readFrontMatter, setFrontMatterKeys } from './frontMatter'
 
@@ -271,3 +269,53 @@ describe('quoting round-trips', () => {
     )
   })
 })
+
+/**
+ * The other half of a pair. `crates/essay-render/src/convert.rs` runs the same
+ * corpus through the real Rust pipeline and asserts the same answers.
+ *
+ * Two languages means two parsers, and no refactor removes that. What this
+ * removes is the drift: if either side changes how it reads a key, one of the
+ * two tests fails on the same file, in the same commit. Without it the
+ * disagreement is silent — the format menu ticks a format the typesetter is
+ * not using, and nobody finds out until a document prints wrong.
+ */
+describe('parity with the renderer', () => {
+  const corpus = parityCorpus()
+
+  for (const testCase of corpus.cases) {
+    test(testCase.name, () => {
+      const got = readFrontMatter(testCase.source)
+      for (const key of ['title', 'author', 'date', 'format', 'font']) {
+        const wanted = testCase.expect[key]
+        const actual = got[key]
+        if (wanted === undefined) {
+          // Absent means absent on both sides. Half of any drift is one parser
+          // inventing a value the other never saw.
+          expect(actual).toBeUndefined()
+        } else if (key === 'format') {
+          // The one asymmetry, and it is deliberate: Rust lowercases a format
+          // because it is matching an id, while this side preserves what the
+          // author typed because it may be displayed. Compared loosely here so
+          // the corpus stays a statement about parsing rather than about case.
+          expect(actual?.toLowerCase()).toBe(wanted.toLowerCase())
+        } else {
+          expect(actual).toBe(wanted)
+        }
+      }
+    })
+  }
+})
+
+interface ParityCase {
+  name: string
+  source: string
+  expect: Record<string, string>
+}
+
+/** Read from disk rather than imported, so the Rust side and this side are
+    provably looking at one file rather than at two copies that agree today. */
+function parityCorpus(): { cases: ParityCase[] } {
+  const path = new URL('../../../../fixtures/front-matter/parity.json', import.meta.url)
+  return JSON.parse(readFileSync(path, 'utf8')) as { cases: ParityCase[] }
+}

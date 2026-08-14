@@ -45,7 +45,7 @@ export function TopBar({
       // normal flow, so nothing sits under it to click through to — and a
       // drag region that cannot receive mousedown is not a drag region. The
       // same miss stopped `.essay-chrome:hover` from lifting the typing fade.
-      className="essay-chrome pointer-events-auto relative z-40 flex h-10 shrink-0 select-none items-center bg-[var(--essay-editor-bg)] pr-2"
+      className="essay-chrome pointer-events-auto relative z-[var(--essay-z-controls)] flex h-10 shrink-0 select-none items-center bg-[var(--essay-editor-bg)] pr-2"
     >
       <div
         data-tauri-drag-region

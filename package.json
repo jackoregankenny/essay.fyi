@@ -13,5 +13,8 @@
     "icons": "bun run --cwd apps/desktop tauri icon src-tauri/icon.svg && bun run --cwd apps/desktop tauri icon src-tauri/icon-dev.svg -o src-tauri/icons/dev",
     "typecheck": "tsc --noEmit -p apps/desktop",
     "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14"
   }
 }

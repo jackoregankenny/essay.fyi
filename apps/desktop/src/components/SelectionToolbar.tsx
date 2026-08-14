@@ -117,7 +117,7 @@ export function SelectionToolbar({
         if (editor.isActive('codeBlock')) return false
         return editor.isEditable
       }}
-      className="essay-bubble z-[var(--essay-z-float)] flex items-center gap-0.5 rounded-[var(--essay-radius-8)] border border-[var(--essay-border)] bg-[var(--essay-surface)] p-1 shadow-[var(--essay-shadow-palette)] focus-within:border-[var(--essay-border-strong)]"
+      className="essay-floating essay-bubble flex items-center gap-0.5 p-1 focus-within:border-[var(--essay-border-strong)]"
     >
       {marks?.image ? (
         // Keyed by position so selecting a different image resets the inputs.

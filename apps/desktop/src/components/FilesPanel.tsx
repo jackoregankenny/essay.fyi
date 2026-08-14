@@ -42,7 +42,7 @@ export function FilesPanel({
         <IconFolders size={14} />
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Positioner side="bottom" align="start" sideOffset={5} className="z-50">
+        <Popover.Positioner side="bottom" align="start" sideOffset={5} className="z-[var(--essay-z-float)]">
           <Popover.Popup
             id="essay-files-panel"
             aria-label="Files"

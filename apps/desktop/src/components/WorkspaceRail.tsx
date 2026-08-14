@@ -55,15 +55,13 @@ const TENANTS: ReadonlyArray<
  * the manuscript. The controls remain still while their reading opens under
  * them.
  *
- * `suppressed` is the exception to "remain still", and it is not cosmetic.
- * These controls float in the *grid's* right margin at `z-30`, while a layer
- * summoned over the manuscript — settings, fonts, a diff — fills the
- * manuscript column at `z-20`. So the controls sit on top of that layer's
- * top-right corner, which is where a close button goes: aiming at Close and
- * hitting Structure was a real, reproducible miss, not a near one. Raising the
- * layers instead would have been wrong, because a diff must stay *below* the
- * companion so the transcript can sit beside it, and one integer cannot be
- * both above these controls and below that panel.
+ * `suppressed` is the exception to "remain still", and it is about intent
+ * rather than collision. These controls float in the *grid's* right margin,
+ * which is where a summoned layer puts its Close — the two did once fight
+ * over that corner, and the fix was the named stacking tiers in styles.css,
+ * not this flag. What remains is a question of meaning: settings and fonts
+ * declare `aria-modal`, and toggles for what is behind a modal should not
+ * look live. A diff is deliberately not modal, so it keeps them.
  *
  * Suppressing rather than unmounting keeps the fade (`essay-chrome` already
  * owns the transition) and keeps the controls' position from being recomputed

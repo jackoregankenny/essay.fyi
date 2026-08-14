@@ -213,7 +213,7 @@ function FormatSelect({
             ? `Set in ${formatLabel(formats, selected)} — this document asks for ${requested}`
             : undefined
         }
-        className="flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-[var(--essay-border)] bg-[var(--essay-surface)] px-2 text-[12px] text-[var(--essay-text)] transition-colors duration-[var(--essay-speed-quick)] ease-[var(--essay-ease-out)] hover:bg-[var(--essay-surface-hover)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)] data-[popup-open]:bg-[var(--essay-surface-hover)]"
+        className="essay-chip flex h-7 min-w-0 items-center gap-1.5 px-2 text-[12px]"
       >
         {/* Not `Select.Value`: before the first compile there may be no
             selection at all, and a blank chip says less than the word for what
@@ -236,12 +236,12 @@ function FormatSelect({
           // in a 21rem column means the menu lands on top of the pages it is
           // describing.
           alignItemWithTrigger={false}
-          className="z-50"
+          className="z-[var(--essay-z-float)]"
         >
           {/* Wider than the column it opens from, and allowed to be: the menu
               is portalled, so the descriptions get a readable measure instead
               of the companion's width. */}
-          <Select.Popup className="essay-pop max-h-[320px] w-[17rem] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-[var(--essay-border)] bg-[var(--essay-surface)] p-1 shadow-[var(--essay-shadow-palette)] outline-none">
+          <Select.Popup className="essay-floating essay-pop max-h-[320px] w-[17rem] max-w-[calc(100vw-2rem)] overflow-y-auto p-1 outline-none">
             <Select.List>
               {formats.map((format) => (
                 <Select.Item
@@ -312,7 +312,7 @@ function ExportButton({
         // Accent ink on the accent tint, as elsewhere: visibly the action
         // without shouting, and hover deepens the tint in the token's own
         // space rather than filter-brightening it.
-        'bg-[var(--essay-accent-tint)] text-[var(--essay-accent)]',
+        'essay-action',
         // Hover is spoken here rather than as a `hover:` utility so that it is
         // off while the button is disabled — a control that lights up under
         // the pointer and then does nothing is worse than one that does not.
@@ -350,7 +350,7 @@ function Substitution({
   resolved: string
 }) {
   return (
-    <div className="mb-4 flex gap-2 rounded-lg border border-[var(--essay-border)] bg-[var(--essay-surface)] px-2.5 py-2">
+    <div className="essay-inset mb-4 flex gap-2 px-2.5 py-2">
       <Info
         size={13}
         aria-hidden
@@ -394,7 +394,7 @@ function Warnings({ warnings }: { warnings: string[] }) {
   }, [warnings])
 
   return (
-    <div className="mb-4 overflow-hidden rounded-lg border border-[var(--essay-border)] bg-[var(--essay-surface)]">
+    <div className="essay-inset mb-4 overflow-hidden">
       <button
         type="button"
         aria-expanded={open}

@@ -1695,9 +1695,9 @@ export function Workspace() {
                   </>
                 )}
               </div>
-              {/* Above the prose, below the selection furniture (z-40) and the
-                  slash menu (z-50): the edge softens the manuscript, never the
-                  controls the author is aiming at. */}
+              {/* Ambient, the lowest tier there is (styles.css): the edge
+                  softens the manuscript and never the controls the author is
+                  aiming at. */}
               <EdgeFade edge="top" />
               <EdgeFade edge="bottom" />
               {/* The composer holds the range it was opened on (mapped through

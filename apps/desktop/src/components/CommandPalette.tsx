@@ -464,12 +464,12 @@ export function CommandPalette({
             webview is compositing a blur behind a compositor-driven
             transform every frame the popup is animating. */}
         <Dialog.Backdrop
-          className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[2px]"
+          className="fixed inset-0 z-[var(--essay-z-float)] bg-black/20 backdrop-blur-[2px]"
           style={backdropStyle}
         />
         <Dialog.Popup
           style={popupStyle}
-          className="fixed top-[16vh] left-1/2 z-50 w-[560px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-[var(--essay-border)] bg-[var(--essay-surface)] shadow-[var(--essay-shadow-palette)] outline-none"
+          className="essay-floating fixed top-[16vh] left-1/2 w-[560px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-[var(--essay-radius-12)] outline-none"
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <div className="flex items-center gap-2 border-b border-[var(--essay-border)] px-3">

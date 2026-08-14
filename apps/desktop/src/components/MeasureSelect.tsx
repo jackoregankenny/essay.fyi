@@ -39,14 +39,14 @@ export function MeasureSelect({
           // Native-select behaviour floats the popup over the trigger; from a
           // footer that reads as a panel opening over the manuscript.
           alignItemWithTrigger={false}
-          className="z-50"
+          className="z-[var(--essay-z-float)]"
         >
           {/* Entrance by the motion rules, not .essay-pop's fixed 130ms: a
               popover settling at the pointer is quick/ease-out-quint. The
               keyframes are shared; only the timing is spoken in tokens.
               motion-safe gates it, matching what the class does via media
               query. */}
-          <Select.Popup className="min-w-[150px] rounded-lg border border-[var(--essay-border)] bg-[var(--essay-surface)] p-1 shadow-[var(--essay-shadow-palette)] outline-none motion-safe:animate-[essay-pop_var(--essay-speed-quick)_var(--essay-ease-out-quint)_both]">
+          <Select.Popup className="essay-floating min-w-[150px] p-1 outline-none motion-safe:animate-[essay-pop_var(--essay-speed-quick)_var(--essay-ease-out-quint)_both]">
             <Select.List>
               {MEASURES.map((measure) => (
                 <Select.Item

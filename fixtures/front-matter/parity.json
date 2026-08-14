@@ -1,0 +1,85 @@
+{
+  "$comment": [
+    "Front matter is parsed twice: once in Rust, by `parse_front_matter` in",
+    "crates/essay-render/src/convert.rs, which decides what the document is",
+    "typeset as; and once in TypeScript, by `readFrontMatter` in",
+    "apps/desktop/src/lib/frontMatter.ts, which decides what the pickers show",
+    "and write. Two languages means two parsers — that part is not fixable.",
+    "What is fixable is the drift, and this is how: both sides read this file",
+    "and must produce the same answer for every case in it.",
+    "",
+    "The failure this prevents is quiet. If the two disagree, the format menu",
+    "shows a tick beside a format the typesetter is not using, and the author",
+    "is looking at a page that says one thing and a control that says another.",
+    "Nothing throws. Nobody finds out until a document prints wrong.",
+    "",
+    "The odd cases are here on purpose: they are the Rust parser's actual",
+    "behaviour, not an idealised YAML. Anything added here has to be checked",
+    "against what Rust really does, not against what it ought to do.",
+    "",
+    "`expect` holds only the keys the renderer acts on. A key not listed is",
+    "asserted absent on both sides."
+  ],
+  "cases": [
+    {
+      "name": "the ordinary block",
+      "source": "---\ntitle: My Essay\nauthor: Jack\nformat: memo\nfont: Georgia\n---\n\nBody.\n",
+      "expect": { "title": "My Essay", "author": "Jack", "format": "memo", "font": "Georgia" }
+    },
+    {
+      "name": "no block at all",
+      "source": "# Just a heading\n\nBody.\n",
+      "expect": {}
+    },
+    {
+      "name": "a rule in the body is not a delimiter",
+      "source": "Some prose.\n\n---\n\nMore prose.\n\nformat: memo\n",
+      "expect": {}
+    },
+    {
+      "name": "an empty value is no value",
+      "source": "---\nformat:\ntitle: Kept\n---\n\nBody.\n",
+      "expect": { "title": "Kept" }
+    },
+    {
+      "name": "values keep their inner colons",
+      "source": "---\ntitle: A thing: and another\n---\n\nBody.\n",
+      "expect": { "title": "A thing: and another" }
+    },
+    {
+      "name": "quotes are stripped, both kinds",
+      "source": "---\ntitle: \"Quoted\"\nauthor: 'Single'\n---\n\nBody.\n",
+      "expect": { "title": "Quoted", "author": "Single" }
+    },
+    {
+      "name": "the last duplicate wins",
+      "source": "---\nformat: essay\nformat: report\n---\n\nBody.\n",
+      "expect": { "format": "report" }
+    },
+    {
+      "name": "keys are matched without regard to case",
+      "source": "---\nTitle: Cased\nFORMAT: memo\n---\n\nBody.\n",
+      "expect": { "title": "Cased", "format": "memo" }
+    },
+    {
+      "name": "a line with no colon is skipped rather than fatal",
+      "source": "---\nthis line has no colon\ntitle: Survives\n---\n\nBody.\n",
+      "expect": { "title": "Survives" }
+    },
+    {
+      "name": "CRLF is a line ending like any other",
+      "source": "---\r\ntitle: Windows\r\nformat: rfc\r\n---\r\n\r\nBody.\r\n",
+      "expect": { "title": "Windows", "format": "rfc" }
+    },
+    {
+      "name": "surrounding whitespace is not part of the value",
+      "source": "---\ntitle:    Padded   \n---\n\nBody.\n",
+      "expect": { "title": "Padded" }
+    },
+    {
+      "name": "an unbalanced quote is stripped too, because trimming is not parsing",
+      "source": "---\nformat: \"memo\n---\n\nBody.\n",
+      "expect": { "format": "memo" }
+    }
+  ]
+}

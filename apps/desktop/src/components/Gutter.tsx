@@ -694,6 +694,12 @@ export function Gutter({
           caption) but tabIndex -1 and aria-hidden: keyboard and AT users
           already have the tick buttons, and thirty duplicate tab stops that
           exist only mid-hover would be noise, not access. */}
+      {/* The three layers below stack among themselves and nowhere else: the
+          container this nav sits in carries a z-index, which opens a stacking
+          context, so these numbers are private to the fan. They are plain
+          numbers rather than workspace tokens for exactly that reason — using
+          the shared scale here would imply a relationship that does not
+          exist. */}
       {mounted && outline.length > 0 && (
         <>
           {/* Footprint: always the hit area, a visible plate only when the

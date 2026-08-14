@@ -118,8 +118,7 @@ export function CommentComposer({
       aria-label="Comment on selection"
       style={style}
       className={cn(
-        'absolute z-[var(--essay-z-float)] w-80 rounded-[var(--essay-radius-8)] border border-[var(--essay-border)]',
-        'bg-[var(--essay-surface)] p-2.5 shadow-[var(--essay-shadow-palette)]',
+        'essay-floating absolute w-80 p-2.5',
         'motion-safe:animate-[essay-pop_var(--essay-speed-quick)_var(--essay-ease-out)_both]',
       )}
     >

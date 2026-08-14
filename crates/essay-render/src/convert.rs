@@ -497,6 +497,53 @@ mod tests {
     assert!(converted.body.contains("#highlight[this bit]"));
   }
 
+  /// Both sides of the app parse front matter, in two languages, and they have
+  /// to agree. `fixtures/front-matter/parity.json` is the shared answer key;
+  /// the TypeScript half of this pair lives in
+  /// `apps/desktop/src/lib/frontMatter.test.ts` and reads the same file.
+  ///
+  /// Run through `markdown_to_typst` rather than `parse_front_matter` directly,
+  /// because block detection is half of what has to agree: whether a `---`
+  /// opens metadata or draws a rule is decided by the markdown parser, not by
+  /// the key reader, and a disagreement there is just as silent.
+  #[test]
+  fn front_matter_parses_the_same_as_the_frontend() {
+    let raw = std::fs::read_to_string(
+      concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/front-matter/parity.json"),
+    )
+    .expect("the parity corpus is committed beside the fixtures");
+    let corpus: serde_json::Value = serde_json::from_str(&raw).expect("valid JSON");
+
+    for case in corpus["cases"].as_array().expect("cases is an array") {
+      let name = case["name"].as_str().unwrap_or("unnamed");
+      let source = case["source"].as_str().expect("every case has a source");
+      let expect = &case["expect"];
+      let fm = markdown_to_typst(source, false).front_matter;
+
+      // A key absent from `expect` is asserted absent, not ignored — half of
+      // the drift this guards against is one side inventing a value.
+      let got = [
+        ("title", fm.title.as_deref()),
+        ("author", fm.author.as_deref()),
+        ("date", fm.date.as_deref()),
+        ("format", fm.format.as_deref()),
+        ("font", fm.font.as_deref()),
+      ];
+      for (key, actual) in got {
+        let wanted = expect.get(key).and_then(|v| v.as_str());
+        // `format` is the one value this side lowercases, so the corpus is
+        // compared case-insensitively for it. The asymmetry is real and
+        // deliberate — an id is matched, a name is displayed — and writing it
+        // down here is cheaper than discovering it from a mismatched menu.
+        let same = match (key, wanted, actual) {
+          ("format", Some(w), Some(a)) => w.eq_ignore_ascii_case(a),
+          _ => wanted == actual,
+        };
+        assert!(same, "{name}: {key} expected {wanted:?}, got {actual:?}");
+      }
+    }
+  }
+
   #[test]
   fn lifts_front_matter() {
     let converted = convert("---\ntitle: My Essay\nauthor: Jack\n---\n\nBody.\n");
