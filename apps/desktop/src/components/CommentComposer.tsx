@@ -5,6 +5,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type Ref,
 } from 'react'
 import { ChatCircle } from '@phosphor-icons/react'
 import type { Editor } from '@essay/editor'
@@ -41,6 +42,8 @@ export function CommentComposer({
 }) {
   const cardRef = useRef<HTMLDivElement>(null)
   const fieldRef = useRef<HTMLTextAreaElement>(null)
+  /** Where focus goes when the card has no field — see the open effect. */
+  const fallbackRef = useRef<HTMLButtonElement>(null)
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
   const [style, setStyle] = useState<CSSProperties>({ visibility: 'hidden' })
@@ -70,7 +73,15 @@ export function CommentComposer({
       top = Math.max(8, coords.top - parentRect.top - height - 8)
     }
     setStyle({ top, left })
-    fieldRef.current?.focus({ preventScroll: true })
+    // Focus has to leave the manuscript, and it has to do so on *both*
+    // branches. Only the composing branch has a field, and the branch without
+    // one is the ordinary case — Essay opens on an untitled buffer, so the
+    // first comment anyone ever tries is the one that renders "save first".
+    // Focusing nothing left the caret in ProseMirror behind an open card, and
+    // the next keystroke went into the prose: the author typed their comment
+    // into the paragraph they were commenting on.
+    const target = fieldRef.current ?? fallbackRef.current
+    target?.focus({ preventScroll: true })
     // Measured once at open, on purpose: the card does not chase the text.
   }, [])
 
@@ -107,8 +118,8 @@ export function CommentComposer({
       aria-label="Comment on selection"
       style={style}
       className={cn(
-        'absolute z-30 w-80 rounded-lg border border-[var(--essay-border)]',
-        'bg-[var(--essay-surface)] p-2.5 shadow-[var(--essay-shadow-medium)]',
+        'absolute z-[var(--essay-z-float)] w-80 rounded-[var(--essay-radius-8)] border border-[var(--essay-border)]',
+        'bg-[var(--essay-surface)] p-2.5 shadow-[var(--essay-shadow-palette)]',
         'motion-safe:animate-[essay-pop_var(--essay-speed-quick)_var(--essay-ease-out)_both]',
       )}
     >
@@ -124,7 +135,7 @@ export function CommentComposer({
           </p>
           <div className="flex justify-end gap-1.5">
             <ComposerButton onClick={onCancel}>Cancel</ComposerButton>
-            <ComposerButton primary onClick={onSaveFirst}>
+            <ComposerButton ref={fallbackRef} primary onClick={onSaveFirst}>
               Save document…
             </ComposerButton>
           </div>
@@ -167,14 +178,18 @@ function ComposerButton({
   primary,
   disabled,
   onClick,
+  ref,
 }: {
   children: string
   primary?: boolean
   disabled?: boolean
   onClick: () => void
+  /** So the card can put focus here when it has no field to put it in. */
+  ref?: Ref<HTMLButtonElement>
 }) {
   return (
     <button
+      ref={ref}
       type="button"
       disabled={disabled}
       onClick={onClick}

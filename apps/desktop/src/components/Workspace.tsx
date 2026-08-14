@@ -326,6 +326,8 @@ export function Workspace() {
   /** Journal key for the open buffer: its path once saved, a per-launch id
       before that. A ref, not state, so loading a document can retire the old
       key and adopt the new one in one pass. */
+  /** The comment verb, for the keymap declared before it exists. */
+  const beginCommentRef = useRef<() => void>(() => {})
   const docKeyRef = useRef(newUntitledKey())
   /** Latest document state for the external-change listener, which is
       registered once and would otherwise close over the first render. */
@@ -1159,6 +1161,13 @@ export function Workspace() {
       } else if (key === 'k') {
         event.preventDefault()
         setPaletteOpen((open) => !open)
+      } else if (key === 'm' && event.altKey) {
+        // Ctrl+Alt+M / ⌥⌘M — what Word and Google Docs both bind, so the
+        // muscle memory is already there. Alt-modified so it cannot collide
+        // with the manuscript's own Ctrl+M, and gated on a real selection:
+        // commenting on nothing is not a thing to silently half-do.
+        event.preventDefault()
+        beginCommentRef.current()
       } else if (key === ',') {
         // The one binding every desktop app already agreed on. Toggles rather
         // than opens, so the same keystroke puts the author back on the page.
@@ -1334,6 +1343,11 @@ export function Workspace() {
   )
 
   /** The one entrance to the composer: toolbar button, palette command. */
+  // Read by the window keymap, which is registered above this line: the
+  // composer needs the comments controller, and that needs the editor, so the
+  // callback cannot be declared before the effect that fires it. Same shape as
+  // `imageStoreRef` — assigned on render so the keystroke never calls a stale
+  // closure, and never a reason to re-register the whole keymap.
   const beginComment = useCallback(() => {
     if (!editor) return
     const selection = editor.state.selection
@@ -1342,6 +1356,7 @@ export function Workspace() {
     if (selection.empty || 'node' in selection) return
     comments.beginComposer(selection.from, selection.to)
   }, [editor, comments])
+  beginCommentRef.current = beginComment
 
   const openSpans = comments.items.reduce<CommentRange[]>((spans, item) => {
     if (item.thread.state !== 'open') return spans
@@ -1375,7 +1390,7 @@ export function Workspace() {
       { id: 'file.prevTab', title: 'Previous document', group: 'File', shortcut: CYCLE_TAB_BACK_LABEL, keywords: 'switch tab cycle back', run: () => cycleTab(-1) },
       { id: 'file.exportPdf', title: 'Export PDF…', group: 'File', keywords: 'typeset print render', run: () => void exportPdf() },
       { id: 'file.checkpoint', title: 'Mark this version', group: 'File', keywords: 'checkpoint history revision snapshot milestone draft sent', run: () => void checkpoint() },
-      { id: 'comment.selection', title: 'Comment on selection', group: 'File', keywords: 'comment annotate note thread discuss passage review', run: beginComment },
+      { id: 'comment.selection', title: 'Comment on selection', group: 'File', shortcut: shortcut('Ctrl+Alt+M'), keywords: 'comment annotate note thread discuss passage review', run: beginComment },
       { id: 'file.findInDocument', title: 'Find in document…', group: 'File', shortcut: shortcut('Ctrl+F'), keywords: 'find replace search this document match next previous', run: summonFind },
       { id: 'file.find', title: 'Search across folders…', group: 'File', keywords: 'search find look for text grep phrase across folders project workspace', run: () => setPaletteOpen(true) },
       { id: 'file.folders', title: 'Browse folders…', group: 'File', keywords: 'explorer workspace tree files directory root', run: openFiles },

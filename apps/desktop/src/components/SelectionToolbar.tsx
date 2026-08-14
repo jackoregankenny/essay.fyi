@@ -27,6 +27,7 @@ import {
 } from '@phosphor-icons/react'
 import type { Editor } from '@essay/editor'
 import { cn } from '#/lib/cn'
+import { shortcut } from '#/lib/platform'
 import { replaceImage } from '#/lib/images'
 
 type ColumnAlign = 'left' | 'center' | 'right' | null
@@ -116,7 +117,7 @@ export function SelectionToolbar({
         if (editor.isActive('codeBlock')) return false
         return editor.isEditable
       }}
-      className="essay-bubble z-40 flex items-center gap-0.5 rounded-[var(--essay-radius-6)] border border-[var(--essay-border)] bg-[var(--essay-surface)] p-1 shadow-[var(--essay-shadow-low)] focus-within:border-[var(--essay-border-strong)]"
+      className="essay-bubble z-[var(--essay-z-float)] flex items-center gap-0.5 rounded-[var(--essay-radius-8)] border border-[var(--essay-border)] bg-[var(--essay-surface)] p-1 shadow-[var(--essay-shadow-palette)] focus-within:border-[var(--essay-border-strong)]"
     >
       {marks?.image ? (
         // Keyed by position so selecting a different image resets the inputs.
@@ -166,7 +167,7 @@ export function SelectionToolbar({
             <>
               <span className="mx-0.5 h-4 w-px bg-[var(--essay-border)]" />
               <FormatButton
-                title="Comment on selection"
+                title={`Comment on selection — ${shortcut('Ctrl+Alt+M')}`}
                 onClick={() => {
                   const { from, to } = editor.state.selection
                   onComment(from, to)

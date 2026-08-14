@@ -13,6 +13,15 @@ export interface PreviewState {
   warnings: string[]
   error: string | null
   pageCount: number
+  /**
+   * What the last completed compile was actually set in, and — only when the
+   * document named a format that does not exist here — what it asked for. The
+   * fallback also arrives as a warning; these carry the same news in a form
+   * the pane can act on rather than print.
+   */
+  formatId: string | null
+  formatLabel: string | null
+  requestedFormat: string | null
 }
 
 const INITIAL: PreviewState = {
@@ -21,11 +30,17 @@ const INITIAL: PreviewState = {
   warnings: [],
   error: null,
   pageCount: 0,
+  formatId: null,
+  formatLabel: null,
+  requestedFormat: null,
 }
 
 interface RenderedDocument {
   pages: string[]
   warnings: string[]
+  formatId: string
+  formatLabel: string
+  requestedFormat: string | null
 }
 
 const DEBOUNCE_MS = 500
@@ -46,7 +61,17 @@ export function usePreview(
 
   useEffect(() => {
     if (!enabled || !editor) {
-      setState((s) => ({ ...INITIAL, pages: s.pages, pageCount: s.pageCount }))
+      // The format is kept alongside the stale pages for the same reason they
+      // are: it is still what this document is set in, and dropping it would
+      // blank a menu the moment the pane closes.
+      setState((s) => ({
+        ...INITIAL,
+        pages: s.pages,
+        pageCount: s.pageCount,
+        formatId: s.formatId,
+        formatLabel: s.formatLabel,
+        requestedFormat: s.requestedFormat,
+      }))
       return
     }
     if (!isTauri()) {
@@ -69,6 +94,9 @@ export function usePreview(
             warnings: result.warnings,
             error: null,
             pageCount: result.pages.length,
+            formatId: result.formatId,
+            formatLabel: result.formatLabel,
+            requestedFormat: result.requestedFormat,
           })
         })
         .catch((err: unknown) => {

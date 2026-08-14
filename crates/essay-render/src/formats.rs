@@ -20,11 +20,19 @@
 /// Shared typography, imported by every format as `/base.typ`.
 pub const BASE: &str = include_str!("../../../templates/base.typ");
 
+/// Serialized as-is to the WebView, so a picker is a list of these rather than
+/// a second copy of the same three strings maintained in the shell.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Format {
   pub id: &'static str,
   pub label: &'static str,
   /// One line, in the author's terms: what kind of document this is for.
   pub description: &'static str,
+  /// Held back from the wire: what crosses is a menu entry, and several
+  /// hundred lines of Typst per format is not something a menu has any use
+  /// for. The compiler reads this field directly.
+  #[serde(skip)]
   pub source: &'static str,
 }
 
@@ -64,6 +72,34 @@ pub struct Resolved {
   /// produced — in the default — and the caller should say so rather than
   /// letting the author wonder why their report looks like an essay.
   pub fell_back_from: Option<String>,
+}
+
+/// What a finished render was actually set in.
+///
+/// The same facts `Resolved` holds, in the shape a caller reports rather than
+/// typesets with. It travels beside the pages because the alternative — the
+/// warning sentence `compile` writes — is prose: a pane can print it, but it
+/// cannot tell from it which format is current, so it cannot show the choice
+/// the author made or offer to correct a name that resolved to nothing.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormatUsed {
+  pub id: &'static str,
+  pub label: &'static str,
+  /// What the document asked for, and only when that is not what it got.
+  /// Both ordinary cases — nothing asked for, or the request honoured — are
+  /// `None`, because neither is news.
+  pub requested: Option<String>,
+}
+
+impl Resolved {
+  pub fn used(&self) -> FormatUsed {
+    FormatUsed {
+      id: self.format.id,
+      label: self.format.label,
+      requested: self.fell_back_from.clone(),
+    }
+  }
 }
 
 fn find(id: &str) -> Option<&'static Format> {
@@ -132,5 +168,31 @@ mod tests {
     let resolved = resolve(None);
     assert_eq!(resolved.format.id, DEFAULT_FORMAT);
     assert!(resolved.fell_back_from.is_none());
+  }
+
+  #[test]
+  fn what_was_used_carries_the_unhonoured_request() {
+    let used = resolve(Some("nonexistent")).used();
+    assert_eq!(used.id, DEFAULT_FORMAT);
+    assert_eq!(used.requested.as_deref(), Some("nonexistent"));
+
+    // A request that was honoured leaves nothing to report, or every render
+    // of every document would arrive looking like a correction.
+    let used = resolve(Some("memo")).used();
+    assert_eq!(used.id, "memo");
+    assert!(used.requested.is_none());
+  }
+
+  /// The picker reads this list off the wire, so the three strings it shows
+  /// have to survive the crossing — and the template body has to not make it,
+  /// since it is the bulk of the payload and no menu wants it.
+  #[test]
+  fn a_format_crosses_as_a_menu_entry() {
+    let json = serde_json::to_value(FORMATS).expect("serializes");
+    let first = &json[0];
+    assert_eq!(first["id"], "essay");
+    assert!(first["label"].is_string());
+    assert!(first["description"].is_string());
+    assert!(first.get("source").is_none());
   }
 }

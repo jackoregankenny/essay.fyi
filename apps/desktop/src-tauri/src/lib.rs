@@ -310,9 +310,18 @@ fn local_author() -> RevisionAuthor {
 }
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RenderedDocument {
   pages: Vec<String>,
   warnings: Vec<String>,
+  /// What the pages were actually set in. Flattened into three fields rather
+  /// than nested, because the fallback is the only one of them a pane ever
+  /// has to notice and burying it a level down invites it being missed.
+  format_id: String,
+  format_label: String,
+  /// The format the document named, when it named one that does not exist
+  /// here. `null` in both of the ordinary cases.
+  requested_format: Option<String>,
 }
 
 /// Typeset the manuscript to SVG pages for the live print preview. Runs on
@@ -325,11 +334,26 @@ async fn render_document(
 ) -> Result<RenderedDocument, String> {
   tauri::async_runtime::spawn_blocking(move || {
     essay_render::render_svg_pages(&source, root.map(Into::into))
-      .map(|pages| RenderedDocument { pages: pages.svgs, warnings: pages.warnings })
+      .map(|pages| RenderedDocument {
+        pages: pages.svgs,
+        warnings: pages.warnings,
+        format_id: pages.format.id.to_string(),
+        format_label: pages.format.label.to_string(),
+        requested_format: pages.format.requested,
+      })
       .map_err(|err| err.to_string())
   })
   .await
   .map_err(|err| err.to_string())?
+}
+
+/// Every format built in, for the picker.
+///
+/// Constants embedded at compile time, so there is nothing to read and nothing
+/// to block on — the list is the same on every machine and cannot fail.
+#[tauri::command]
+fn list_formats() -> &'static [essay_render::formats::Format] {
+  essay_render::formats::FORMATS
 }
 
 /// Typeset the manuscript to a finished PDF at `path`.
@@ -768,6 +792,7 @@ pub fn run() {
       search_project,
       render_document,
       export_pdf,
+      list_formats,
       list_font_families,
       install_font_files,
       remove_font_family,

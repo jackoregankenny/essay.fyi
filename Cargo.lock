@@ -1472,6 +1472,7 @@ dependencies = [
  "fontdb",
  "markdown",
  "serde",
+ "serde_json",
  "thiserror 2.0.19",
  "typst",
  "typst-layout",

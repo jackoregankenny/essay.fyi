@@ -28,5 +28,10 @@ typst-pdf = "0.15.1"
 typst-render = { version = "0.15.1", optional = true }
 typst-svg = "0.15.1"
 
+[dev-dependencies]
+# Only to assert what the format list actually looks like on the wire — the
+# WebView is the consumer of that shape, so JSON is the honest thing to check.
+serde_json.workspace = true
+
 [features]
 png = ["dep:typst-render"]

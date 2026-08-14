@@ -46,6 +46,19 @@ pub enum RenderError {
 pub struct RenderedPages {
   pub svgs: Vec<String>,
   pub warnings: Vec<String>,
+  /// Which format these pages were set in. Beside the warnings rather than
+  /// inside them: a fallback is a sentence to read, but the format is a fact
+  /// the caller acts on.
+  pub format: formats::FormatUsed,
+}
+
+/// What one pass of the compiler produced, before it is turned into pages or
+/// bytes. A struct rather than a tuple because the third member is the one
+/// every caller forgets, and a tuple lets it be dropped silently.
+struct Compiled {
+  document: PagedDocument,
+  warnings: Vec<String>,
+  format: formats::FormatUsed,
 }
 
 /// Compile Markdown straight to SVG pages (the live preview format:
@@ -54,14 +67,19 @@ pub fn render_svg_pages(
   markdown_source: &str,
   root: Option<PathBuf>,
 ) -> Result<RenderedPages, RenderError> {
-  let (document, warnings) = compile(markdown_source, root)?;
+  let compiled = compile(markdown_source, root)?;
   let options = typst_svg::SvgOptions::default();
-  let svgs = document
+  let svgs = compiled
+    .document
     .pages()
     .iter()
     .map(|page| typst_svg::svg(page, &options))
     .collect();
-  Ok(RenderedPages { svgs, warnings })
+  Ok(RenderedPages {
+    svgs,
+    warnings: compiled.warnings,
+    format: compiled.format,
+  })
 }
 
 /// Compile Markdown to a finished PDF.
@@ -69,8 +87,8 @@ pub fn render_pdf(
   markdown_source: &str,
   root: Option<PathBuf>,
 ) -> Result<Vec<u8>, RenderError> {
-  let (document, _) = compile(markdown_source, root)?;
-  typst_pdf::pdf(&document, &typst_pdf::PdfOptions::default())
+  let compiled = compile(markdown_source, root)?;
+  typst_pdf::pdf(&compiled.document, &typst_pdf::PdfOptions::default())
     .map_err(|errors| RenderError::Compilation(format_diagnostics(&errors)))
 }
 
@@ -85,8 +103,9 @@ pub fn render_png_page(
   page_index: usize,
   pixel_per_pt: f32,
 ) -> Result<Vec<u8>, RenderError> {
-  let (document, _) = compile(markdown_source, root)?;
-  let page = document
+  let compiled = compile(markdown_source, root)?;
+  let page = compiled
+    .document
     .pages()
     .get(page_index)
     .ok_or_else(|| RenderError::Compilation(format!("no page {page_index}")))?;
@@ -126,10 +145,7 @@ fn find_bibliography(root: &std::path::Path) -> Option<&'static str> {
     .find(|name| root.join(name).is_file())
 }
 
-fn compile(
-  markdown_source: &str,
-  root: Option<PathBuf>,
-) -> Result<(PagedDocument, Vec<String>), RenderError> {
+fn compile(markdown_source: &str, root: Option<PathBuf>) -> Result<Compiled, RenderError> {
   // Looked for before converting, not after, because it decides whether
   // `[@key]` may become a citation at all: Typst treats a `#cite` with no
   // `#bibliography` as a compile error, so a draft with nowhere to resolve
@@ -189,7 +205,11 @@ fn compile(
     );
   }
   match result.output {
-    Ok(document) => Ok((document, warnings)),
+    Ok(document) => Ok(Compiled {
+      document,
+      warnings,
+      format: resolved.used(),
+    }),
     Err(errors) => Err(RenderError::Compilation(format_diagnostics(&errors))),
   }
 }
@@ -317,6 +337,28 @@ mod tests {
       "the fallback was silent: {:?}",
       pages.warnings
     );
+  }
+
+  /// The pages have to say what they were set in, and say it in a form the
+  /// caller can act on. The warning above is the same news as prose; a pane
+  /// that has to tick the current format in a menu cannot read it from there.
+  #[test]
+  fn the_pages_report_the_format_they_were_set_in() {
+    let asked = format!("---\ntitle: Test\nformat: memo\n---\n\n{SAMPLE_BODY}");
+    let pages = render_svg_pages(&asked, None).expect("typesets");
+    assert_eq!(pages.format.id, "memo");
+    assert_eq!(pages.format.label, "Memo");
+    assert!(pages.format.requested.is_none());
+
+    let missing = format!("---\ntitle: Test\nformat: nope\n---\n\n{SAMPLE_BODY}");
+    let pages = render_svg_pages(&missing, None).expect("falls back");
+    assert_eq!(pages.format.id, formats::DEFAULT_FORMAT);
+    assert_eq!(pages.format.requested.as_deref(), Some("nope"));
+
+    // A document that never asked is not a document that was refused.
+    let pages = render_svg_pages(SAMPLE, None).expect("typesets");
+    assert_eq!(pages.format.id, formats::DEFAULT_FORMAT);
+    assert!(pages.format.requested.is_none());
   }
 
   /// A face the machine does not have must fall through the format's stack
