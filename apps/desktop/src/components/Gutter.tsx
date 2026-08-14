@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
 import { cn } from '#/lib/cn'
 import type { DocumentMark, OutlineItem } from '@essay/editor'
 
@@ -27,6 +35,22 @@ import type { DocumentMark, OutlineItem } from '@essay/editor'
  * asked, "what is this document", and each label is a click target, so the
  * fan is the navigation surface the 232px pane used to be — rented for the
  * duration of a hover instead of owned permanently.
+ *
+ * The fan opens into room that was reserved for it, not into the page. The
+ * strip is set out from the prose column by the fan's own width (styles.css),
+ * so the labels land in the manuscript's left margin — the fan never had to
+ * change direction, it had to stop being parked against the text. How much
+ * room that actually is depends on the window, so the labels' ceiling is
+ * measured against the live position of the prose rather than assumed.
+ *
+ * Motion is liquid, and deliberately so: the labels do not fade in beside the
+ * ticks, they are extruded out of the spine — scaled down and pulled back into
+ * it, then springing out past their resting place and settling. A goo filter
+ * (blur + alpha contrast, the metaball trick) is applied to a shadow copy of
+ * the fan that carries the pill shapes with the text made invisible, so the
+ * pills merge into one body while they are still stacked at the spine and
+ * separate as they travel. Text renders on top, unfiltered and sharp; the
+ * duplicate markup is what buys the pills their widths without measuring.
  *
  * Usage (the Workspace shell owns the data, same as OutlinePane did):
  *
@@ -69,19 +93,63 @@ const LEVEL_INSET = 2
  * past the cap the rest of the fan lands together, which is fine: the sweep
  * only needs to be legible at the top to read as motion, not assembly. */
 const OPEN_INTENT_MS = 80
-const CLOSE_GRACE_MS = 120
-const STAGGER_MS = 14
-const STAGGER_CAP_MS = 250
-/** Matches --essay-speed-quick; how long the exit fade is given to finish. */
-const EXIT_MS = 140
+const CLOSE_GRACE_MS = 140
+const STAGGER_MS = 20
+const STAGGER_CAP_MS = 300
+/** How long the exit is given to finish before the fan leaves the DOM. */
+const EXIT_MS = 180
 
-/* Fan geometry. A label row is ~26px tall (12px text, 8px padding, borders);
- * LABEL_GAP is that plus a hair of air, and LABEL_PAD keeps the first and
- * last rows clear of the nav's edges. Ticks sit ~11px apart, so labels
- * pinned to their ticks would overlap into an unreadable pile — see
- * `spreadPositions`. */
-const LABEL_GAP = 28
+/* The spring. `ARRIVE` overshoots — a label travels past its resting place and
+ * comes back, which is what separates "a panel appeared" from "something was
+ * pulled out of the rail". It is only usable on transform and opacity; on a
+ * layout property an overshoot is a reflow past the target and back.
+ * `SETTLE` has no overshoot and is for the emphasis swap under a moving
+ * pointer, where a bounce per row would read as the fan being nervous. */
+const ARRIVE = 'cubic-bezier(0.34, 1.42, 0.5, 1)'
+const SETTLE = 'cubic-bezier(0.22, 0.9, 0.28, 1)'
+const ARRIVE_MS = 380
+
+/* The goo. Blur radius sets how far apart two pills can be and still read as
+ * one body; contrast is how hard the resulting edge is. 6/18 is the pairing
+ * the liquid-gooey playground settles on and it holds here: at LABEL_GAP the
+ * resting fan is clearly separate shapes, and at the closed position — every
+ * pill stacked on its own tick, ~11px apart — they are one. */
+const GOO_BLUR = 6
+const GOO_CONTRAST = 18
+
+/* The two layers render the same box; only the ink differs. Shared rather
+ * than duplicated because a divergence between them is a shape that does not
+ * fit its own text, and nothing in the rendering would say so. */
+/* No `will-change`: a 60-section document would hand the compositor 120
+ * promoted layers for a hover ornament, which is the documented way to make
+ * `will-change` cost more than it saves. The goo layer is promoted anyway by
+ * having a filter, and the label layer animates transform and opacity only. */
+const PILL =
+  'absolute flex items-baseline gap-1.5 rounded-full px-2.5 py-1 whitespace-nowrap'
+const TITLE = 'min-w-0 overflow-hidden text-xs text-ellipsis'
+const COUNT = 'shrink-0 text-[10px] tabular-nums'
+
+/* Fan geometry. A pill is ~26px tall (12px text, 8px padding); LABEL_GAP is
+ * that plus real air, and LABEL_PAD keeps the first and last rows clear of the
+ * nav's edges. Ticks sit ~11px apart, so labels pinned to their ticks pile up
+ * unreadably — see `spreadPositions`. The gap is wider than the old 28 because
+ * the goo needs the *resting* fan to be visibly separate shapes: at a 2px gap
+ * a 6px blur welds the column into one slab and the liquid never reads. */
+const LABEL_GAP = 34
 const LABEL_PAD = 16
+
+/* How wide a label may get. Headings run long and `whitespace-nowrap` has no
+ * opinion about it, so the ceiling is the room actually measured between the
+ * spine and the first character of prose — one 90-character section title
+ * does not get to decide how far the fan reaches into the page. MIN_LABEL is
+ * the floor for a window with no margin left to give: below it the fan is
+ * overlapping prose whatever we do, and legible-but-overlapping beats a
+ * column of ellipses. */
+const MIN_LABEL = 150
+const MAX_LABEL = 320
+const FAN_EDGE_PAD = 16
+/** How far a label starts from the spine, before its level indent. */
+const LABEL_LEAD = 8
 
 /** Sqrt scale: a 4000-word chapter reads as heavy without making every
  * ordinary section indistinguishable at the 4px floor. */
@@ -150,23 +218,26 @@ function spreadPositions(
   return fitted
 }
 
-/** The theme's motion tokens deliberately do not zero themselves under
- * reduced motion (see theme.css); JS-driven choreography checks for itself.
- * Under reduce the fan appears and leaves by opacity alone: no slide, no
- * stagger. */
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(
-    () =>
-      typeof window !== 'undefined' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+/**
+ * The theme's motion tokens deliberately do not zero themselves under reduced
+ * motion (see theme.css), and the goo and the plate are both set from JS
+ * rather than from a stylesheet — an inline `filter` cannot be undone by a
+ * media query without `!important`. So every accessibility preference this
+ * component answers is read here and branched on in the render, where the
+ * decision is visible beside the thing it changes.
+ */
+function useMedia(query: string): boolean {
+  const [matches, setMatches] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
   )
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const onChange = () => setReduced(mq.matches)
+    const mq = window.matchMedia(query)
+    const onChange = () => setMatches(mq.matches)
+    setMatches(mq.matches)
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
-  }, [])
-  return reduced
+  }, [query])
+  return matches
 }
 
 export function Gutter({
@@ -178,8 +249,17 @@ export function Gutter({
   onSelect,
 }: GutterProps) {
   const navRef = useRef<HTMLElement>(null)
+  const labelsRef = useRef<HTMLDivElement>(null)
   const tickRefs = useRef<(HTMLButtonElement | null)[]>([])
-  const reducedMotion = usePrefersReducedMotion()
+  const reducedMotion = useMedia('(prefers-reduced-motion: reduce)')
+  /** Melted edges are the opposite of what this preference asks for, so the
+      goo comes off and the pills get a hard edge of their own instead. */
+  const highContrast = useMedia('(prefers-contrast: more)')
+  /** The plate stops being frosted canvas and becomes canvas. */
+  const solidSurfaces = useMedia('(prefers-reduced-transparency: reduce)')
+  /** Per-instance, because two gutters on one page sharing a filter id is a
+      silent bug: the second one's `url(#…)` resolves to the first's element. */
+  const gooId = `essay-goo${useId()}`
 
   // Fan lifecycle is two booleans, not one: `mounted` keeps the labels in the
   // DOM, `shown` drives the transition. Entering flips them a frame apart
@@ -190,8 +270,29 @@ export function Gutter({
   // the UI arriving.
   const [mounted, setMounted] = useState(false)
   const [shown, setShown] = useState(false)
-  /** Vertical centre of each tick, in nav space, measured at open. */
+  /** The arrival is over. Until it is, every label carries its stagger delay
+      and the spring; after it, the same transform property has to answer a
+      moving pointer immediately, so the transition is swapped for a short
+      settle. Without this, emphasising a row waits out its entrance delay and
+      then bounces — the fan reads as sluggish exactly when it is being used. */
+  const [settled, setSettled] = useState(false)
+  /** Vertical centre of each tick, in nav space, measured at open — where a
+      label sits *before* the fan opens, packed against its tick. */
+  const [anchors, setAnchors] = useState<number[]>([])
+  /** Where it travels to: the same anchors, spread far enough apart to read. */
   const [tops, setTops] = useState<number[]>([])
+  /** How wide a label may be — the room between the spine and the prose,
+      measured at open, because the companion opening or the window resizing
+      both change it. */
+  const [labelMax, setLabelMax] = useState(MAX_LABEL)
+  /** The page has no margin left to lend: the fan cannot avoid the prose at
+      this width, so it stops behaving like marginalia and becomes a layer. */
+  const [cramped, setCramped] = useState(false)
+  /** How far the widest row actually reaches. `labelMax` is a ceiling, not a
+      width — a plate drawn to the ceiling has dead space beside every title
+      short enough not to need it. Only knowable once the rows have laid out,
+      so this is measured rather than computed. */
+  const [fanWidth, setFanWidth] = useState(0)
   /** pos of the tick/label under the pointer; falls back to activePos. */
   const [hoverPos, setHoverPos] = useState<number | null>(null)
 
@@ -219,15 +320,54 @@ export function Gutter({
     const nav = navRef.current
     if (!nav) return
     const navRect = nav.getBoundingClientRect()
-    const anchors = tickRefs.current.slice(0, outline.length).map((el) => {
+    // Room is measured to the first character of prose, not to the prose
+    // element's border box: the column carries 1.5rem of padding that the fan
+    // is welcome to sit in. Measured live rather than derived from
+    // --essay-measure, because the companion, the writing-width preference and
+    // the window all move that edge and only the element knows where it ended
+    // up. No prose on the page (a host embedding the gutter alone) falls back
+    // to the ceiling rather than to zero.
+    const prose = document.querySelector('.essay-prose')
+    const textLeft = prose
+      ? prose.getBoundingClientRect().left +
+        parseFloat(getComputedStyle(prose).paddingLeft || '0')
+      : navRect.right + MAX_LABEL + FAN_EDGE_PAD
+    // The deepest label's lead comes out of the budget too, or the ceiling is
+    // the room from the *spine* and the indented rows spend it overshooting.
+    const lead =
+      LABEL_LEAD +
+      outline.reduce(
+        (deepest, item) =>
+          Math.max(
+            deepest,
+            Math.min((item.level - 1) * LEVEL_INSET, STRIP_WIDTH - MIN_TICK) * 2,
+          ),
+        0,
+      )
+    const room = textLeft - navRect.right - lead - FAN_EDGE_PAD
+    // Below the floor the labels are over prose whatever we do. That is not a
+    // reason to pretend otherwise: the backing surface comes on, and what was
+    // a fan in the margin reads as a panel over the page.
+    const tight = room < MIN_LABEL
+    setCramped(tight)
+    // And once it *is* a panel it should be one. Squeezing titles to 150px
+    // while covering the paragraph anyway is the worst of both: the reader
+    // loses the prose and still cannot read the outline. A panel is measured
+    // against the window it floats in, not against the margin it did not get.
+    const panel = window.innerWidth - navRect.right - lead - FAN_EDGE_PAD * 2
+    setLabelMax(
+      Math.max(MIN_LABEL, Math.min(MAX_LABEL, tight ? panel : room)),
+    )
+    const ticks = tickRefs.current.slice(0, outline.length).map((el) => {
       if (!el) return 0
       const rect = el.getBoundingClientRect()
       return rect.top - navRect.top + rect.height / 2
     })
+    setAnchors(ticks)
     setTops(
-      spreadPositions(anchors, LABEL_GAP, LABEL_PAD, navRect.height - LABEL_PAD),
+      spreadPositions(ticks, LABEL_GAP, LABEL_PAD, navRect.height - LABEL_PAD),
     )
-  }, [outline.length])
+  }, [outline])
 
   const openFan = () => {
     if (closeTimer.current !== null) {
@@ -268,29 +408,72 @@ export function Gutter({
     }, CLOSE_GRACE_MS)
   }
 
-  // The entrance flip: first frame commits the off-stage style (faded,
-  // slid left), the rAF pair flips it so every label transitions in. Raced
-  // against a timeout because a suspended-rAF environment (occluded window,
-  // embedded webview) would otherwise leave the fan permanently invisible.
-  useEffect(() => {
-    if (!mounted || shown) return
-    let inner: number | null = null
-    const outer = requestAnimationFrame(() => {
-      inner = requestAnimationFrame(() => setShown(true))
-    })
-    const fallback = window.setTimeout(() => setShown(true), 50)
-    return () => {
-      cancelAnimationFrame(outer)
-      if (inner !== null) cancelAnimationFrame(inner)
-      clearTimeout(fallback)
-    }
-  }, [mounted, shown])
-
   // Outline changed while the fan is out (agent edit, autosave re-weigh):
   // re-measure so labels track their ticks rather than the old geometry.
   useEffect(() => {
     if (mounted) measure()
   }, [mounted, measure])
+
+  // Resizing the window while the fan is out moves the manuscript under it and
+  // takes room off the labels' ceiling. Listened for only while mounted: this
+  // is hover-only chrome and costs nothing when idle.
+  useEffect(() => {
+    if (!mounted) return
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [mounted, measure])
+
+  /**
+   * Size the plate, then start the entrance — in that order, in one layout
+   * effect, because both need the rows measured and the second needs the
+   * first's reflow.
+   *
+   * The entrance is the subtle half. A transition interpolates between two
+   * *computed* styles, and a freshly mounted element that is told to open in
+   * the same recalculation has only one: the browser has nothing to travel
+   * from, so it snaps, and the spring never plays. This used to be handled
+   * with a double `requestAnimationFrame`, which was wrong twice over — it
+   * assumed React would not coalesce the two commits, and it assumed frames
+   * exist at all, which is false in an occluded window where rAF is
+   * suspended and the fan would then be stuck invisible.
+   *
+   * Reading geometry forces the folded state to be computed. After that the
+   * open state is a second, different computed style and the transition has
+   * its two ends. No frames required, no timing assumed.
+   */
+  useLayoutEffect(() => {
+    const el = labelsRef.current
+    if (!mounted || !el) return
+    const rows = Array.from(el.children) as HTMLElement[]
+    if (rows.length > 0) {
+      // `offsetLeft` carries each row's lead and level indent, and neither
+      // offset is affected by the entrance transform, so this reads the
+      // resting extent while the fan is still folded into the spine.
+      const reach = Math.max(...rows.map((row) => row.offsetLeft + row.offsetWidth))
+      setFanWidth(reach + LABEL_LEAD)
+    }
+    if (!shown) {
+      void el.getBoundingClientRect()
+      setShown(true)
+    }
+  }, [mounted, shown, labelMax, outline])
+
+  // The arrival's own length: the last label's stagger plus the spring. Timed
+  // rather than driven off transitionend, which fires per property per element
+  // and would need de-duplicating for the one edge it actually marks.
+  useEffect(() => {
+    if (!shown) {
+      setSettled(false)
+      return
+    }
+    if (reducedMotion) {
+      setSettled(true)
+      return
+    }
+    const last = Math.min((outline.length - 1) * STAGGER_MS, STAGGER_CAP_MS)
+    const timer = window.setTimeout(() => setSettled(true), last + ARRIVE_MS)
+    return () => window.clearTimeout(timer)
+  }, [shown, reducedMotion, outline.length])
 
   const maxWords = outline.reduce((m, item) => Math.max(m, item.words), 0)
   const pending = new Set(pendingHeadings ?? [])
@@ -323,6 +506,97 @@ export function Gutter({
   // exactly one emphasised row, because that row is the answer to "where am
   // I" the strip was already giving.
   const emphasisPos = hoverPos ?? activePos
+
+  /**
+   * One description of the fan, rendered twice. Every label's geometry and
+   * motion is decided here so the goo layer and the type layer are literally
+   * the same numbers — the shapes cannot end up somewhere the words are not.
+   *
+   * The travel is the whole effect. Closed, a label sits *on its tick*, pulled
+   * back into the strip and scaled down: at ~11px apart and 26px tall the
+   * pills overlap into a single body under the filter. Open, each one springs
+   * out to its spread position and full size, and the body separates into
+   * rows. `top` therefore stays on the anchor and the spread is carried by
+   * translateY — same pixels, but a transform animates on the compositor where
+   * `top` would lay out thirty elements a frame.
+   */
+  /**
+   * The fan's own footprint, in nav space. Two jobs, which is why it exists
+   * even when it paints nothing.
+   *
+   * It is the hit area. The label column is `pointer-events-none` with only
+   * the pills interactive, so a pointer travelling diagonally from one row to
+   * the next passes over the manuscript, which is outside the nav — the fan
+   * would start closing on the way between two of its own targets. A box
+   * under them, inside the nav, means DOM containment covers the whole
+   * gesture rather than only the pills.
+   *
+   * And when the page has no margin it is the surface: prose showing between
+   * floating pills is what makes an overlay read as a mistake, and a plate
+   * under them is what makes it read as a layer.
+   */
+  const footprint = (() => {
+    if (tops.length === 0) return null
+    const first = tops[0]
+    const last = tops[tops.length - 1]
+    const pad = LABEL_GAP / 2 + 6
+    return {
+      top: first - pad,
+      height: last - first + pad * 2,
+      // Visible, so it hugs its rows. Invisible, so it stays generous: the
+      // ceiling is a better hit area than the ragged right edge of the titles.
+      width: cramped
+        ? fanWidth || LABEL_LEAD + labelMax + LABEL_LEAD
+        : LABEL_LEAD + labelMax + LABEL_LEAD,
+    }
+  })()
+
+  const fan = outline.map((item, i) => {
+    const anchor = anchors[i] ?? 0
+    const spread = (tops[i] ?? 0) - anchor
+    const inset = Math.min((item.level - 1) * LEVEL_INSET, STRIP_WIDTH - MIN_TICK)
+    const emphasised = item.pos === emphasisPos
+    // Entrance sweeps top-to-bottom; the exit is one flip with no delay, so
+    // the fan collapses back into the spine as a single surface.
+    const delay = shown && !reducedMotion ? Math.min(i * STAGGER_MS, STAGGER_CAP_MS) : 0
+    const open = shown && !reducedMotion
+    return {
+      key: `${item.pos}-${i}`,
+      text: item.text || 'Untitled',
+      words: item.words,
+      emphasised,
+      onSelect: () => onSelect(item),
+      onEnter: () => setHoverPos(item.pos),
+      style: {
+        top: anchor,
+        maxWidth: labelMax,
+        // Level indent echoes the tick inset, so the fan keeps the outline's
+        // hierarchy without rendering tree lines.
+        marginLeft: LABEL_LEAD + inset * 2,
+        // Opaque, not 0.92. At widths where the page has no margin the fan
+        // is an overlay on prose, and a pill you can read the paragraph
+        // through is the worst of both. Emphasis is carried by ink colour and
+        // the 1.04, which cost nothing when the pill is over words.
+        opacity: shown ? 1 : 0,
+        transform: open
+          ? `translate(0px, calc(-50% + ${spread}px)) scale(${emphasised ? 1.04 : 1})`
+          : reducedMotion
+            ? `translate(0px, calc(-50% + ${shown ? spread : 0}px))`
+            : // Back inside the strip, small: where the body is one blob.
+              'translate(-24px, -50%) scale(0.72)',
+        transition: reducedMotion
+          ? `opacity var(--essay-speed-quick) linear`
+          : !shown
+            ? `opacity ${EXIT_MS}ms linear, transform ${EXIT_MS}ms ${SETTLE}`
+            : settled
+              ? // Arrived. The transform property now belongs to emphasis.
+                `opacity 120ms linear, transform 200ms ${SETTLE}`
+              : // Opacity arrives ahead of the spring so the overshoot is seen
+                // rather than faded through.
+                `opacity 160ms linear ${delay}ms, transform ${ARRIVE_MS}ms ${ARRIVE} ${delay}ms`,
+      } satisfies CSSProperties,
+    }
+  })
 
   return (
     // Relative, so the fan positions off the strip itself. Enter/leave live
@@ -409,67 +683,123 @@ export function Gutter({
           })}
         </div>
       </div>
-      {/* The fan. Every label mounts at once and enters on a stagger —
-          sliding out of the strip (translateX) with the swift ease, the
-          spine visibly decompressing downwards. Labels are real click
-          targets (the fan is a nav surface, not a caption) but tabIndex -1
-          and aria-hidden: keyboard and AT users already have the tick
-          buttons, and thirty duplicate tab stops that exist only mid-hover
-          would be noise, not access. */}
+      {/* The fan, in two layers that must stay pixel-identical: the goo
+          carries the pill shapes, the labels carry the words. Splitting them
+          is what lets the filter melt the shapes without touching the type —
+          a filtered subtree blurs its text too, and 11px section titles do not
+          survive that. The pills get their widths from the same markup with
+          the text made invisible, so the two layers cannot drift.
+
+          Labels are real click targets (the fan is a nav surface, not a
+          caption) but tabIndex -1 and aria-hidden: keyboard and AT users
+          already have the tick buttons, and thirty duplicate tab stops that
+          exist only mid-hover would be noise, not access. */}
       {mounted && outline.length > 0 && (
-        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-full z-40">
-          {outline.map((item, i) => {
-            const top = tops[i] ?? 0
-            const inset = Math.min((item.level - 1) * LEVEL_INSET, STRIP_WIDTH - MIN_TICK)
-            const emphasised = item.pos === emphasisPos
-            // Entrance sweeps top-to-bottom; the exit is one flip with no
-            // delay, so the fan collapses as a single surface.
-            const delay =
-              shown && !reducedMotion ? Math.min(i * STAGGER_MS, STAGGER_CAP_MS) : 0
-            return (
+        <>
+          {/* Footprint: always the hit area, a visible plate only when the
+              page has no margin to fan into. It scales out of the spine with
+              the labels rather than appearing under them fully formed, or the
+              plate would arrive before the thing it is a plate for. */}
+          {footprint && (
+            <div
+              aria-hidden
+              className={cn(
+                'pointer-events-auto absolute left-full z-20 origin-left rounded-2xl',
+                cramped &&
+                  'shadow-[var(--essay-shadow-low)] ring-1 ring-[var(--essay-border)]',
+                cramped &&
+                  (solidSurfaces
+                    ? 'bg-[var(--essay-editor-bg)]'
+                    : 'bg-[var(--essay-editor-bg)]/95 backdrop-blur-md'),
+              )}
+              style={{
+                top: footprint.top,
+                height: footprint.height,
+                width: footprint.width,
+                opacity: shown ? 1 : 0,
+                transform: shown || reducedMotion ? 'scaleX(1)' : 'scaleX(0.9)',
+                transition: reducedMotion
+                  ? 'opacity var(--essay-speed-quick) linear'
+                  : shown
+                    ? `opacity 140ms linear, transform ${ARRIVE_MS}ms ${ARRIVE}`
+                    : `opacity ${EXIT_MS}ms linear, transform ${EXIT_MS}ms ${SETTLE}`,
+              }}
+            />
+          )}
+          {/* The goo. Blur, then crush alpha's contrast — the metaball trick:
+              two shapes whose blurred haloes touch resolve as one body, and
+              separate as they move apart. sRGB interpolation is not optional;
+              the default linearRGB shifts the surface colour visibly. */}
+          <svg aria-hidden className="pointer-events-none absolute size-0">
+            <filter id={gooId} colorInterpolationFilters="sRGB">
+              <feGaussianBlur in="SourceGraphic" stdDeviation={GOO_BLUR} result="blur" />
+              <feColorMatrix
+                in="blur"
+                type="matrix"
+                values={`1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 ${GOO_CONTRAST} -${GOO_CONTRAST / 2.2}`}
+              />
+            </filter>
+          </svg>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-full z-30"
+            // The shadow is chained *after* the goo so it traces the melted
+            // silhouette rather than the rectangles that went in — and it is
+            // on this layer alone, because a shadow under the type layer would
+            // be a second, sharper outline half a pixel off the first.
+            style={{
+              filter: highContrast
+                ? 'drop-shadow(0 2px 6px rgb(0 0 0 / 0.28))'
+                : `url(#${gooId}) drop-shadow(0 2px 6px rgb(0 0 0 / 0.28))`,
+            }}
+          >
+            {fan.map((label) => (
+              <div
+                key={`goo-${label.key}`}
+                className={cn(
+                  PILL,
+                  'bg-[var(--essay-surface)]',
+                  highContrast && 'ring-1 ring-[var(--essay-border-strong)]',
+                )}
+                style={label.style}
+              >
+                <span className={cn(TITLE, 'invisible')}>{label.text}</span>
+                <span className={cn(COUNT, 'invisible')}>{label.words}</span>
+              </div>
+            ))}
+          </div>
+          <div
+            ref={labelsRef}
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-full z-40"
+          >
+            {fan.map((label) => (
               <button
-                key={`label-${item.pos}-${i}`}
+                key={`label-${label.key}`}
                 type="button"
                 tabIndex={-1}
-                onClick={() => onSelect(item)}
-                onMouseEnter={() => setHoverPos(item.pos)}
-                className={cn(
-                  'pointer-events-auto absolute flex origin-left items-baseline gap-1.5 rounded-full border border-[var(--essay-border)] bg-[var(--essay-surface)] px-2.5 py-1 whitespace-nowrap shadow-[var(--essay-shadow-low)]',
-                  shown
-                    ? 'transition-[opacity,transform] duration-[var(--essay-speed-regular)] ease-[var(--essay-ease-swift)]'
-                    : 'transition-opacity duration-[var(--essay-speed-quick)] ease-[var(--essay-ease-out)]',
-                )}
-                style={{
-                  top,
-                  // Level indent echoes the tick inset, so the fan keeps the
-                  // outline's hierarchy without rendering tree lines.
-                  marginLeft: 8 + inset * 2,
-                  opacity: shown ? (emphasised ? 1 : 0.85) : 0,
-                  transform: shown
-                    ? `translateY(-50%)${emphasised ? ' scale(1.03)' : ''}`
-                    : reducedMotion
-                      ? 'translateY(-50%)'
-                      : 'translateY(-50%) translateX(-6px)',
-                  transitionDelay: `${delay}ms`,
-                }}
+                onClick={label.onSelect}
+                onMouseEnter={label.onEnter}
+                className={cn(PILL, 'pointer-events-auto')}
+                style={label.style}
               >
                 <span
                   className={cn(
-                    'text-xs',
-                    emphasised
+                    TITLE,
+                    label.emphasised
                       ? 'text-[var(--essay-text)]'
                       : 'text-[var(--essay-text-muted)]',
                   )}
                 >
-                  {item.text || 'Untitled'}
+                  {label.text}
                 </span>
-                <span className="text-[10px] tabular-nums text-[var(--essay-text-faint)]">
-                  {item.words}
+                <span className={cn(COUNT, 'text-[var(--essay-text-faint)]')}>
+                  {label.words}
                 </span>
               </button>
-            )
-          })}
-        </div>
+            ))}
+          </div>
+        </>
       )}
     </nav>
   )

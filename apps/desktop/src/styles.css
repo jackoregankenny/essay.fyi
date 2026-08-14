@@ -29,9 +29,23 @@ body {
 }
 
 .essay-manuscript-gutter {
-  /* Inside the manuscript's own left padding: a section tick annotates the
-     paragraph it belongs to instead of floating in a second, invisible rail. */
-  left: max(0.5rem, calc(50% - var(--essay-measure) / 2 + 0.25rem));
+  /* The spine and the fan it opens share the manuscript's left margin.
+     The strip used to sit inside the prose column's own left padding, which
+     read well at rest — a tick annotating the paragraph beside it — and was
+     wrong the moment it was pointed at: the fan hinges on the strip's right
+     edge, so every label opened across the paragraph the author was reading.
+     Pushing the strip out by the fan's own width is the whole fix; the ticks
+     are still the manuscript's left edge, just with the labels' room reserved
+     in front of them instead of taken from the page.
+
+     `max()` is the responsive half: when the window is too narrow to have a
+     margin the strip returns to hugging the canvas edge, and the fan overlaps
+     because at that width there is nowhere else for it to be. */
+  --essay-gutter-fan: 15rem;
+  left: max(
+    0.5rem,
+    calc(50% - var(--essay-measure) / 2 - var(--essay-gutter-fan))
+  );
 }
 
 [data-measure='full'] .essay-manuscript-orbit {
@@ -62,9 +76,24 @@ body {
   transition: grid-template-columns 220ms var(--essay-ease-swift);
 }
 
+/* ——— Stacking tiers inside the workspace grid ———
+   10  ambient chrome at the page's edges: the gutter's spine, the edge fades,
+       these reading controls. Always present, never asking for anything.
+   20  surfaces that claim the page or claim an answer: notices, the find
+       strip, the companion, and the layers summoned over the manuscript
+       (settings, fonts, a diff).
+   30+ things that float above everything by nature — the footer's status
+       line, popovers, the palette.
+
+   The controls used to be 30, which put them over every single tier-20
+   surface. That is not a near miss: they float in the *grid's* right margin,
+   which is exactly where a notice puts its buttons and a summoned layer puts
+   its Close, so "Review changes" and "Close" were both catchable by the
+   Structure toggle instead. Tier 10 is where they belong — ambient chrome
+   yields to anything that is mid-sentence with the author. */
 .essay-reading-controls {
   position: absolute;
-  z-index: 30;
+  z-index: 10;
   top: 1rem;
   right: 1.25rem;
 }
@@ -332,5 +361,79 @@ html[data-typing] .essay-chrome:focus-within {
 
   .essay-bubble {
     animation: none;
+  }
+}
+
+/* ——— The manuscript's edges ———
+
+   Text does not stop at the running head, it dissolves into it. The canvas
+   colour comes up under the last line while a short blur ramp takes the
+   letterforms apart, so the boundary reads as depth rather than as a cut.
+
+   Two blur layers, not four: this composites on every scrolled frame, and
+   invariant 5 says typing and scrolling never wait on decoration. Two steps
+   is enough ramp to lose the shape of a word; the wash does the rest and
+   costs nothing.
+
+   Layer order is why these are real elements rather than pseudo-elements —
+   the wash has to paint *above* the blur, and ::before/::after paint above
+   their parent's background, which is exactly backwards. */
+.essay-edge-fade {
+  position: absolute;
+  inset-inline: 0;
+  z-index: 10;
+  pointer-events: none;
+  height: var(--essay-edge-fade-height, 72px);
+}
+
+.essay-edge-fade--top {
+  top: 0;
+  --essay-fade-dir: to top;
+}
+
+.essay-edge-fade--bottom {
+  bottom: 0;
+  /* Shorter: the footer below it is letters on the canvas rather than a bar,
+     so there is less to hide behind and a long ramp would read as a smudge. */
+  --essay-edge-fade-height: 56px;
+  --essay-fade-dir: to bottom;
+}
+
+.essay-edge-fade > * {
+  position: absolute;
+  inset: 0;
+}
+
+.essay-edge-fade__blur[data-step='1'] {
+  backdrop-filter: blur(1.2px);
+  -webkit-backdrop-filter: blur(1.2px);
+  mask-image: linear-gradient(var(--essay-fade-dir), transparent 0%, #000 58%);
+}
+
+.essay-edge-fade__blur[data-step='2'] {
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  mask-image: linear-gradient(var(--essay-fade-dir), transparent 42%, #000 100%);
+}
+
+.essay-edge-fade__wash {
+  background: linear-gradient(
+    var(--essay-fade-dir),
+    transparent 0%,
+    color-mix(in oklab, var(--essay-editor-bg) 55%, transparent) 46%,
+    color-mix(in oklab, var(--essay-editor-bg) 92%, transparent) 76%,
+    var(--essay-editor-bg) 96%
+  );
+}
+
+/* Focus mode dims the chrome to a murmur; the edge that hides the chrome
+   should go with it, or the fade becomes the loudest thing on screen. */
+html[data-focus-mode] .essay-edge-fade__wash {
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .essay-edge-fade__blur {
+    display: none;
   }
 }

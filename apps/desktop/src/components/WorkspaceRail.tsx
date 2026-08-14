@@ -6,6 +6,7 @@ import {
   IconStructure,
   type IconProps,
 } from './icons'
+import { cn } from '#/lib/cn'
 import { shortcut } from '#/lib/platform'
 import type { CompanionTenant } from './companion-state'
 import { IconButton } from './ui/icon-button'
@@ -16,6 +17,9 @@ interface WorkspaceRailProps {
   waitingOnAuthor: number
   openComments: number
   onToggleTenant: (tenant: CompanionTenant) => void
+  /** A layer has been summoned over the manuscript (settings, fonts, a diff).
+      See the note on `suppressed` below for why that has to reach here. */
+  suppressed?: boolean
 }
 
 const TENANTS: ReadonlyArray<
@@ -50,17 +54,38 @@ const TENANTS: ReadonlyArray<
  * not a rail: no full-height container, edge fill, or line separates it from
  * the manuscript. The controls remain still while their reading opens under
  * them.
+ *
+ * `suppressed` is the exception to "remain still", and it is not cosmetic.
+ * These controls float in the *grid's* right margin at `z-30`, while a layer
+ * summoned over the manuscript — settings, fonts, a diff — fills the
+ * manuscript column at `z-20`. So the controls sit on top of that layer's
+ * top-right corner, which is where a close button goes: aiming at Close and
+ * hitting Structure was a real, reproducible miss, not a near one. Raising the
+ * layers instead would have been wrong, because a diff must stay *below* the
+ * companion so the transcript can sit beside it, and one integer cannot be
+ * both above these controls and below that panel.
+ *
+ * Suppressing rather than unmounting keeps the fade (`essay-chrome` already
+ * owns the transition) and keeps the controls' position from being recomputed
+ * on the way back. `inert` is what actually stops the clicks; the opacity is
+ * only what makes it look intended.
  */
 export function WorkspaceRail({
   tenant,
   waitingOnAuthor,
   openComments,
   onToggleTenant,
+  suppressed = false,
 }: WorkspaceRailProps) {
   return (
     <nav
       aria-label="Document readings"
-      className="essay-reading-controls essay-chrome flex flex-col items-center gap-1"
+      aria-hidden={suppressed || undefined}
+      inert={suppressed}
+      className={cn(
+        'essay-reading-controls essay-chrome flex flex-col items-center gap-1',
+        suppressed && 'pointer-events-none opacity-0',
+      )}
     >
       {TENANTS.map(
         ([candidate, label, Icon, shortcutLabel, keyShortcuts]) => (

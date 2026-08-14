@@ -1,0 +1,27 @@
+<!--
+  Essay's mark: three lines of prose, ragged right, and the caret lit at the
+  point of writing.
+
+  The caret is not decoration — prose.css already states the identity ("the
+  caret is the brand: one saturated element on a calm page"), and this is the
+  same sentence drawn. The lines descend in length because that is what a
+  paragraph looks like and, just as importantly, because three bars of equal
+  length at 16px is the hamburger menu; the stagger and the vertical stroke are
+  what stop the icon being read as one.
+
+  Paper rather than the app's near-black ground, deliberately: a taskbar is
+  usually dark, and the product's metaphor is the page. The one saturated
+  element carries the brand at any size.
+
+  Source of truth for `tauri icon`. Regenerate with:
+    bun run icons
+-->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" rx="224" fill="#FAF9F5"/>
+  <g fill="#24252B">
+    <rect x="168" y="316" width="688" height="88" rx="44"/>
+    <rect x="168" y="456" width="616" height="88" rx="44"/>
+    <rect x="168" y="596" width="368" height="88" rx="44"/>
+  </g>
+  <rect x="580" y="566" width="64" height="148" rx="32" fill="#2F76D4"/>
+</svg>

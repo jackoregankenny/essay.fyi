@@ -1,0 +1,22 @@
+<!--
+  The same mark, inverted, for development builds.
+
+  The discrimination has to survive 16px in a taskbar, which rules out a change
+  of accent alone — two icons that differ only in the colour of one small
+  stroke are two icons you will click at random when tired. Ground and figure
+  swap instead: a light square and a dark square are told apart before they are
+  recognised, which is the whole job. The amber caret is the confirmation, not
+  the signal.
+
+  Used by tauri.dev.conf.json. Regenerate with:
+    bun run icons
+-->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" rx="224" fill="#15161A"/>
+  <g fill="#E7E8EC">
+    <rect x="168" y="316" width="688" height="88" rx="44"/>
+    <rect x="168" y="456" width="616" height="88" rx="44"/>
+    <rect x="168" y="596" width="368" height="88" rx="44"/>
+  </g>
+  <rect x="580" y="566" width="64" height="148" rx="32" fill="#F0A93C"/>
+</svg>
