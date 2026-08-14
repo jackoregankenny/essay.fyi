@@ -389,6 +389,36 @@ under hidden and build directories are dropped before they wake the thread, or
 crate as `markdown_tree`, so the explorer and the watcher cannot disagree about
 what a folder contains.
 
+**Mermaid diagrams are not planned**, on measurement. A ```` ```mermaid ````
+fence already round-trips byte-exactly (`markdown-code.ts` keeps the author's
+fence width) and `convert.rs` typesets it as a `#raw` listing, so nothing is
+lost — it is simply not drawn. Drawing it costs mermaid, which is 83.5 MB
+unpacked across 1171 files and ships a ~2–3 MB chunk bundling d3, dagre,
+cytoscape and langium: roughly double `apps/desktop/dist`, which is 1.7 MB
+entire. A Typst diagram package (CeTZ, fletcher) is cheap in bytes and does not
+answer the question — it is a different authoring language, so it draws no
+mermaid and helps the editor not at all, and `world.rs` has no package
+resolution, so Typst Universe is out under invariant 6 and it would have to be
+vendored. The PDF path is worse again: Typst cannot call a JS library, so it
+would mean rendering SVG in the WebView, caching it under `.essay/` for
+`#image()` to find, and leaving headless `essay render` printing source for
+every diagram the app has not drawn yet. Re-open only if diagrams turn out to
+be something authors are actually writing.
+
+**Typesetting is the weakest link, and it is written down.** Rendering has
+worked since Milestone 2; every *choice* around it is missing. One template,
+welded in with `include_str!` and no override path (the constant's own comment
+has promised one since it was written); `templates/memo|report|rfc` are README
+files, not templates; `FontsPage` installs families but nothing binds one to a
+document, so an author can install a typeface and still have no way to set
+their document in it; and there is no flow from "written" to "looks like the
+thing I send". `docs/typesetting-backlog.md` has the shape of the answer — a
+*format* as a file you can hand to someone, resolved most-specific-first with
+the built-in as the fallback rather than the only path, the document's face as
+a *stack* (same reasoning that made `essay.typ` name one), and Proof as the
+place it all happens. Two invariants bound it: the format is referenced and
+never inlined, and importing one is reading a file, never a fetch.
+
 Next: maths, in-editor find affordances beyond the palette (a find bar,
 find-and-replace, match highlighting), and the `essay
 inspect / read / search / propose / status` CLI verbs, which still print "not
