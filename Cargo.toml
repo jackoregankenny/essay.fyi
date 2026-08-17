@@ -24,6 +24,22 @@ lto = "fat"
 codegen-units = 1
 strip = "symbols"
 
+# Dev debuginfo, because the stock dev profile is also wrong for this shape of
+# binary. Cargo never garbage-collects target/: a dep bump, a feature flip or a
+# toolchain update changes a crate's metadata hash and the old artifacts are
+# kept forever against the chance you switch back. With Typst linked into every
+# artifact and MSVC writing debug symbols to a separate PDB per hash, that is
+# half a gigabyte per stale configuration. Measured: eight live essay-render
+# PDBs of ~500 MB over two weeks, 6.61 GB of artifacts for that one crate.
+#
+# `line-tables-only` keeps backtraces with file and line for our own code and
+# drops the rest. Dependencies get nothing — we do not step through Typst.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"

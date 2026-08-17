@@ -6,10 +6,16 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "bun run --cwd apps/desktop dev",
-    "build": "bun run --cwd apps/desktop build",
-    "tauri": "bun run --cwd apps/desktop tauri",
-    "app": "bun run --cwd apps/desktop tauri dev --config src-tauri/tauri.dev.conf.json",
+    "dev": "bun run prune:auto && bun run --cwd apps/desktop dev",
+    "build": "bun run prune:auto && bun run --cwd apps/desktop build",
+    "tauri": "bun run prune:auto && bun run --cwd apps/desktop tauri",
+    "app": "bun run prune:auto && bun run --cwd apps/desktop tauri dev --config src-tauri/tauri.dev.conf.json",
+    "bundle": "bun run prune:auto && bun run --cwd apps/desktop tauri build",
+    "bundle:dev": "bun run prune:auto && bun run --cwd apps/desktop tauri build --config src-tauri/tauri.dev.conf.json",
+    "release": "node scripts/release.mjs",
+    "prune": "node scripts/prune-target.mjs",
+    "prune:dry": "node scripts/prune-target.mjs --dry-run --verbose",
+    "prune:auto": "node scripts/prune-target.mjs --if-stale 12",
     "icons": "bun run --cwd apps/desktop tauri icon src-tauri/icon.svg && bun run --cwd apps/desktop tauri icon src-tauri/icon-dev.svg -o src-tauri/icons/dev",
     "typecheck": "tsc --noEmit -p apps/desktop",
     "test": "bun test"

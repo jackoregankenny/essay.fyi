@@ -1,22 +1,35 @@
 <!--
-  The same mark, inverted, for development builds.
+  The same mark, alarmed, for development builds.
 
   The discrimination has to survive 16px in a taskbar, which rules out a change
   of accent alone — two icons that differ only in the colour of one small
-  stroke are two icons you will click at random when tired. Ground and figure
-  swap instead: a light square and a dark square are told apart before they are
-  recognised, which is the whole job. The amber caret is the confirmation, not
-  the signal.
+  stroke are two icons you will click at random when tired. The ground carries
+  it instead: paper against red is told apart before either is recognised,
+  which is the whole job, and it still reads at the size where the three bars
+  have collapsed into texture.
+
+  Red specifically, and not simply an inversion to dark. This icon marks the
+  build that is being changed underneath you — the one whose editor may be
+  mid-refactor when you reach for it. Dark-on-light and light-on-dark are two
+  themes of one application; red is a warning, and the thing being warned about
+  is putting real writing somewhere it might not survive the next rebuild. Its
+  pair, `icon.svg`, is paper because the product's metaphor is the page. This
+  one is deliberately not a page.
+
+  The caret inverts with it, to near-black. `prose.css` states the identity as
+  "one saturated element on a calm page", and on a ground this saturated the
+  calm element is the caret: keeping it blue here would be two accents fighting
+  at a size that has room for neither.
 
   Used by tauri.dev.conf.json. Regenerate with:
     bun run icons
 -->
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <rect width="1024" height="1024" rx="224" fill="#15161A"/>
-  <g fill="#E7E8EC">
+  <rect width="1024" height="1024" rx="224" fill="#E0301E"/>
+  <g fill="#FFF1EE">
     <rect x="168" y="316" width="688" height="88" rx="44"/>
     <rect x="168" y="456" width="616" height="88" rx="44"/>
     <rect x="168" y="596" width="368" height="88" rx="44"/>
   </g>
-  <rect x="580" y="566" width="64" height="148" rx="32" fill="#F0A93C"/>
+  <rect x="580" y="566" width="64" height="148" rx="32" fill="#2B0B06"/>
 </svg>
