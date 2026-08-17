@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -84,6 +85,39 @@ export function CommentComposer({
     target?.focus({ preventScroll: true })
     // Measured once at open, on purpose: the card does not chase the text.
   }, [])
+
+  /**
+   * Leaving the card puts it away — but only when there is nothing in it.
+   *
+   * An open composer is a manuscript layer at the `float` tier, which is above
+   * `canvas-owner`: at widths where the companion stops being a column and
+   * takes the whole canvas, a card left open paints straight over the Proof
+   * pane. Lowering the tier would be the wrong fix — the card genuinely is
+   * furniture anchored to a cursor, and it has to clear the rest of the
+   * manuscript. What was actually wrong is that it outlived the author's
+   * attention, so that is what changes: click away and it goes.
+   *
+   * "Only when empty" is the whole of the care here. A stray click landing on
+   * the manuscript should not throw away a half-written comment, and an author
+   * who has typed something is mid-thought rather than finished with the card
+   * — Escape and Cancel are still how you discard on purpose. So an empty card
+   * is clutter and dismisses itself; a card with words in it stays and waits.
+   *
+   * `pointerdown` rather than focusout: `onSaveFirst` opens a native save
+   * dialog, which blurs the whole window and would read as leaving.
+   */
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      const card = cardRef.current
+      if (!card || busy) return
+      if (event.target instanceof Node && card.contains(event.target)) return
+      if (body.trim()) return
+      onCancel()
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () =>
+      document.removeEventListener('pointerdown', onPointerDown, true)
+  }, [body, busy, onCancel])
 
   const submit = async () => {
     const trimmed = body.trim()

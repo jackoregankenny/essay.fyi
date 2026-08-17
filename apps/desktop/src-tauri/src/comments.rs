@@ -172,3 +172,43 @@ pub async fn refresh_comment_anchors(
     .await
     .map_err(|err| err.to_string())?
 }
+
+/// The document's scratch note.
+///
+/// Same store, same open-per-call rule as everything above. It lives in this
+/// module rather than its own because it is the same sidecar and the same
+/// `document_id`; a second file to hold two commands would only make the
+/// identity harder to see.
+///
+/// A document with no path cannot be scratched on — the note lives beside the
+/// file, so an untitled buffer has nothing to live beside. The frontend gates
+/// on that before calling, exactly as it does for comments.
+#[tauri::command]
+pub async fn read_scratch(path: String, hash: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = store_for(&path)?;
+        let document_id = store
+            .resolve_document(Path::new(&path), &hash)
+            .map_err(|err| err.to_string())?;
+        store.scratch(&document_id).map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+/// Replace the scratch note. Debounced by the caller — this is a disk write
+/// and the pane it serves is a textarea someone is typing into.
+#[tauri::command]
+pub async fn write_scratch(path: String, hash: String, body: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = store_for(&path)?;
+        let document_id = store
+            .resolve_document(Path::new(&path), &hash)
+            .map_err(|err| err.to_string())?;
+        store
+            .set_scratch(&document_id, &body)
+            .map_err(|err| err.to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}

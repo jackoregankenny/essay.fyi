@@ -1,4 +1,9 @@
-export type CompanionTenant = 'structure' | 'proof' | 'agent' | 'history'
+export type CompanionTenant =
+  | 'structure'
+  | 'tasks'
+  | 'proof'
+  | 'agent'
+  | 'history'
 
 // Remembered per document because the tenant is a fact about the work, not
 // the installation. Kept outside Companion.tsx so that file exports React
@@ -7,6 +12,7 @@ const TENANT_KEY = 'essay.companion.v1'
 const MAX_TENANT_ENTRIES = 50
 const TENANT_VALUES: ReadonlySet<string> = new Set([
   'structure',
+  'tasks',
   'proof',
   'agent',
   'history',

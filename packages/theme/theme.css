@@ -116,24 +116,54 @@
      invisible named and felt as "page" rather than "panel". Ink is crisp
      near-white held just off pure so a full screen of prose reads without
      glare — clarity is the whole brief at night. */
-  --essay-bg: oklch(0.146 0.004 260);
+  --essay-bg: oklch(0.146 0 0);
   --essay-editor-bg: oklch(0.19 0.005 72);
   --essay-prose-ink: oklch(0.93 0.006 85);
   --essay-prose-muted: oklch(0.7 0.012 82);
   --essay-prose-faint: oklch(0.595 0.01 80);
   /* UI furniture must be visibly raised from the night-paper canvas. The
      previous 0.013 lightness step was technically different and perceptually
-     black; panels and popovers now read as one graphite layer. */
-  --essay-surface: oklch(0.225 0.006 255);
-  --essay-surface-hover: oklch(0.275 0.007 255);
-  --essay-border: oklch(0.285 0.007 255);
-  --essay-border-strong: oklch(0.355 0.008 255);
-  --essay-text: oklch(0.935 0.003 250);
-  --essay-text-muted: oklch(0.68 0.008 250);
+     black; panels and popovers now read as one graphite layer.
+
+     Chroma zero, and the hue with it. Every neutral here used to carry a
+     little blue — chroma 0.003–0.008 at hue 250–260 — which is invisible on a
+     border and quite visible across a panel, a popup and a whole window of
+     chrome. Two things were wrong with it. It is a *fixed* hue while the
+     accent is an author preference, so choosing violet produced a purple
+     caret in a blue-grey room: two colours arguing, when the theme's whole
+     claim is one saturated element on a calm page. And it meant the app read
+     as faintly blue everywhere without anything having decided to be blue.
+
+     The light theme already made this exact argument, for one token: its
+     prose ink is "a near-black that sits on paper without the blue cast that
+     makes long reading feel like a screen". This is that reasoning applied to
+     the rest of the room. Warmth stays where it was chosen on purpose — the
+     paper canvas, the prose inks, the highlight — and those hues are the
+     document, not the chrome. */
+  --essay-surface: oklch(0.225 0 0);
+  --essay-surface-hover: oklch(0.275 0 0);
+  /* The chosen one. A step past hover in the same direction, and at the same
+     near-zero chroma as every other surface — selection is elevation here, not
+     colour.
+
+     This token exists because its absence was a bug that kept being committed.
+     The palette had a resting surface and a hover surface and nothing for
+     "this is the current value", so every control that needed to show a chosen
+     option reached for --essay-accent-tint, which is the *action* ground and
+     the only thing in the palette that stood out. The result was that a
+     segmented control, a skill toggle and a settings row all wore the brand
+     colour for being merely true, and the blue that is supposed to be one
+     saturated element on a calm page turned up in every panel at once.
+     Elevation says "this one" perfectly well and costs no chroma. */
+  --essay-surface-selected: oklch(0.315 0 0);
+  --essay-border: oklch(0.285 0 0);
+  --essay-border-strong: oklch(0.355 0 0);
+  --essay-text: oklch(0.935 0 0);
+  --essay-text-muted: oklch(0.68 0 0);
   /* AA-safe for normal-size text on --essay-editor-bg. This token is still
      quieter than muted, but no longer becomes decorative simply because it
      is small. Icons exceed the 3:1 non-text floor as a consequence. */
-  --essay-text-faint: oklch(0.595 0.008 250);
+  --essay-text-faint: oklch(0.595 0 0);
   /* Azure, not indigo: the accent moved off the violet the old chrome wore.
      One saturated element in the frame — the caret, the lit tick, the
      waiting dot — everything else stays graphite.
@@ -177,20 +207,24 @@
    choice (palette: "Toggle light mode") via data-theme on <html> — the
    same architecture restated on paper. */
 :root[data-theme='light'] {
-  --essay-bg: oklch(0.972 0.002 255);
+  --essay-bg: oklch(0.972 0 0);
   --essay-editor-bg: oklch(0.99 0.004 90);
   /* Ink, not chrome text: a near-black that sits on paper without the blue
      cast that makes long reading feel like a screen. */
   --essay-prose-ink: oklch(0.29 0.012 75);
   --essay-prose-muted: oklch(0.5 0.016 76);
   --essay-prose-faint: oklch(0.56 0.012 78);
-  --essay-surface: oklch(0.982 0.002 255);
-  --essay-surface-hover: oklch(0.94 0.004 255);
-  --essay-border: oklch(0.92 0.004 255);
-  --essay-border-strong: oklch(0.885 0.005 255);
-  --essay-text: oklch(0.27 0.01 255);
-  --essay-text-muted: oklch(0.53 0.012 250);
-  --essay-text-faint: oklch(0.56 0.012 250);
+  --essay-surface: oklch(0.982 0 0);
+  --essay-surface-hover: oklch(0.94 0 0);
+  /* Same rule, opposite direction: on paper the ground is already near-white,
+     so the step that reads as raised is a step *down*. See the dark theme's
+     note for why this token exists at all. */
+  --essay-surface-selected: oklch(0.9 0 0);
+  --essay-border: oklch(0.92 0 0);
+  --essay-border-strong: oklch(0.885 0 0);
+  --essay-text: oklch(0.27 0 0);
+  --essay-text-muted: oklch(0.53 0 0);
+  --essay-text-faint: oklch(0.56 0 0);
   /* Paper's own azure sits a touch warmer than the screen's; this default
      survives because Settings writes the author's hue inline, above it. */
   --essay-accent-hue: 245;

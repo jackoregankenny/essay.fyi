@@ -164,3 +164,22 @@ export function IconClose({ size = 16, className }: IconProps) {
     </svg>
   )
 }
+
+/**
+ * Tasks — a checklist: a ticked box, then two lines standing for the items
+ * under it. The tick is what separates this from Structure's four rules at a
+ * glance, which is the only comparison that matters — they are neighbours in
+ * the rail and get looked at in the same sweep.
+ */
+export function IconTasks({ size = 16, className }: IconProps) {
+  return (
+    <svg {...frame(size, className)}>
+      <path d="M2.75 4.25 4 5.5l2.75-2.75" />
+      <path d="M9 4.25h4.25" />
+      <path d="M2.75 9.5h3" />
+      <path d="M9 9.5h4.25" />
+      <path d="M2.75 13h3" />
+      <path d="M9 13h4.25" />
+    </svg>
+  )
+}

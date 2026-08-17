@@ -1,5 +1,10 @@
-import { useMemo, useState, type KeyboardEvent } from 'react'
-import { ArrowLeft, Books, ChatCircle } from '@phosphor-icons/react'
+import {
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
+import { ArrowLeft, Books, ChatCircle, Plus } from '@phosphor-icons/react'
 import type { DocumentMark, DocumentTask, OutlineItem } from '@essay/editor'
 import type { CommentItem, CommentRange } from '#/lib/useComments'
 import { truncateMiddle } from '#/lib/commentAnchors'
@@ -27,6 +32,30 @@ export interface SidebarComments {
   onReattach: (threadId: string) => Promise<boolean>
 }
 
+/**
+ * Making one of the things this pane lists, from the pane that lists them.
+ *
+ * Structure was read-only, and every way to put something *into* it was
+ * somewhere else: a keyboard shortcut, a palette entry, the selection toolbar.
+ * That is fine once you know, and invisible until you do — and the panes made
+ * it worse by rendering only when non-empty, so an author with no tasks was
+ * shown nothing at all about tasks. The one place you are certainly looking
+ * when you think "where are my todos?" is the place that should be able to
+ * make one.
+ *
+ * `selectionEmpty` gates the two that need a passage to attach to. Shown
+ * disabled with the reason rather than hidden: a control that appears only
+ * under conditions you have not worked out yet is the problem restated.
+ */
+export interface SidebarCreate {
+  /** Mark the selection as `==come back to this==`. */
+  onAddMark: () => void
+  /** Open the comment composer on the selection. */
+  onAddComment: () => void
+  /** Nothing selected, so mark and comment have nothing to attach to. */
+  selectionEmpty: boolean
+}
+
 interface SidebarProps {
   outline: OutlineItem[]
   activePos: number | null
@@ -34,9 +63,11 @@ interface SidebarProps {
   tasks: DocumentTask[]
   comments?: SidebarComments
   citations: ReadonlyArray<{ key: string; count: number }>
+  create?: SidebarCreate
   onSelectOutline: (item: OutlineItem) => void
   onSelectMark: (mark: DocumentMark) => void
-  onSelectTask: (task: DocumentTask) => void
+  /** Show the Tasks tenant — Structure points at it rather than holding it. */
+  onOpenTasks?: () => void
 }
 
 /**
@@ -61,9 +92,10 @@ export function Sidebar({
   tasks,
   comments,
   citations,
+  create,
   onSelectOutline,
   onSelectMark,
-  onSelectTask,
+  onOpenTasks,
 }: SidebarProps) {
   const openItem = comments?.openId
     ? comments.items.find((item) => item.thread.id === comments.openId)
@@ -104,11 +136,74 @@ export function Sidebar({
         activePos={activePos}
         onSelect={onSelectOutline}
       />
-      {marks.length > 0 && <MarksPane marks={marks} onSelect={onSelectMark} />}
-      {tasks.length > 0 && <TasksPane tasks={tasks} onSelect={onSelectTask} />}
-      {comments && <CommentsPane comments={comments} outline={outline} />}
+      {/* Rendered whether or not they hold anything, which they did not used
+          to be. An empty pane is not clutter here — it is the only thing on
+          screen that says tasks and marks exist and how one is made. Comments
+          already worked this way; the other two now agree. */}
+      <MarksPane marks={marks} create={create} onSelect={onSelectMark} />
+      {/* Tasks moved out to their own tenant (`TasksPanel`): Structure is the
+          shape of the argument, and the state of the work is a different
+          question that was never comfortable as a third of a shared column.
+          The count stays here as a pointer, so opening Structure still tells
+          you there is work outstanding — it just does not try to hold it. */}
+      {tasks.length > 0 && (
+        <TasksSummary
+          open={tasks.filter((task) => !task.checked).length}
+          onOpen={onOpenTasks}
+        />
+      )}
+      {comments && (
+        <CommentsPane comments={comments} outline={outline} create={create} />
+      )}
       <CitationsPane citations={citations} />
     </aside>
+  )
+}
+
+/**
+ * The `+` at the end of a pane's header.
+ *
+ * Sized and coloured like the count beside it rather than like a button: the
+ * pane is a reading first, and a filled control in every header would turn a
+ * quiet column into a toolbar. It comes up to full strength on hover, which is
+ * the same grammar the rows already use.
+ *
+ * A disabled one keeps its tooltip, and the tooltip is the whole point — it
+ * says *why*, so "I can't mark anything" resolves to "because nothing is
+ * selected" without the author having to guess.
+ */
+function AddButton({
+  label,
+  hint,
+  disabled,
+  onClick,
+}: {
+  label: string
+  hint: string
+  disabled?: boolean
+  onClick?: () => void
+}) {
+  if (!onClick) return null
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={hint}
+      className="ml-auto shrink-0 rounded p-0.5 text-[var(--essay-text-faint)] transition-colors duration-100 hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)] disabled:pointer-events-none disabled:opacity-40"
+    >
+      <Plus size={11} weight="bold" />
+    </button>
+  )
+}
+
+/** The one-line "nothing here yet, and here is how one is made" note. */
+function PaneEmpty({ children }: { children: ReactNode }) {
+  return (
+    <p className="px-2 py-1 text-[11.5px] leading-relaxed text-[var(--essay-text-faint)]">
+      {children}
+    </p>
   )
 }
 
@@ -118,9 +213,11 @@ export function Sidebar({
  */
 function MarksPane({
   marks,
+  create,
   onSelect,
 }: {
   marks: DocumentMark[]
+  create?: SidebarCreate
   onSelect: (mark: DocumentMark) => void
 }) {
   return (
@@ -133,8 +230,24 @@ function MarksPane({
         <span className="text-[11px] tabular-nums text-[var(--essay-text-faint)]">
           {marks.length}
         </span>
+        <AddButton
+          label="Mark the selection"
+          hint={
+            create?.selectionEmpty
+              ? 'Select a passage first, then mark it to come back to'
+              : 'Mark the selection to come back to'
+          }
+          disabled={create?.selectionEmpty}
+          onClick={create?.onAddMark}
+        />
       </header>
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        {marks.length === 0 && (
+          <PaneEmpty>
+            Select a passage and mark it to come back to. Marks live in the file
+            as plain <code>==text==</code>.
+          </PaneEmpty>
+        )}
         <ul>
           {marks.map((mark, i) => (
             <li key={`${mark.pos}-${i}`}>
@@ -161,55 +274,20 @@ function MarksPane({
   )
 }
 
-/** Open and completed `- [ ]` items, gathered without changing the file. */
-function TasksPane({
-  tasks,
-  onSelect,
-}: {
-  tasks: DocumentTask[]
-  onSelect: (task: DocumentTask) => void
-}) {
-  const open = tasks.filter((task) => !task.checked).length
-
+/** A pointer to the Tasks tenant, not a second copy of it. One line, because
+    two surfaces both listing the same checkboxes is how they drift. */
+function TasksSummary({ open, onOpen }: { open: number; onOpen?: () => void }) {
   return (
-    <section className="flex max-h-[30%] min-h-0 flex-col pt-2">
-      <header className="flex items-center gap-1.5 px-3 pb-1">
-        <h2 className="text-[11px] font-[510] tracking-wider text-[var(--essay-text-faint)] uppercase">
-          Tasks
-        </h2>
-        <span className="text-[11px] tabular-nums text-[var(--essay-text-faint)]">
-          {open} open
-        </span>
-      </header>
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-        <ul>
-          {tasks.map((task, index) => (
-            <li key={`${task.pos}-${index}`}>
-              <button
-                type="button"
-                onClick={() => onSelect(task)}
-                className="flex w-full items-start gap-2 px-2 py-1 text-left text-[12.5px] text-[var(--essay-text-muted)] transition-colors duration-100 hover:text-[var(--essay-text)]"
-              >
-                <span
-                  aria-hidden
-                  className={`mt-[5px] size-2.5 shrink-0 rounded-[3px] ${
-                    task.checked
-                      ? 'bg-[var(--essay-text-faint)]'
-                      : 'ring-1 ring-[var(--essay-text-faint)]'
-                  }`}
-                />
-                <span
-                  className={`min-w-0 flex-1 leading-snug ${
-                    task.checked ? 'line-through opacity-55' : ''
-                  }`}
-                >
-                  {task.text}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </nav>
+    <section className="shrink-0 px-3 pt-3 pb-1">
+      <button
+        type="button"
+        onClick={onOpen}
+        disabled={!onOpen}
+        className="flex w-full items-center gap-1.5 rounded-md px-0 py-1 text-left text-[11px] tracking-wider text-[var(--essay-text-faint)] uppercase transition-colors duration-100 hover:text-[var(--essay-text)] disabled:pointer-events-none"
+      >
+        <span className="font-[510]">Tasks</span>
+        <span className="tabular-nums normal-case">{open} open</span>
+      </button>
     </section>
   )
 }
@@ -246,9 +324,11 @@ function sectionAt(outline: OutlineItem[], pos: number): OutlineItem | null {
 function CommentsPane({
   comments,
   outline,
+  create,
 }: {
   comments: SidebarComments
   outline: OutlineItem[]
+  create?: SidebarCreate
 }) {
   const [showResolved, setShowResolved] = useState(false)
 
@@ -300,12 +380,23 @@ function CommentsPane({
         <span className="text-[11px] tabular-nums text-[var(--essay-text-faint)]">
           {openCount} open
         </span>
+        <AddButton
+          label="Comment on the selection"
+          hint={
+            create?.selectionEmpty
+              ? 'Select a passage first, then comment on it'
+              : 'Comment on the selection'
+          }
+          disabled={create?.selectionEmpty}
+          onClick={create?.onAddComment}
+        />
       </header>
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {openCount === 0 && resolved.length === 0 && (
-          <p className="px-2 py-1 text-[11.5px] leading-relaxed text-[var(--essay-text-faint)]">
-            Select a passage, then choose Comment from the selection tools.
-          </p>
+          <PaneEmpty>
+            Select a passage and comment on it, from here or the selection
+            tools.
+          </PaneEmpty>
         )}
         {groups.map((group, i) => (
           <div key={`${group.label ?? '·preamble'}-${i}`}>

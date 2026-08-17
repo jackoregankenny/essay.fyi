@@ -179,6 +179,48 @@ impl ContextStore {
         self.entry(&entry_id)
     }
 
+    /// The document's scratch note: the half of the task pane that is *not*
+    /// in the manuscript.
+    ///
+    /// One row per document, overwritten in place. No history, no versions,
+    /// no tombstone — deliberately unlike everything else in this store.
+    /// Comments and anchors are claims about the manuscript and have to
+    /// survive being wrong; a scratch note is thinking-out-loud that happens
+    /// to persist, and versioning it would be filing someone's shopping list.
+    ///
+    /// Absent is empty, not an error. A document that has never been scratched
+    /// on and one that has been scratched on and cleared are the same document.
+    pub fn scratch(&self, document_id: &str) -> Result<String> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT body FROM scratch WHERE document_id = ?1",
+                params![document_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_default())
+    }
+
+    /// Replace the scratch note. Writing an empty body removes the row rather
+    /// than storing a blank one, so `.essay/` carries nothing for a document
+    /// whose note has been cleared.
+    pub fn set_scratch(&self, document_id: &str, body: &str) -> Result<()> {
+        if body.is_empty() {
+            self.conn.execute(
+                "DELETE FROM scratch WHERE document_id = ?1",
+                params![document_id],
+            )?;
+            return Ok(());
+        }
+        self.conn.execute(
+            "INSERT INTO scratch (document_id, body, updated_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(document_id) DO UPDATE SET body = ?2, updated_at = ?3",
+            params![document_id, body, now_millis()],
+        )?;
+        Ok(())
+    }
+
     pub fn resolve(&self, thread_id: &str) -> Result<CommentThread> {
         self.set_state(thread_id, ThreadState::Resolved)
     }
@@ -578,6 +620,11 @@ CREATE TABLE IF NOT EXISTS comment_entries (
   version    INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS entries_by_thread ON comment_entries (thread_id, created_at);
+CREATE TABLE IF NOT EXISTS scratch (
+  document_id TEXT PRIMARY KEY,
+  body        TEXT NOT NULL,
+  updated_at  INTEGER NOT NULL
+);
 ";
 
 #[cfg(test)]
@@ -769,6 +816,41 @@ mod tests {
             "# The Manuscript\n",
             "the manuscript is not the sidecar's to lose"
         );
+    }
+
+    #[test]
+    fn scratch_round_trips_and_clearing_removes_the_row() {
+        let (_dir, store, _doc) = store();
+        let id = store.resolve_document(Path::new("scratch.md"), "h1").unwrap();
+
+        assert_eq!(store.scratch(&id).unwrap(), "", "never scratched on is empty");
+
+        store.set_scratch(&id, "- ring the printer\n- cut §3").unwrap();
+        assert_eq!(store.scratch(&id).unwrap(), "- ring the printer\n- cut §3");
+
+        store.set_scratch(&id, "replaced").unwrap();
+        assert_eq!(store.scratch(&id).unwrap(), "replaced", "overwritten in place");
+
+        // Cleared and never-written must be indistinguishable, or `.essay/`
+        // accumulates a blank row per document anyone ever opened this pane on.
+        store.set_scratch(&id, "").unwrap();
+        assert_eq!(store.scratch(&id).unwrap(), "");
+        let rows: i64 = store
+            .conn
+            .query_row("SELECT count(*) FROM scratch", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 0, "clearing removes the row rather than blanking it");
+    }
+
+    #[test]
+    fn scratch_is_per_document_not_per_sidecar() {
+        let (_dir, store, _doc) = store();
+        let one = store.resolve_document(Path::new("one.md"), "h1").unwrap();
+        let two = store.resolve_document(Path::new("two.md"), "h2").unwrap();
+
+        store.set_scratch(&one, "one's notes").unwrap();
+        assert_eq!(store.scratch(&two).unwrap(), "", "a folder-mate sees nothing");
+        assert_eq!(store.scratch(&one).unwrap(), "one's notes");
     }
 
     #[test]

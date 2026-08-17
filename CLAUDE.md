@@ -342,6 +342,58 @@ essay-desktop` — because until it existed the Tauri shell had never been
 compiled on anything but Windows. `check`, not `build`: a Linux-only *link*
 error still slips through, and that gap is stated in the comment.
 
+**Cutting a release is `bun run release <patch|minor|major>`.** The version is
+written down twice — `tauri.conf.json`, which is the number `latest.json`
+serves and the guard job checks, and `[workspace.package]` in `Cargo.toml`,
+which nothing checks and which therefore drifts. `scripts/release.mjs` sets
+both from one argument, refreshes `Cargo.lock`, commits and tags. It does not
+push: pushing is the irreversible half (three platform builds, then a public
+release that installed copies fetch within the hour), so `--push` is opt-in and
+the undo commands are printed instead. Signing secrets are already on the repo;
+as of 2026-08-17 no tag has ever been pushed, so the pipeline is untested end
+to end.
+
+**target/ is garbage-collected now, because cargo never does it.** Cargo
+addresses artifacts by a metadata hash over the crate's configuration and keeps
+every hash it has ever built, forever. Measured 2026-08-17: 34.4 GB, of which
+`debug/incremental` alone was 21.4 GB over 353 directories — 229 untouched for
+a fortnight against 12 written that day. `scripts/prune-target.mjs` deletes an
+entry only if **both** nothing has written to it for `--min-age-days` (7) *and*
+it is not among the newest `--keep` hashes for its crate. Both halves are
+load-bearing and neither alone is safe: age alone is `cargo sweep --time` and it
+is wrong here, because cargo does not touch an artifact it finds fresh, so the
+Typst rlib that the next build will link has a six-week-old mtime and deleting
+it is minutes of codegen for nothing; hash-rank alone would evict the other
+branch the moment you switched, which is what caching is for. Age-based rather
+than a size cap despite `size-budget.json` setting the opposite precedent —
+enforcing a cap means walking every byte in `target/`, and this runs in front of
+`bun run app`. First run reclaimed 17.54 GB. Wired into `dev`/`build`/`tauri`/
+`app` as `prune:auto`, throttled to once per 12h by a stamp file, and never
+fatal: disk hygiene failing is not a reason to stop someone building.
+
+**There are two Essays, and they can be open at once.**
+`tauri.dev.conf.json` is a fourth platform-style config (same RFC 7396 merge,
+same repeated-window-geometry cost) and it overrides four things. `identifier`
+is the load-bearing one: Tauri derives the app data directory from it, so
+`fyi.essay.app.dev` is what gives the dev build its own `recovery.sqlite`,
+fonts and pinned adapters. Sharing them is the version that loses a manuscript —
+two processes journalling the same buffer, one of them restarted on every
+rebuild. Then `productName`, so the installer writes a second app rather than
+replacing the one being written in; the window `title`; and the updater, both
+halves (dev channel endpoint, `createUpdaterArtifacts` off) — the dev build is
+*rebuilt*, never updated, and left on the stable channel it would find the real
+release and "update" to it, which now installs a second app instead. The icon
+is `icon-dev.svg`, bright red: the ground carries the discrimination because two
+icons differing only in one small stroke are two icons you click at random when
+tired, and red rather than merely inverted because this is the build that may be
+mid-refactor when you reach for it. The window title is the other half of that —
+Essay runs `decorations: false` on Windows, so the OS title surfaces only in
+Alt-Tab and the taskbar tooltip, which is exactly where you switch between two
+copies; `lib/appName.ts` asks the backend for the product name rather than
+hardcoding it. Cost, unavoidable: `identifier` is baked in by `tauri-build`, so
+alternating between `bun run app` and a plain `tauri dev` recompiles the shell.
+`bun run bundle:dev` makes an installable one.
+
 **Window chrome is per-platform, by config file, not at runtime.**
 `tauri.macos.conf.json` (decorations on, `titleBarStyle: Overlay`,
 `hiddenTitle`) and `tauri.linux.conf.json` (decorations on, the WM draws the
@@ -418,6 +470,134 @@ the built-in as the fallback rather than the only path, the document's face as
 a *stack* (same reasoning that made `essay.typ` name one), and Proof as the
 place it all happens. Two invariants bound it: the format is referenced and
 never inlined, and importing one is reading a file, never a fetch.
+
+**The welcome is the empty state, and there is a help tab.** `welcome.md` used
+to appear exactly once, behind an `essay.welcomed` flag — which meant the person
+most likely to want it back, someone who opened Essay, looked around and closed
+it, was the one person who could not have it. It is now what an untitled buffer
+holds until `hasRealDocuments()` is true (`lib/welcomeState.ts`: a flag set on
+the first save, *or* a non-empty recents list, so nobody already using Essay gets
+re-welcomed by the change landing). `HelpPanel` lives *in* the footer, at its
+trailing edge. It was first built as an absolutely positioned tab in the
+bottom-left corner, which put a button over the manuscript at a spot the footer
+already owned — two surfaces claiming one corner, and the floating one read as
+dropped rather than placed. The footer already housed the one control that is
+not a fact about the document, so help is its counterpart (same 13px, same
+faint ink, same hover) rather than a new thing to notice — and it sits at the
+*opposite* end rather than beside it, because stacked together the two read as
+a toolbar forming in the corner and push the word counts off their own margin.
+Bracketing keeps the document's facts in the middle and puts the least urgent
+control in the room at the far corner, which is where the eye arrives last.
+Fixed on the way past: the footer's `ml-auto` was on the status line, which is
+`hidden lg:inline`, so under 1024px the element carrying the push disappeared
+and everything meant for the right edge packed back against the counts — it now
+belongs to a wrapper that always exists. It shows *and* opens: the
+newest release's summary and section chips are parsed out of
+`content/changelog.md` by `lib/changelog.ts`, because a hand-maintained summary
+of a changelog disagrees with it eventually and the wrong copy is always the one
+nobody opens. The buttons then open the changelog and the welcome as pathless
+manuscripts — Essay's best surface for reading a document is the one it spent
+all its effort on, and a reader reimplemented inside a popover would be a worse
+one sitting next to it; pathless means you can scribble on the changelog and
+nothing is written over. Trap worth keeping: **`Tip` cannot wrap a
+`Popover.Trigger`** — it mounts its child through Base UI's `render` prop and
+takes the element over, producing a button that tooltips correctly and never
+opens. `FilesPanel` hit the same wall; both use the native `title` attribute.
+
+**Discoverability pass, and it was one bug in two places.** Essay's good parts
+were reachable by keys nobody had been told about. The Structure panes made it
+worse by rendering *only when non-empty* — an author with no tasks was shown
+nothing at all about tasks, so "how do I add a todo?" had no answer on screen.
+Marks and Tasks now render whether or not they hold anything (an empty pane is
+not clutter when it is the only thing saying the feature exists), each pane
+header carries a `+` (`SidebarCreate`, routed to the same commands the palette
+runs — a second door, not a second implementation), and the two that need a
+passage show *disabled with the reason* rather than hidden, because a control
+that appears only under conditions you have not worked out is the problem
+restated. `ShortcutHints` is the other half: two bindings at a time in the
+footer, chosen by what is hardest to discover — comment and mark with a
+selection, palette and find without one. Two, never more; a row of eight is a
+toolbar with the buttons taken away, and the palette is the honest home for the
+long tail. It only ever *describes* — the bindings live in `Workspace`'s keydown
+and Tiptap's own `Mod-Shift-h`, and a hint that could drift from its handler
+would be worse than none. Comments already had `Ctrl+Alt+M` (what Word and Docs
+both bind); it had simply never been visible.
+
+Three UI bugs fixed alongside. The agent option dropdown had `min-w` and no
+`max-w`, so an agent catalogue's paragraph-long descriptions set the width —
+on a wide monitor, the whole window — and `truncate` never engaged because
+there was nothing to truncate against; it now matches `PrintPane`'s
+`w-[19rem] max-w-[calc(100vw-2rem)]`. **`color-scheme` was never set**, so
+scrollbars, input carets and native focus rings followed the *operating system*
+rather than Essay's theme — a light machine running Essay's dark theme got pale
+scrollbars down every popup, which is exactly what reads as "this menu is not
+themed"; `applyTheme` now sets it, in JS rather than CSS because that is where
+`system` is resolved and the two must not disagree. And the comment composer
+outlived the author's attention: it is a manuscript layer at the `float` tier,
+above `canvas-owner`, so a card left open painted over the Proof pane at widths
+where the companion takes the whole canvas. Lowering the tier would be the
+wrong fix — it genuinely is cursor-anchored furniture — so it dismisses on an
+outside `pointerdown` instead, **only when empty**, because a stray click must
+not discard a half-written comment. `pointerdown` rather than focusout:
+`onSaveFirst` opens a native dialog, which blurs the window and would read as
+leaving.
+
+**The blue that crept in was a missing token.** `--essay-accent-tint` is the
+ground for `.essay-action` — "the one verb a surface exists for" — but the
+palette had `surface` and `surface-hover` and *nothing* for "this is the
+current value". So every control that needed to show a chosen option reached
+for the tint, because it was the only thing in the palette that stood out: the
+settings segmented controls, the agent skill toggles. A theme picker left a
+blue chip sitting in the panel saying nothing except that it had been chosen,
+and the one saturated element that is supposed to be the caret turned up in
+every panel at once. `--essay-surface-selected` is the fix — a lightness step
+past hover at the same near-zero chroma (0.008 against the tint's 0.04), down
+in the dark theme's direction and up in the light theme's, because on paper the
+ground is already near-white. The rule is written beside `.essay-action` since
+that is where the next person will look: **accent marks what you would press;
+elevation marks what is merely true.** Deliberately still on the tint: primary
+buttons, and the two rewrite signals in `DiffReview` (the callout and the
+badge), which flag something worth a second look rather than reporting a state
+— both already carry comments saying so.
+
+**And the deeper half: the neutrals were never neutral.** Every grey in the
+chrome carried a little blue — chroma 0.003–0.008 at hue 250–260 — invisible on
+a border and quite visible across a panel, a popup and a window of chrome. Two
+things were wrong with it. That hue is *fixed* while the accent is an author
+preference, so choosing violet produced a purple caret in a blue-grey room: two
+colours arguing, when the theme's whole claim is one saturated element on a calm
+page. And the app read as faintly blue everywhere without anything having
+decided to be blue. All nine chrome tokens in both themes are now `oklch(L 0 0)`.
+The light theme had already made this exact argument for a single token — its
+prose ink is "a near-black that sits on paper without the blue cast that makes
+long reading feel like a screen" — and simply never generalised it. Warmth stays
+where it was chosen on purpose: the paper canvas (hue 72/90), the prose inks
+(75–85), the highlight (92). Those hues are the document; the chrome is not.
+
+**Tasks is a tenant now, in two halves.** It was a third of Structure's shared
+column and rendered only when non-empty; Structure is the shape of the argument
+and the state of the work is a different question. The pane's *halves* are the
+design, and so is the line between them. Above: the document's own `- [ ]`
+checkboxes, real Markdown, and they are now **tickable from the pane**
+(`setTaskChecked` in `@essay/editor` — `setNodeMarkup` on the item, no selection
+change, because someone triaging a list did not ask for the caret to move).
+Below: a scratch note in `.essay/`, which is *not* in the document and never
+reaches it. Both halves look like notes and behave like notes and exactly one
+survives sending the file, so each is labelled with **the consequence** rather
+than the storage: "In the document. These travel with the file." against "Not in
+the document. Stays on this machine, beside the file." A surface that blurred
+them would eventually put a private aside in a published draft, or lose a real
+task to a deleted sidecar. Storage is a `scratch` table in `essay-context` —
+one row per document, overwritten in place, no history and no tombstone,
+deliberately unlike everything else in that store: comments are claims about the
+manuscript and must survive being wrong, a scratch note is thinking-out-loud and
+versioning it would be filing someone's shopping list. Clearing deletes the row
+rather than blanking it, so cleared and never-written are the same state and
+`.essay/` carries nothing for a document the pane was merely opened on. Untitled
+buffers are gated exactly as comments are — the note lives beside the file.
+Structure keeps a one-line count that *points* at the tenant rather than
+duplicating the list, because two surfaces listing the same checkboxes is how
+they drift.
 
 Next: maths, in-editor find affordances beyond the palette (a find bar,
 find-and-replace, match highlighting), and the `essay

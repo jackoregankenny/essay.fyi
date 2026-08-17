@@ -784,7 +784,16 @@ export function AgentPanel({
               node.scrollHeight - node.scrollTop - node.clientHeight <
               STICK_SLACK
           }}
-          className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+          className={cn(
+            'min-h-0 flex-1 overflow-y-auto px-3 py-3',
+            // Empty, the transcript is a full-height column with one sentence
+            // stranded at the top and the composer far below it — the two
+            // halves of the same invitation, as far apart as the panel allows.
+            // Centring closes that gap so the opening reads as one thing. Only
+            // while empty: the moment there is a transcript, it is a log and a
+            // log starts at the top.
+            entries.length === 0 && 'flex flex-col justify-center',
+          )}
         >
           {entries.length === 0 && (
             // A sentence, not a placeholder graphic: left-aligned and in the
@@ -960,7 +969,14 @@ function OptionSelect({
           alignItemWithTrigger={false}
           className="z-[var(--essay-z-float)]"
         >
-          <Select.Popup className="essay-floating essay-pop max-h-[320px] min-w-[200px] overflow-y-auto p-1 outline-none">
+          {/* A width, not just a floor. `min-w` alone let the content decide,
+              and an agent catalogue's descriptions are a paragraph each — so
+              the popup grew to the widest one, which on a wide monitor is the
+              whole window, and the `truncate` below never engaged because
+              there was nothing to truncate against. Same shape as the format
+              select in `PrintPane`: a fixed comfortable width, capped at the
+              viewport so it cannot overhang a narrow window. */}
+          <Select.Popup className="essay-floating essay-pop max-h-[320px] w-[19rem] max-w-[calc(100vw-2rem)] overflow-y-auto p-1 outline-none">
             <Select.List>
               {option.choices.map((choice) => (
                 <Select.Item
@@ -974,7 +990,9 @@ function OptionSelect({
                     </Select.ItemIndicator>
                   </span>
                   <span className="min-w-0 flex-1">
-                    <Select.ItemText>{label(choice)}</Select.ItemText>
+                    <Select.ItemText className="block truncate">
+                      {label(choice)}
+                    </Select.ItemText>
                     {choice.description && (
                       <span className="block truncate text-[10px] text-[var(--essay-text-faint)]">
                         {choice.description}
@@ -1039,8 +1057,11 @@ function SkillBar({
                   'h-[22px] rounded-l-full rounded-r-none border py-0 pl-2 pr-1.5 text-[11px]',
                   'transition-colors duration-100',
                   'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]',
+                  // On is a state, not a verb: raised ground, no accent. A row
+                  // of skills all lit blue for being enabled spent the theme's
+                  // one saturated element on a list of chips.
                   on
-                    ? 'border-[var(--essay-accent-tint)] bg-[var(--essay-accent-tint)] text-[var(--essay-text)]'
+                    ? 'border-[var(--essay-surface-selected)] bg-[var(--essay-surface-selected)] text-[var(--essay-text)]'
                     : 'border-[var(--essay-border)] text-[var(--essay-text-muted)] hover:border-[var(--essay-border-strong)] hover:text-[var(--essay-text)]',
                   skill.builtIn && 'cursor-default',
                 )}
@@ -1057,7 +1078,7 @@ function SkillBar({
                   'transition-colors duration-100',
                   'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--essay-accent)]',
                   on
-                    ? 'border-[var(--essay-accent-tint)] bg-[var(--essay-accent-tint)] text-[var(--essay-text-muted)] hover:text-[var(--essay-text)]'
+                    ? 'border-[var(--essay-surface-selected)] bg-[var(--essay-surface-selected)] text-[var(--essay-text-muted)] hover:text-[var(--essay-text)]'
                     : 'border-[var(--essay-border)] text-[var(--essay-text-faint)] hover:text-[var(--essay-text)]',
                 )}
               >

@@ -494,6 +494,34 @@ export function extractTasks(editor: Editor): DocumentTask[] {
   return tasks
 }
 
+/**
+ * Tick or untick the task item at `pos`.
+ *
+ * A direct attribute change rather than a selection-then-command, because the
+ * caller is the Tasks pane and moving the caret to tick something off is the
+ * one thing an author in that pane did not ask for — they are triaging a list,
+ * not editing the sentence. `setNodeMarkup` keeps the item's content and its
+ * position, so the transaction is exactly the checkbox and nothing else.
+ *
+ * Returns false when `pos` no longer holds a task item, which is the ordinary
+ * case for a stale row: the pane indexes the document and the document can
+ * change underneath it.
+ */
+export function setTaskChecked(
+  editor: Editor,
+  pos: number,
+  checked: boolean,
+): boolean {
+  const node = editor.state.doc.nodeAt(pos)
+  if (!node || node.type.name !== 'taskItem') return false
+  const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
+    ...node.attrs,
+    checked,
+  })
+  editor.view.dispatch(tr)
+  return true
+}
+
 /** A run of text, and where it sits in both coordinate systems. */
 interface TextRun {
   /** Offset of the run in the flattened text, in UTF-16 code units. */

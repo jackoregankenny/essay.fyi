@@ -4,6 +4,7 @@ import {
   IconHistory,
   IconProof,
   IconStructure,
+  IconTasks,
   type IconProps,
 } from './icons'
 import { cn } from '#/lib/cn'
@@ -38,6 +39,7 @@ const TENANTS: ReadonlyArray<
     shortcut('Ctrl+B'),
     'Control+B Meta+B',
   ],
+  ['tasks', 'Tasks', IconTasks],
   ['proof', 'Proof', IconProof, shortcut('Ctrl+J'), 'Control+J Meta+J'],
   [
     'agent',

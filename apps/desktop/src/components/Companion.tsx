@@ -23,6 +23,7 @@ export interface CompanionProps {
   tenant: CompanionTenant | null
   /** The slot renders these; Workspace owns all state/wiring. */
   structure: ReactNode
+  tasks: ReactNode
   proof: ReactNode
   agent: ReactNode
   history: ReactNode
@@ -31,6 +32,7 @@ export interface CompanionProps {
 export function Companion({
   tenant,
   structure,
+  tasks,
   proof,
   agent,
   history,
@@ -54,6 +56,9 @@ export function Companion({
         <div className="flex min-h-0 flex-1 flex-col">
           {visibleTenant === 'structure' && (
             <div className="essay-tenant-reading min-h-0 flex-1 overflow-y-auto">{structure}</div>
+          )}
+          {visibleTenant === 'tasks' && (
+            <div className="essay-tenant-reading min-h-0 flex-1 overflow-y-auto">{tasks}</div>
           )}
           {visibleTenant === 'proof' && (
             <div className="essay-tenant-reading min-h-0 flex-1 overflow-hidden">{proof}</div>

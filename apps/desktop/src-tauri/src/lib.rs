@@ -758,6 +758,36 @@ fn respond_to_permission(
 /// way to turn it off. Toggling decorations on an already-visible NSWindow also
 /// costs a flash of the wrong chrome on every launch. Create-time config avoids
 /// both, at the price of the duplication above.
+///
+/// `tauri.dev.conf.json` is a fourth file merged the same way, and it exists so
+/// that the copy of Essay being written *in* and the copy being changed *under*
+/// can be open at the same time. It overrides four things, and each is what
+/// makes that true rather than decoration:
+///
+/// - `identifier`, to `fyi.essay.app.dev`. This is the load-bearing one. Tauri
+///   derives the app data directory from the identifier, so changing it is what
+///   gives the dev build its own `recovery.sqlite`, its own installed fonts and
+///   its own pinned ACP adapters. Sharing them is the version of this feature
+///   that loses a manuscript: two processes journalling the same buffer to the
+///   same recovery row, one of them the one being restarted every rebuild.
+/// - `productName`, so the installer writes a second application rather than
+///   replacing the one being written in.
+/// - the window `title`, because at that point the only remaining way to tell
+///   two windows apart is to read them.
+/// - the updater, both halves. `endpoints` moves to a `latest-dev.json` channel
+///   and `createUpdaterArtifacts` goes off. The dev build is *rebuilt*, never
+///   updated — that is the whole point of it — and the two settings are what
+///   make that true from either direction. Left on the stable channel it would
+///   find the real release and offer to "update" to it, which, the identifiers
+///   now differing, installs a second app instead of upgrading this one. And
+///   left producing updater artifacts, `tauri build` on this config would
+///   demand the signing key for a bundle nobody will ever be served. The dev
+///   channel is deliberately not published: the check finds nothing, which is
+///   the intended behaviour and not an oversight to fix.
+///
+/// The cost, which is real and unavoidable: `identifier` is baked in at compile
+/// time by `tauri-build`, so alternating between `bun run app` and a plain
+/// `tauri dev` recompiles the shell. Pick one and stay on it for a session.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -783,6 +813,8 @@ pub fn run() {
       comments::delete_comment,
       comments::reattach_comment,
       comments::refresh_comment_anchors,
+      comments::read_scratch,
+      comments::write_scratch,
       images::write_image_bytes,
       images::relocate_image,
       images::image_app_dir,

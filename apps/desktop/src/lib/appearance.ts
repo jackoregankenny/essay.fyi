@@ -103,6 +103,16 @@ export function applyTheme(id: ThemeId): void {
   // same discipline as `data-prose-font`.
   if (light) root.setAttribute(THEME_ATTRIBUTE, 'light')
   else root.removeAttribute(THEME_ATTRIBUTE)
+
+  // And tell the engine, which `data-theme` cannot: `color-scheme` is what
+  // decides the parts of the interface Essay does not paint — scrollbars, the
+  // caret in an input, focus rings on native controls, the ground behind an
+  // overscroll. Left unset they follow the *operating system*, so an author on
+  // a light machine choosing Essay's dark theme got pale scrollbars down every
+  // popup and scrollable pane, which is exactly the thing that reads as "this
+  // menu is not themed". It is set here rather than in the stylesheet because
+  // `system` is resolved here (see above) and the two must not disagree.
+  root.style.colorScheme = light ? 'light' : 'dark'
 }
 
 /** Inline, so it outranks both theme blocks and one choice covers both. */

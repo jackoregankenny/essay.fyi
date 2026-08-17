@@ -115,8 +115,12 @@ function Choices<T extends string>({
               onClick={() => onChange(option.id)}
               className={cn(
                 'rounded-md px-3 py-1.5 text-[12px] transition-colors duration-[var(--essay-speed-quick)]',
+                // Raised, not coloured. This used to be the accent tint, which
+                // is the ground for *actions* — so choosing a theme left a
+                // blue chip sitting in the panel afterwards, saying nothing
+                // except that it had been chosen.
                 active
-                  ? 'bg-[var(--essay-accent-tint)] text-[var(--essay-text)]'
+                  ? 'bg-[var(--essay-surface-selected)] text-[var(--essay-text)]'
                   : 'text-[var(--essay-text-muted)] hover:bg-[var(--essay-surface-hover)] hover:text-[var(--essay-text)]',
               )}
             >

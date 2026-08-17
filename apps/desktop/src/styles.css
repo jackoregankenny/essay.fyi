@@ -291,7 +291,15 @@ body {
 
 /** The one verb a surface exists for. Accent as ink on a tint, never accent
     as a filled ground — one saturated element in the frame is the whole
-    theme, and a solid blue button spends that budget on a button. */
+    theme, and a solid blue button spends that budget on a button.
+
+    The line, since it kept being crossed: **accent marks what you would
+    press; elevation marks what is merely true.** A selected tab, a toggle
+    that is on, the current value of a setting — none of those are verbs, and
+    all of them reached for `--essay-accent-tint` because the palette had no
+    neutral "chosen" ground. They use `--essay-surface-selected` now. If a new
+    control wants the tint, the question to answer first is whether pressing
+    it *does* something; if it only reports something, it does not. */
 .essay-action {
   border-radius: var(--essay-radius-6);
   background: var(--essay-accent-tint);

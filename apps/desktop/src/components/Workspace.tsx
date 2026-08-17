@@ -19,6 +19,7 @@ import {
   positionAtOffset,
   revealHeading,
   revealPosition,
+  setTaskChecked,
   setFocusMode,
   setFrontMatter,
   setManuscript,
@@ -31,6 +32,9 @@ import {
 } from '@essay/editor'
 import { registerCommand, type Command } from '@essay/commands'
 import welcome from '#/content/welcome.md?raw'
+import { appName } from '#/lib/appName'
+import { changelogSource } from '#/lib/changelog'
+import { hasRealDocuments, markRealDocument } from '#/lib/welcomeState'
 import { samePath, type AppliedEdit, type ChangeSet } from '#/lib/agents'
 import { diffDocuments, looksLikeARewrite } from '#/lib/diff'
 import {
@@ -115,6 +119,9 @@ import { CommentComposer } from './CommentComposer'
 import type { ReviewRequest } from './DiffReview'
 import { FindBar } from './FindBar'
 import { FilesPanel } from './FilesPanel'
+import { HelpPanel } from './HelpPanel'
+import { ShortcutHints } from './ShortcutHints'
+import { TasksPanel } from './TasksPanel'
 import { Gutter } from './Gutter'
 import { HistoryPane } from './HistoryPane'
 import { ManuscriptEditor } from './ManuscriptEditor'
@@ -226,16 +233,14 @@ function EdgeFade({ edge }: { edge: 'top' | 'bottom' }) {
   )
 }
 
-/** The welcome manuscript appears once, on first launch; after that new
-    documents start empty. */
+/** The welcome manuscript is the empty state, not a greeting: it is what an
+    untitled buffer holds until this author has a document of their own. It used
+    to appear exactly once, which meant the person most likely to want it back —
+    someone who opened Essay, looked around and closed it — was the one person
+    who could not have it. `hasRealDocuments` is the gate now, and the help tab
+    can summon it again at any point. */
 function initialManuscript(): string {
-  try {
-    if (localStorage.getItem('essay.welcomed')) return ''
-    localStorage.setItem('essay.welcomed', '1')
-    return welcome
-  } catch {
-    return welcome
-  }
+  return hasRealDocuments() ? '' : welcome
 }
 
 export function Workspace() {
@@ -272,6 +277,7 @@ export function Workspace() {
   /** File navigation is a non-modal popover from the running head. It never
       claims manuscript width and closes as soon as a file is chosen. */
   const [explorerOpen, setExplorerOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   const [recoverable, setRecoverable] = useState<RecoverableBuffer[]>([])
   const [outline, setOutline] = useState<OutlineItem[]>([])
   const [words, setWords] = useState(0)
@@ -616,6 +622,10 @@ export function Workspace() {
       }
       setBaseHash(result.hash)
       setDirty(false)
+      // This author now has a document of their own, so the welcome stops being
+      // what an empty buffer contains. Recorded here rather than on
+      // `newDocument` because saving is the event that means it.
+      if (result.ref.path) markRealDocument()
 
       // The document now has a folder, so anything that pasted into the
       // staging directory while it did not can move in and be referenced
@@ -661,6 +671,26 @@ export function Workspace() {
     if (!opened) return
     loadIntoEditor(editor, opened.contents, opened, opened.hash)
   }, [editor, settleUnsaved, loadIntoEditor])
+
+  /**
+   * Open one of Essay's own documents — the changelog, the welcome — in the
+   * manuscript surface.
+   *
+   * A pathless buffer, deliberately, and the same one `newDocument` produces.
+   * These are documents to *read*, and the surface that reads a document best
+   * is the one Essay spent all its effort on; a reader built inside the help
+   * popover would be a worse one sitting next to it. Pathless means editing a
+   * copy — scribble on the changelog, keep it if you like, and nothing has
+   * been written over.
+   */
+  const openReading = useCallback(
+    async (name: string, source: string) => {
+      if (!editor || !(await settleUnsaved())) return
+      await closeDocument()
+      loadIntoEditor(editor, source, { path: null, name }, null)
+    },
+    [editor, settleUnsaved, loadIntoEditor],
+  )
 
   const openByPath = useCallback(
     async (path: string) => {
@@ -1532,10 +1562,22 @@ export function Workspace() {
   }, [editor, newDocument, openDocument, saveDocument, exportPdf, checkpoint, beginComment, measure, setMeasure, toggleTenant, setTenant, proseFont, cycleProseFont, docRef.path, openFiles, summonFind, closeActiveTab, cycleTab, imageStore, setImageStore, theme, chooseTheme])
 
   useEffect(() => {
-    const title = `${docRef.name}${dirty ? ' •' : ''} — Essay`
-    document.title = title
-    if (isTauri()) {
-      void getCurrentWindow().setTitle(title)
+    // Named from the build rather than written in, so a dev build reads
+    // "Essay Dev" in Alt-Tab and is not mistaken for the copy being written in.
+    // Awaited rather than read synchronously because the name comes from the
+    // backend; `cancelled` guards the rename that lands after a fast switch to
+    // another document, which would otherwise leave the previous title up.
+    let cancelled = false
+    void appName.then((name) => {
+      if (cancelled) return
+      const title = `${docRef.name}${dirty ? ' •' : ''} — ${name}`
+      document.title = title
+      if (isTauri()) {
+        void getCurrentWindow().setTitle(title)
+      }
+    })
+    return () => {
+      cancelled = true
     }
   }, [docRef, dirty])
 
@@ -1863,10 +1905,11 @@ export function Workspace() {
                 shadow, or separate status-bar material. */}
             <footer className="essay-chrome pointer-events-none z-[var(--essay-z-controls)] h-10 shrink-0 text-[11px] font-[510] text-[var(--essay-text-muted)]">
               <div className="essay-manuscript-orbit mx-auto flex h-full min-w-0 items-center gap-3">
-                {/* The only affordance in the footer that is not a fact about
-                    the document, so it is the smallest thing there and sits
-                    outside the counts rather than among them: faint until
-                    pointed at, and the same size as the text beside it. */}
+                {/* The only affordance in the footer's leading edge that is
+                    not a fact about the document, so it is the smallest thing
+                    there and sits outside the counts rather than among them:
+                    faint until pointed at, and the same size as the text
+                    beside it. Help is its counterpart at the trailing edge. */}
                 <button
                   type="button"
                   onClick={() => setSettingsOpen(true)}
@@ -1924,18 +1967,48 @@ export function Workspace() {
                   An untitled buffer is journalled but homeless, and the line
                   says so rather than pretending "unsaved" is a state of the
                   file. */}
-                <span className="ml-auto hidden min-w-0 truncate text-[var(--essay-text-faint)] lg:inline">
-                  {conflict
-                    ? 'changed on disk'
-                    : docRef.path
-                      ? dirty
-                        ? 'writing…'
-                        : 'safe on disk'
-                      : `only in memory — ${commandKey}S gives it a home`}
-                </span>
-                <span className="pointer-events-auto shrink-0 opacity-70 transition-opacity duration-[var(--essay-speed-quick)] hover:opacity-100">
-                  <MeasureSelect value={measure} onChange={setMeasure} />
-                </span>
+                {/* What the cursor could do right now, learned by peripheral
+                    vision rather than by study. Before the trailing group, so
+                    it reads as part of the document's own row. */}
+                <ShortcutHints selectionEmpty={selectionEmpty} />
+                {/* The trailing group, and `ml-auto` belongs to the group
+                    rather than to the status line inside it. It used to sit on
+                    that status span — which is `hidden lg:inline`, so under
+                    1024px the element carrying the push disappeared and
+                    everything meant for the right edge packed back against the
+                    word counts. The wrapper always exists, so the trailing
+                    controls are at the trailing edge at every width. */}
+                <div className="ml-auto flex min-w-0 items-center gap-3">
+                  <span className="hidden min-w-0 truncate text-[var(--essay-text-faint)] lg:inline">
+                    {conflict
+                      ? 'changed on disk'
+                      : docRef.path
+                        ? dirty
+                          ? 'writing…'
+                          : 'safe on disk'
+                        : `only in memory — ${commandKey}S gives it a home`}
+                  </span>
+                  <span className="pointer-events-auto shrink-0 opacity-70 transition-opacity duration-[var(--essay-speed-quick)] hover:opacity-100">
+                    <MeasureSelect value={measure} onChange={setMeasure} />
+                  </span>
+                  {/* Last in the footer, which is the far corner of the
+                      window: the least urgent control in the room, at the
+                      point the eye reaches last. Settings holds the opposite
+                      end, so the two bracket the document's own facts rather
+                      than crowding one side of them. */}
+                  <HelpPanel
+                    open={helpOpen}
+                    onOpenChange={setHelpOpen}
+                    onOpenChangelog={() => {
+                      setHelpOpen(false)
+                      void openReading("What's new.md", changelogSource)
+                    }}
+                    onOpenWelcome={() => {
+                      setHelpOpen(false)
+                      void openReading('Welcome.md', welcome)
+                    }}
+                  />
+                </div>
               </div>
             </footer>
           </main>
@@ -1962,14 +2035,37 @@ export function Workspace() {
                   onDelete: (id) => void comments.remove(id),
                   onReattach: comments.reattach,
                 }}
+                create={{
+                  selectionEmpty,
+                  // Same commands the palette and the selection tools run —
+                  // this is a second door onto them, not a second implementation.
+                  onAddMark: () => {
+                    editor?.chain().focus().toggleHighlight().run()
+                  },
+                  onAddComment: beginComment,
+                }}
                 onSelectOutline={(item) => {
                   if (editor) revealHeading(editor, item.pos)
                 }}
                 onSelectMark={(mark) => {
                   if (editor) revealPosition(editor, mark.pos)
                 }}
-                onSelectTask={(task) => {
+                onOpenTasks={() => setTenant('tasks')}
+              />
+            }
+            tasks={
+              <TasksPanel
+                tasks={tasks}
+                path={docRef.path}
+                hash={baseHash}
+                onToggle={(task, checked) => {
+                  if (editor) setTaskChecked(editor, task.pos, checked)
+                }}
+                onSelect={(task) => {
                   if (editor) revealPosition(editor, task.pos + 1)
+                }}
+                onAdd={() => {
+                  editor?.chain().focus().toggleTaskList().run()
                 }}
               />
             }
