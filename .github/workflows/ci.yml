@@ -15,6 +15,15 @@ jobs:
   web:
     name: web (typecheck + build)
     runs-on: ubuntu-latest
+    # Bounded because an unbounded job is not "patient", it is a six-hour
+    # runner bill for nothing. Measured 2026-08-19: `apt-get update` stalled on
+    # archive.ubuntu.com at 15:24 and produced not one further line until
+    # GitHub's own 360-minute ceiling killed it — twice in one run, 12 hours
+    # between them, for a mirror hiccup that the release workflow's identical
+    # apt step sailed through minutes earlier. The ceiling is the backstop; a
+    # job that has not finished in 30 minutes here has stopped making progress,
+    # and failing fast is what makes that visible instead of invisible.
+    timeout-minutes: 15
     outputs:
       dist-size-bytes: ${{ steps.dist-size.outputs.bytes }}
     steps:
@@ -58,6 +67,15 @@ jobs:
   rust:
     name: rust (cargo test)
     runs-on: ubuntu-latest
+    # Bounded because an unbounded job is not "patient", it is a six-hour
+    # runner bill for nothing. Measured 2026-08-19: `apt-get update` stalled on
+    # archive.ubuntu.com at 15:24 and produced not one further line until
+    # GitHub's own 360-minute ceiling killed it — twice in one run, 12 hours
+    # between them, for a mirror hiccup that the release workflow's identical
+    # apt step sailed through minutes earlier. The ceiling is the backstop; a
+    # job that has not finished in 30 minutes here has stopped making progress,
+    # and failing fast is what makes that visible instead of invisible.
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -89,6 +107,15 @@ jobs:
   desktop-linux:
     name: desktop shell (linux compile)
     runs-on: ubuntu-latest
+    # Bounded because an unbounded job is not "patient", it is a six-hour
+    # runner bill for nothing. Measured 2026-08-19: `apt-get update` stalled on
+    # archive.ubuntu.com at 15:24 and produced not one further line until
+    # GitHub's own 360-minute ceiling killed it — twice in one run, 12 hours
+    # between them, for a mirror hiccup that the release workflow's identical
+    # apt step sailed through minutes earlier. The ceiling is the backstop; a
+    # job that has not finished in 30 minutes here has stopped making progress,
+    # and failing fast is what makes that visible instead of invisible.
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -142,6 +169,15 @@ jobs:
   size:
     name: size (release build budget)
     runs-on: windows-latest
+    # Bounded because an unbounded job is not "patient", it is a six-hour
+    # runner bill for nothing. Measured 2026-08-19: `apt-get update` stalled on
+    # archive.ubuntu.com at 15:24 and produced not one further line until
+    # GitHub's own 360-minute ceiling killed it — twice in one run, 12 hours
+    # between them, for a mirror hiccup that the release workflow's identical
+    # apt step sailed through minutes earlier. The ceiling is the backstop; a
+    # job that has not finished in 30 minutes here has stopped making progress,
+    # and failing fast is what makes that visible instead of invisible.
+    timeout-minutes: 60
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:
       - name: Checkout
