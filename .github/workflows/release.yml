@@ -148,7 +148,25 @@ jobs:
           args: ${{ matrix.args }}
           tagName: ${{ github.ref_name }}
           releaseName: Essay ${{ github.ref_name }}
-          releaseBody: 'Download the installer for your platform below. Existing installations update themselves.'
+          # Early builds, and the notes say so — the people trying this are
+          # doing someone a favour and should know what they are holding. The
+          # macOS line is not a disclaimer but an instruction: there are no
+          # Apple secrets here, so Gatekeeper stops an unsigned .app with a
+          # message that reads like a virus warning, and a tester who is not
+          # told simply stops there.
+          releaseBody: |
+            Essay is early. It writes plain Markdown and never takes your file
+            hostage, but expect rough edges and please say when you hit one.
+
+            Download the installer for your platform below. Existing
+            installations update themselves within the hour.
+
+            **macOS:** these builds are unsigned, so the first launch needs
+            right-click on the app, then Open — double-clicking will refuse.
+            Every launch after that is normal, and updates are unaffected.
+
+            **Linux:** `.deb` for Debian and Ubuntu, `.AppImage` for anything
+            else. Only the AppImage updates itself.
           # Drafted here and published by the `announce` job below. The updater
           # reads `releases/latest/download/latest.json`, so the moment this
           # release stops being a draft it is what every installed copy checks
