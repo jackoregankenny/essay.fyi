@@ -270,6 +270,19 @@ export function Gutter({
   // the UI arriving.
   const [mounted, setMounted] = useState(false)
   const [shown, setShown] = useState(false)
+  /**
+   * The fan is on its way out, as distinct from not yet on its way in.
+   *
+   * Two booleans could not carry this. `shown === false` means "folded", and
+   * the entrance effect below reads that as "needs starting" — correct on a
+   * fresh mount, catastrophic during an exit, where it flipped `shown` back on
+   * the same tick the close turned it off. The fade never rendered (the fan sat
+   * open until the unmount timer removed it: a teleport) and `shown` was left
+   * true at unmount, so the *next* mount began already in its open computed
+   * style with nothing to interpolate from and snapped open too. One flag,
+   * both symptoms.
+   */
+  const [leaving, setLeaving] = useState(false)
   /** The arrival is over. Until it is, every label carries its stagger delay
       and the spring; after it, the same transform property has to answer a
       moving pointer immediately, so the transition is swapped for a short
@@ -380,6 +393,7 @@ export function Gutter({
     }
     // Re-entering during the exit fade resumes rather than restarts.
     if (mounted) {
+      setLeaving(false)
       setShown(true)
       return
     }
@@ -399,11 +413,16 @@ export function Gutter({
     if (closeTimer.current !== null) return
     closeTimer.current = window.setTimeout(() => {
       closeTimer.current = null
+      setLeaving(true)
       setShown(false)
       setHoverPos(null)
       unmountTimer.current = window.setTimeout(() => {
         unmountTimer.current = null
         setMounted(false)
+        // Cleared only once the labels are gone. Clearing it beside the fade
+        // would hand the entrance effect a mounted, folded fan and it would
+        // start the whole arrival over, mid-exit.
+        setLeaving(false)
       }, EXIT_MS)
     }, CLOSE_GRACE_MS)
   }
@@ -452,11 +471,12 @@ export function Gutter({
       const reach = Math.max(...rows.map((row) => row.offsetLeft + row.offsetWidth))
       setFanWidth(reach + LABEL_LEAD)
     }
-    if (!shown) {
+    // `leaving` is what keeps this from resurrecting a fan that is fading out.
+    if (!shown && !leaving) {
       void el.getBoundingClientRect()
       setShown(true)
     }
-  }, [mounted, shown, labelMax, outline])
+  }, [mounted, shown, leaving, labelMax, outline])
 
   // The arrival's own length: the last label's stagger plus the spring. Timed
   // rather than driven off transitionend, which fires per property per element
