@@ -28,6 +28,7 @@ import {
   type Icon,
 } from '#/lib/icons'
 import { cn } from '#/lib/cn'
+import { onBattery } from '#/lib/power'
 import {
   acceptChangeSet,
   baseName,
@@ -185,28 +186,9 @@ function writeTuning(tuning: Tuning) {
   }
 }
 
-/**
- * Whether this machine is running on battery, best effort.
- *
- * Pre-warming spawns a subprocess the author has not asked for yet; on mains
- * that is free, on battery it is somebody's afternoon. Chromium's Battery
- * Status API answers where it exists; where it does not, assume mains —
- * the pre-warm is cheap and the author expressed intent by opening the panel.
- */
-async function onBattery(): Promise<boolean> {
-  try {
-    const getBattery = (
-      navigator as Navigator & {
-        getBattery?: () => Promise<{ charging: boolean }>
-      }
-    ).getBattery
-    if (!getBattery) return false
-    const battery = await getBattery.call(navigator)
-    return battery.charging === false
-  } catch {
-    return false
-  }
-}
+// Why the pre-warm asks at all: it spawns a subprocess the author has not
+// asked for yet. On mains that is free; on battery it is somebody's afternoon.
+// The check itself now lives in `#/lib/power`, with the platform caveat.
 
 export function AgentPanel({
   open,

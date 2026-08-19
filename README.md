@@ -101,8 +101,66 @@ cargo run -p essay-cli -- render <file.md> --format pdf    # or svg, png
   sets with provenance — never a silent rewrite.
 - Typing and navigation never block on rendering or on AI.
 - Fully offline-capable: no accounts, no required network, system fonts.
+- Periodic work backs off on battery. Long-form writing happens unplugged;
+  see [Battery](#battery) for what that costs and what it deliberately spares.
 - File on disk is the source of truth on the Rust side — revisions, diffs,
   and agent patches operate on the Markdown file, never on editor state.
+
+## Battery
+
+Someone writing a long document is doing it for hours, often in a chair with no
+socket near it. That is the actual use, so the cost of running is a feature and
+not an afterthought.
+
+**What costs battery is wakeups, not work, and not the GPU.** The intuition that
+GPU rendering is the expensive part is backwards: a glyph atlas makes redrawing
+text nearly free, while compositing the same text on the CPU every frame is not.
+What drains a laptop is the processor being pulled out of its idle states over
+and over — timers firing, disks being written, subprocesses spawned — each of
+which costs more in the waking than in the doing.
+
+By that measure Essay has one dominant cost: **the Typst compile behind the
+preview.** Typst is single-pass with no incremental mode across invocations, so
+every expiry of the preview debounce re-typesets the whole document. An hour of
+writing with Proof open is hundreds of full compiles. Nothing else in the app is
+in the same order of magnitude, and — worth saying, because it is the usual
+reason to reach for a native UI toolkit — this cost is *identical* whatever
+renders the window. It is a Rust thread either way.
+
+So the lever is the interval, not the framework:
+
+- **The preview debounce is 500ms on mains and 1500ms on battery**
+  (`lib/usePreview.ts`). 1500ms sits past a between-sentence pause rather than
+  inside it, so what it catches is genuinely "stopped typing" and a burst of
+  edits collapses into one compile instead of several. The preview is slower on
+  battery, deliberately: the author asked for the pane, not for the update rate.
+- **Power state is followed live, not sampled once** (`lib/power.ts`). The
+  interesting moment is someone unplugging mid-session, which is exactly when a
+  check taken at startup is wrong for the rest of the afternoon.
+- **The agent pre-warm is skipped on battery** — it spawns a subprocess nobody
+  has asked for yet.
+
+Two things are deliberately *not* backed off:
+
+- **The 600ms recovery journal, and autosave at 1.5s.** These are the crash
+  safety net. Lengthening them trades someone's unsaved paragraph for a little
+  power, which is the wrong way round at any exchange rate.
+- **The watcher's poll fallback** (1s document, 2s roots). `PollWatcher` is
+  only constructed when the platform's native backend fails — network shares,
+  some Linux filesystems — so on a local disk it never runs at all. Making it
+  power-aware means tearing down and rebuilding watchers on every plug and
+  unplug, for a path most people never take. Known, untuned, and left that way
+  on purpose.
+
+**Platform caveat, stated plainly:** battery state comes from
+`navigator.getBattery`, which is Chromium's API. It exists in WebView2 and is
+absent from WKWebView and WebKitGTK — so today this reads correctly on Windows
+and reports "mains" on macOS and Linux. That is two of three platforms, not a
+rounding error. Closing it means asking the OS from Rust, which is a new
+dependency in a tree kept deliberately small; `source()` in `lib/power.ts` is
+the single seam to change when that trade is worth making. Unknown always
+resolves to mains, never to battery — guessing "battery" would slow the app for
+someone who never asked and give them no way to find out why.
 
 ## Layout
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { getManuscript, type Editor } from '@essay/editor'
+import { usePowerState } from '#/lib/power'
 
 export interface PreviewState {
   /**
@@ -43,7 +44,25 @@ interface RenderedDocument {
   requestedFormat: string | null
 }
 
-const DEBOUNCE_MS = 500
+// What a pause in typing costs, and why it costs more when nobody is plugged in.
+//
+// Every expiry here is a *whole* Typst compile — the engine is single-pass and
+// has no incremental mode across invocations, so a one-word edit re-typesets
+// the document. That is the right trade for a preview that has to be correct,
+// and at 500ms it is invisible on mains.
+//
+// On battery it is the most expensive thing Essay does. An hour of writing with
+// Proof open is on the order of hundreds of full compiles, each a few hundred
+// milliseconds of CPU that also keeps the package out of its idle states — the
+// wakeups cost more than the work. Waiting longer for the next pause collapses
+// a burst of edits into one compile instead of several.
+//
+// 1500ms is chosen to sit past a normal between-sentence pause rather than
+// inside it, so what it catches is genuinely "stopped typing" and not "thinking
+// about the next clause". It is a slower preview, and that is the point: the
+// author asked for the pane, not for the update rate.
+const DEBOUNCE_MAINS_MS = 500
+const DEBOUNCE_BATTERY_MS = 1500
 
 /**
  * Debounced, latest-wins Typst compilation. Typing never waits on this:
@@ -58,6 +77,7 @@ export function usePreview(
 ): PreviewState {
   const [state, setState] = useState<PreviewState>(INITIAL)
   const requestSeq = useRef(0)
+  const battery = usePowerState()
 
   useEffect(() => {
     if (!enabled || !editor) {
@@ -107,9 +127,14 @@ export function usePreview(
             error: String(err),
           }))
         })
-    }, DEBOUNCE_MS)
+    }, battery ? DEBOUNCE_BATTERY_MS : DEBOUNCE_MAINS_MS)
     return () => clearTimeout(timer)
-  }, [editor, docDir, enabled, version])
+    // `battery` re-arms the pending compile at the new interval when the cable
+    // moves. It costs one extra compile on a plug or unplug, which is the right
+    // way round: the alternative is honouring the old interval until the next
+    // keystroke, so unplugging mid-sentence would not take effect until after
+    // the expensive thing had already happened again.
+  }, [editor, docDir, enabled, version, battery])
 
   return state
 }
