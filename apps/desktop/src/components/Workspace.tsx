@@ -61,6 +61,13 @@ import {
   type MeasureId,
 } from '#/lib/measure'
 import {
+  fileRailLabel,
+  loadFileRail,
+  nextFileRail,
+  saveFileRail,
+  type FileRailId,
+} from '#/lib/fileRail'
+import {
   applyProseFont,
   loadProseFont,
   nextProseFont,
@@ -119,6 +126,7 @@ import { CommentComposer } from './CommentComposer'
 import type { ReviewRequest } from './DiffReview'
 import { FindBar } from './FindBar'
 import { FilesPanel } from './FilesPanel'
+import { ExplorerPane } from './ExplorerPane'
 import { HelpPanel } from './HelpPanel'
 import { ShortcutHints } from './ShortcutHints'
 import { TasksPanel } from './TasksPanel'
@@ -307,6 +315,7 @@ export function Workspace() {
     () => window.matchMedia?.(COMPACT_QUERY).matches ?? false,
   )
   const [measure, setMeasureState] = useState<MeasureId>(loadMeasure)
+  const [fileRail, setFileRailState] = useState<FileRailId>(loadFileRail)
   /** Where pasted image bytes go. A ref beside the state because the paste
       listener is attached once and must read the current answer, not the one
       that was current when the editor mounted. */
@@ -366,6 +375,11 @@ export function Workspace() {
   const setMeasure = useCallback((next: MeasureId) => {
     setMeasureState(next)
     saveMeasure(next)
+  }, [])
+
+  const setFileRail = useCallback((next: FileRailId) => {
+    setFileRailState(next)
+    saveFileRail(next)
   }, [])
 
   /**
@@ -1529,6 +1543,7 @@ export function Workspace() {
       { id: 'file.findInDocument', title: 'Find in document…', group: 'File', shortcut: shortcut('Ctrl+F'), keywords: 'find replace search this document match next previous', run: summonFind },
       { id: 'file.find', title: 'Search across folders…', group: 'File', keywords: 'search find look for text grep phrase across folders project workspace', run: () => setPaletteOpen(true) },
       { id: 'file.folders', title: 'Browse folders…', group: 'File', keywords: 'explorer workspace tree files directory root', run: openFiles },
+      { id: 'file.rail', title: `File explorer: ${fileRailLabel(fileRail)}`, group: 'File', keywords: 'explorer pin pinned sidebar rail permanent summoned layer files tree', run: () => setFileRail(nextFileRail(fileRail)) },
       { id: 'view.proof', title: 'Toggle proof', group: 'View', shortcut: shortcut('Ctrl+J'), keywords: 'typeset pages print render preview', run: () => toggleTenant('proof') },
       { id: 'view.structure', title: 'Toggle structure', group: 'View', shortcut: shortcut('Ctrl+B'), keywords: 'outline sidebar sections marks', run: () => toggleTenant('structure') },
       { id: 'view.agent', title: 'Toggle agent panel', group: 'View', shortcut: shortcut('Ctrl+Shift+A'), keywords: 'ai assistant opencode claude propose changes review', run: () => toggleTenant('agent') },
@@ -1559,7 +1574,7 @@ export function Workspace() {
     ]
     const unregister = commands.map(registerCommand)
     return () => unregister.forEach((fn) => fn())
-  }, [editor, newDocument, openDocument, saveDocument, exportPdf, checkpoint, beginComment, measure, setMeasure, toggleTenant, setTenant, proseFont, cycleProseFont, docRef.path, openFiles, summonFind, closeActiveTab, cycleTab, imageStore, setImageStore, theme, chooseTheme])
+  }, [editor, newDocument, openDocument, saveDocument, exportPdf, checkpoint, beginComment, measure, setMeasure, toggleTenant, setTenant, proseFont, cycleProseFont, docRef.path, openFiles, summonFind, closeActiveTab, cycleTab, imageStore, setImageStore, theme, chooseTheme, fileRail, setFileRail])
 
   useEffect(() => {
     // Named from the build rather than written in, so a dev build reads
@@ -1612,6 +1627,7 @@ export function Workspace() {
         className="essay-shell relative flex h-screen flex-col overflow-hidden bg-[var(--essay-editor-bg)] text-[var(--essay-text)]"
         data-measure={measure}
         data-companion-open={tenant !== null ? '' : undefined}
+        data-filerail-pinned={fileRail === 'pinned' ? '' : undefined}
         style={{ '--essay-measure': measureWidth(measure) } as CSSProperties}
       >
         <TopBar
@@ -1641,6 +1657,19 @@ export function Workspace() {
         />
 
         <div className="essay-workspace-grid min-h-0 flex-1">
+          {/* Mounted only when pinned: an explorer walks the workspace roots on
+              mount, and doing that for a column nobody asked to see is work and
+              watchers spent on nothing. The summoned layer keeps its own copy —
+              they never both exist, so there is no state to keep in step. */}
+          {fileRail === 'pinned' && (
+            <aside className="essay-filerail" aria-label="Files">
+              <ExplorerPane
+                currentPath={docRef.path}
+                onOpenFile={(path) => void openByPath(path)}
+              />
+            </aside>
+          )}
+
           <WorkspaceRail
             tenant={tenant}
             waitingOnAuthor={waitingOnAuthor}
@@ -1879,6 +1908,8 @@ export function Workspace() {
                     }}
                     imageStore={imageStore}
                     onImageStore={setImageStore}
+                    fileRail={fileRail}
+                    onFileRail={setFileRail}
                     // Typefaces and folders keep their own surfaces — both
                     // need room this page does not have, and duplicating them
                     // here would be two lists that can disagree.

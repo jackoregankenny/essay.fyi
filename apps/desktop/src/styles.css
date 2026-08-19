@@ -59,18 +59,30 @@ body {
 /* One manuscript and one optional margin. File navigation floats from the
    running head, so it never changes the page geometry. The companion claims
    a real margin, but uses the canvas itself rather than drawing a panel. */
+/* The file rail is a preference, not a state — it does not open and close with
+   the work the way the companion does, so it is set once and stays. Same track
+   mechanism though, so both columns animate on the one transition. */
 .essay-shell {
   --essay-companion-track: 0px;
   --essay-companion-width: clamp(21rem, 25vw, 23rem);
+  --essay-filerail-track: 0px;
+  --essay-filerail-width: 232px;
 }
 
 .essay-shell[data-companion-open] {
   --essay-companion-track: var(--essay-companion-width);
 }
 
+.essay-shell[data-filerail-pinned] {
+  --essay-filerail-track: var(--essay-filerail-width);
+}
+
 .essay-workspace-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--essay-companion-track);
+  grid-template-columns:
+    var(--essay-filerail-track)
+    minmax(0, 1fr)
+    var(--essay-companion-track);
   min-width: 0;
   position: relative;
   transition: grid-template-columns 220ms var(--essay-ease-swift);
@@ -83,13 +95,25 @@ body {
   right: 1.25rem;
 }
 
-.essay-manuscript-cell {
+.essay-filerail {
   grid-column: 1;
+  grid-row: 1;
+  /* The track is what animates; the pane inside it must not spill while the
+     column is still narrowing, or a filename trails across the manuscript. */
+  overflow: hidden;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--essay-border);
+}
+
+.essay-manuscript-cell {
+  grid-column: 2;
   grid-row: 1;
 }
 
 .essay-companion {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 1;
   z-index: var(--essay-z-companion);
   visibility: hidden;
@@ -144,7 +168,26 @@ body {
    mounted in its zero-width track, retaining selection and scroll for Esc. */
 @media (max-width: 52rem) {
   .essay-workspace-grid {
-    grid-template-columns: minmax(0, 1fr) 0;
+    grid-template-columns: 0 minmax(0, 1fr) 0;
+  }
+
+  /* Pinning is a wide-screen affordance. Below this the canvas is one column
+     and a tree beside it would leave neither surface usable, so the rail folds
+     back to being summoned — the preference is kept, not honoured.
+
+     Collapsed at the *token*, matching `[data-filerail-pinned]`'s specificity
+     so it wins on order. Restating `grid-template-columns` here does not work:
+     the track list above resolves through these variables, and the rule that
+     tries to override the whole list loses to it. Nothing noticed before now
+     because the companion's track is already 0 when closed and the pane is
+     absolutely positioned when open — this rail is the first column whose
+     width the compact query actually has to change. */
+  .essay-shell[data-filerail-pinned] {
+    --essay-filerail-track: 0px;
+  }
+
+  .essay-filerail {
+    display: none;
   }
 
   .essay-companion {

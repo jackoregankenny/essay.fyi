@@ -9,6 +9,7 @@ import {
 import { MEASURES, type MeasureId } from '#/lib/measure'
 import { PROSE_FONTS, type ProseFontId } from '#/lib/proseFont'
 import { IMAGE_STORES, type ImageStoreId } from '#/lib/imageStore'
+import { FILE_RAILS, type FileRailId } from '#/lib/fileRail'
 
 /**
  * Every preference in one place, which until now was the missing half of a
@@ -44,6 +45,8 @@ interface SettingsPageProps {
   onProseFont: (id: ProseFontId) => void
   imageStore: ImageStoreId
   onImageStore: (id: ImageStoreId) => void
+  fileRail: FileRailId
+  onFileRail: (id: FileRailId) => void
   /** Typefaces are their own page — browsing faces means seeing them. */
   onOpenFonts: () => void
   /** Explorer roots are edited where they are used, not duplicated here. */
@@ -151,6 +154,8 @@ export function SettingsPage({
   onProseFont,
   imageStore,
   onImageStore,
+  fileRail,
+  onFileRail,
   onOpenFonts,
   onOpenFolders,
   onClose,
@@ -296,6 +301,18 @@ export function SettingsPage({
                 value={imageStore}
                 options={IMAGE_STORES}
                 onChange={onImageStore}
+              />
+            </Field>
+
+            <Field
+              label="File explorer"
+              hint="Pinned keeps a column beside the manuscript. Below a narrow window it folds back to summoned — the preference is kept, not honoured."
+            >
+              <Choices
+                name="File explorer"
+                value={fileRail}
+                options={FILE_RAILS}
+                onChange={onFileRail}
               />
             </Field>
 

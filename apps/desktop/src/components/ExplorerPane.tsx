@@ -337,8 +337,13 @@ function parentLabel(path: string): string {
  * directly.
  */
 export function ExplorerPane({
+  currentPath = null,
   onOpenFile,
 }: {
+  /** Which document is open, so a rail that stays on screen can say where you
+      are. Optional because a summoned layer is dismissed before the answer
+      matters; a pinned one is looked at all day. */
+  currentPath?: string | null
   onOpenFile: (absolutePath: string) => void
 }) {
   const explorer = useExplorer()
@@ -370,7 +375,11 @@ export function ExplorerPane({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        <ExplorerContent explorer={explorer} onOpenFile={onOpenFile} />
+        <ExplorerContent
+          explorer={explorer}
+          currentPath={currentPath}
+          onOpenFile={onOpenFile}
+        />
       </div>
     </section>
   )
