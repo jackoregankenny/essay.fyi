@@ -242,6 +242,73 @@
   margin: 0;
 }
 
+/* ——— Lists ———
+   Restored rather than designed: `@import "tailwindcss"` brings preflight,
+   which sets `list-style: none` on every ul and ol and zeroes their padding.
+   That is the right default for an app full of navs and menus, and exactly
+   wrong for a manuscript, where a bullet is not decoration — it is the thing
+   that says *this is a list*. Without these rules a document written with
+   `- ` round-tripped perfectly to disk and rendered on screen as prose that
+   happened to break oddly, which is the worst kind of bug: the file was
+   always right and only the author's eyes were told otherwise.
+
+   `outside` rather than `inside`, because a marker set inside the content box
+   pushes the first line right and lets every wrapped line return to the
+   margin — a hanging indent in reverse, which reads as a rendering fault.
+
+   The indent is in em so it tracks the face through the serif swap and the
+   writing-width preference, both of which move the measure underneath it.
+
+   Markers take muted ink, not the prose's own. A bullet is punctuation for
+   the eye rather than a word to be read, and at full strength a column of
+   them becomes a second margin of black competing with the text it
+   introduces. */
+.essay-prose ul,
+.essay-prose ol {
+  list-style-position: outside;
+  padding-left: 1.4em;
+}
+
+.essay-prose ul {
+  list-style-type: disc;
+}
+
+.essay-prose ol {
+  list-style-type: decimal;
+}
+
+/* Depth reads by shape, not by indent alone. One level in, the indent is the
+   only cue left, and it is the first thing lost when a list starts at the top
+   of a page with its parent scrolled off. */
+.essay-prose ul ul {
+  list-style-type: circle;
+}
+
+.essay-prose ul ul ul {
+  list-style-type: square;
+}
+
+.essay-prose ol ol {
+  list-style-type: lower-alpha;
+}
+
+.essay-prose ol ol ol {
+  list-style-type: lower-roman;
+}
+
+.essay-prose li::marker {
+  color: var(--essay-prose-muted, var(--essay-text-muted));
+}
+
+/* A sub-list belongs to the item above it. The general block rule only
+   reaches direct children of `.essay-prose`, so a nested list gets no top
+   margin at all and sits flush; 0.2em is enough to separate the rows without
+   reading as the gap between two separate lists. */
+.essay-prose li > ul,
+.essay-prose li > ol {
+  margin-top: 0.2em;
+}
+
 /* Task lists */
 
 .essay-prose ul[data-type='taskList'] {
