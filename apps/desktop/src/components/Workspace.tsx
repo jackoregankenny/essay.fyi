@@ -63,8 +63,10 @@ import {
 import {
   fileRailLabel,
   loadFileRail,
+  loadFileRailCollapsed,
   nextFileRail,
   saveFileRail,
+  saveFileRailCollapsed,
   type FileRailId,
 } from '#/lib/fileRail'
 import {
@@ -315,6 +317,10 @@ export function Workspace() {
   )
   const [measure, setMeasureState] = useState<MeasureId>(loadMeasure)
   const [fileRail, setFileRailState] = useState<FileRailId>(loadFileRail)
+  /** Whether the pinned rail is folded to its sliver. Read beside the mode and
+      only honoured when the mode is `pinned` — a summoned layer has nothing
+      to fold. */
+  const [railCollapsed, setRailCollapsedState] = useState(loadFileRailCollapsed)
   /** Where pasted image bytes go. A ref beside the state because the paste
       listener is attached once and must read the current answer, not the one
       that was current when the editor mounted. */
@@ -379,6 +385,11 @@ export function Workspace() {
   const setFileRail = useCallback((next: FileRailId) => {
     setFileRailState(next)
     saveFileRail(next)
+  }, [])
+
+  const setRailCollapsed = useCallback((next: boolean) => {
+    setRailCollapsedState(next)
+    saveFileRailCollapsed(next)
   }, [])
 
   /**
@@ -1564,6 +1575,11 @@ export function Workspace() {
       { id: 'file.find', title: 'Search across folders…', group: 'File', keywords: 'search find look for text grep phrase across folders project workspace', run: () => setPaletteOpen(true) },
       { id: 'file.folders', title: 'Browse folders…', group: 'File', keywords: 'explorer workspace tree files directory root', run: openFiles },
       { id: 'file.rail', title: `File explorer: ${fileRailLabel(fileRail)}`, group: 'File', keywords: 'explorer pin pinned sidebar rail permanent summoned layer files tree', run: () => setFileRail(nextFileRail(fileRail)) },
+      // Only registered while pinned — a fold with nothing pinned is a command
+      // that does nothing, and a palette row that does nothing is a lie.
+      ...(fileRail === 'pinned'
+        ? [{ id: 'file.rail.collapse', title: railCollapsed ? 'Show file explorer' : 'Fold file explorer away', group: 'File', keywords: 'collapse fold hide sliver slim narrow files explorer sidebar room write', run: () => setRailCollapsed(!railCollapsed) }]
+        : []),
       { id: 'view.proof', title: 'Toggle proof', group: 'View', shortcut: keysFor('view.proof'), keywords: 'typeset pages print render preview', run: () => toggleTenant('proof') },
       { id: 'view.structure', title: 'Toggle structure', group: 'View', shortcut: keysFor('view.structure'), keywords: 'outline sidebar sections marks', run: () => toggleTenant('structure') },
       { id: 'view.agent', title: 'Toggle agent panel', group: 'View', shortcut: keysFor('view.agent'), keywords: 'ai assistant opencode claude propose changes review', run: () => toggleTenant('agent') },
@@ -1594,7 +1610,7 @@ export function Workspace() {
     ]
     const unregister = commands.map(registerCommand)
     return () => unregister.forEach((fn) => fn())
-  }, [editor, newDocument, openDocument, saveDocument, exportPdf, checkpoint, beginComment, measure, setMeasure, toggleTenant, setTenant, proseFont, cycleProseFont, docRef.path, openFiles, summonFind, closeActiveTab, cycleTab, imageStore, setImageStore, theme, chooseTheme, fileRail, setFileRail])
+  }, [editor, newDocument, openDocument, saveDocument, exportPdf, checkpoint, beginComment, measure, setMeasure, toggleTenant, setTenant, proseFont, cycleProseFont, docRef.path, openFiles, summonFind, closeActiveTab, cycleTab, imageStore, setImageStore, theme, chooseTheme, fileRail, setFileRail, railCollapsed, setRailCollapsed])
 
   useEffect(() => {
     // Named from the build rather than written in, so a dev build reads
@@ -1648,6 +1664,7 @@ export function Workspace() {
         data-measure={measure}
         data-companion-open={tenant !== null ? '' : undefined}
         data-filerail-pinned={fileRail === 'pinned' ? '' : undefined}
+        data-filerail-collapsed={fileRail === 'pinned' && railCollapsed ? '' : undefined}
         style={{ '--essay-measure': measureWidth(measure) } as CSSProperties}
       >
         <TopBar
@@ -1679,14 +1696,38 @@ export function Workspace() {
         <div className="essay-workspace-grid min-h-0 flex-1">
           {/* Mounted only when pinned: an explorer walks the workspace roots on
               mount, and doing that for a column nobody asked to see is work and
-              watchers spent on nothing. The summoned layer keeps its own copy —
-              they never both exist, so there is no state to keep in step. */}
+              watchers spent on nothing. Collapsed counts as not seen — a sliver
+              is not a tree anyone can read — so the pane unmounts and the
+              watcher stops, exactly as if the rail were never there. What
+              survives the fold is what already persists: expansion per root,
+              recents, the folders themselves. */}
           {fileRail === 'pinned' && (
-            <aside className="essay-filerail" aria-label="Files">
-              <ExplorerPane
-                currentPath={docRef.path}
-                onOpenFile={(path) => void openByPath(path)}
-              />
+            <aside
+              id="essay-file-rail"
+              className="essay-filerail"
+              aria-label="Files"
+              data-collapsed={railCollapsed ? '' : undefined}
+            >
+              {!railCollapsed && (
+                <ExplorerPane
+                  currentPath={docRef.path}
+                  onOpenFile={(path) => void openByPath(path)}
+                  onCollapse={() => setRailCollapsed(true)}
+                />
+              )}
+              {railCollapsed && (
+                // The sliver. Seven pixels of canvas where the column was —
+                // essentially invisible while writing, but a real button with
+                // a full-height hit area once found: no floating chrome to
+                // notice, no keyboard-only way back.
+                <button
+                  type="button"
+                  className="essay-filerail-handle"
+                  title="Show files"
+                  aria-label="Show files"
+                  onClick={() => setRailCollapsed(false)}
+                />
+              )}
             </aside>
           )}
 

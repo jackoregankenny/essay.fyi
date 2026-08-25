@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { isTauri } from '@tauri-apps/api/core'
 import { FileTree, useFileTree } from '@pierre/trees/react'
-import { ArrowClockwise, FolderSimplePlus, X } from '@phosphor-icons/react'
+import { ArrowClockwise, CaretDoubleLeft, FolderSimplePlus, X } from '@phosphor-icons/react'
 import { IconButton } from './ui/icon-button'
 import { Tip } from './ui/tooltip'
 import { loadRecentFiles, type RecentFile } from '#/lib/recents'
@@ -339,12 +339,16 @@ function parentLabel(path: string): string {
 export function ExplorerPane({
   currentPath = null,
   onOpenFile,
+  onCollapse,
 }: {
   /** Which document is open, so a rail that stays on screen can say where you
       are. Optional because a summoned layer is dismissed before the answer
       matters; a pinned one is looked at all day. */
   currentPath?: string | null
   onOpenFile: (absolutePath: string) => void
+  /** Present only when the host is a rail that can fold away — the summoned
+      layer has nothing to collapse into, so it gets no button to try. */
+  onCollapse?: () => void
 }) {
   const explorer = useExplorer()
 
@@ -354,6 +358,16 @@ export function ExplorerPane({
         <h2 className="text-[11px] font-medium tracking-wider text-[var(--essay-text-faint)] uppercase">
           Files
         </h2>
+        {onCollapse && (
+          <Tip
+            label="Fold away — click the sliver to bring it back"
+            trigger={
+              <IconButton className="h-6 w-6" onClick={onCollapse} aria-label="Collapse file explorer">
+                <CaretDoubleLeft size={13} weight="bold" />
+              </IconButton>
+            }
+          />
+        )}
         <div className="ml-auto">
           <Tip
             label={

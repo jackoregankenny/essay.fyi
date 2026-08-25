@@ -37,7 +37,7 @@ export const FILE_RAILS: readonly FileRailMode[] = [
   {
     id: 'pinned',
     label: 'Pinned',
-    detail: 'Keeps a column beside the manuscript. For moving between many files.',
+    detail: 'Keeps a column beside the manuscript — collapsible to a sliver when you want the room back.',
   },
 ]
 
@@ -68,6 +68,33 @@ export function saveFileRail(id: FileRailId): void {
     localStorage.setItem(STORAGE_KEY, id)
   } catch {
     // A preference that cannot be remembered is still a preference that works.
+  }
+}
+
+// Whether the pinned rail is currently folded away. A *state* of the rail,
+// not a third preference: "pinned" says the column lives here, collapse says
+// not right now. It persists so a sliver stays a sliver across launches —
+// the author who folded it was making room to write, and the next launch is
+// the same author at the same desk.
+//
+// The rail stays mounted while collapsed, so its tree, watchers and expansion
+// state survive the fold; only the track goes away.
+
+const COLLAPSED_KEY = 'essay.filerail.collapsed.v1'
+
+export function loadFileRailCollapsed(): boolean {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function saveFileRailCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0')
+  } catch {
+    // Same tolerance as above.
   }
 }
 
