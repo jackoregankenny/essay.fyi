@@ -223,25 +223,6 @@
   color: var(--essay-prose-muted, var(--essay-text-muted));
 }
 
-/* ——— Lists ——— */
-
-.essay-prose ul,
-.essay-prose ol {
-  padding-left: 1.6em;
-}
-
-.essay-prose li {
-  margin: 0.35em 0;
-}
-
-.essay-prose li::marker {
-  color: var(--essay-prose-faint, var(--essay-text-faint));
-}
-
-.essay-prose li > p {
-  margin: 0;
-}
-
 /* ——— Lists ———
    Restored rather than designed: `@import "tailwindcss"` brings preflight,
    which sets `list-style: none` on every ul and ol and zeroes their padding.
@@ -275,6 +256,14 @@
 
 .essay-prose ol {
   list-style-type: decimal;
+}
+
+.essay-prose li {
+  margin: 0.35em 0;
+}
+
+.essay-prose li > p {
+  margin: 0;
 }
 
 /* Depth reads by shape, not by indent alone. One level in, the indent is the
