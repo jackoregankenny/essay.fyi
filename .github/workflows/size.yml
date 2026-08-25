@@ -26,10 +26,13 @@ on:
       - 'scripts/size-budget.json'
       - 'scripts/check-size.mjs'
   schedule:
-    # 03:00 UTC daily. A scheduled run is also the canary for the quiet
-    # failure mode: rustc or a dependency update growing the binaries without
-    # any commit touching them.
-    - cron: '0 3 * * *'
+    # Weekly, not nightly, and this is a billing decision as much as a
+    # scheduling one: windows-latest minutes bill at 2×, and a nightly run of
+    # this job spends more of the month's included minutes than every other
+    # workflow combined — to confirm, most days, that nothing changed. Weekly
+    # still catches a toolchain or dependency drift within a week of it
+    # starting, which is the only thing a scheduled run is here to do.
+    - cron: '0 3 * * 1'
   workflow_dispatch:
 
 concurrency:
