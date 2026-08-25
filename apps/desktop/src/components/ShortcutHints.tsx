@@ -1,4 +1,4 @@
-import { shortcut } from '#/lib/platform'
+import { hintFor } from '#/lib/shortcuts'
 
 /**
  * What you could press right now, said quietly in the footer.
@@ -21,11 +21,16 @@ import { shortcut } from '#/lib/platform'
  * and the two whose absence sent an author looking through menus. With no
  * selection: the palette and find, which is how you reach everything else.
  *
- * Bindings are declared here as they are written in the handler that owns them
- * (`Workspace`'s keydown, and Tiptap's own `Mod-Shift-h` for highlight), and
- * `shortcut()` translates the label for the platform. Nothing here binds
- * anything — a hint that could drift from its handler is worse than no hint,
- * so this file only ever describes.
+ * Bindings are no longer spelled here. This file used to declare its own key
+ * strings beside the handler's, and said so — a hint that could drift from its
+ * handler is worse than no hint — which was true and was the reason to stop
+ * describing keys twice rather than a reason to be careful. `hintFor()` reads
+ * the same catalogue the handler and the palette read, so a rebinding reaches
+ * the footer whether or not anyone remembers this file exists.
+ *
+ * What stays here is the only thing that was ever editorial: *which* two to
+ * show. That is a judgement about discoverability, and it belongs with the
+ * component that has to fit them in a footer.
  */
 
 interface Hint {
@@ -34,16 +39,10 @@ interface Hint {
 }
 
 /** With a passage selected — the two actions the selection exists for. */
-const ON_SELECTION: Hint[] = [
-  { keys: shortcut('Ctrl+Alt+M'), label: 'comment' },
-  { keys: shortcut('Ctrl+Shift+H'), label: 'mark' },
-]
+const ON_SELECTION: Hint[] = [hintFor('comment.selection'), hintFor('format.highlight')]
 
 /** Otherwise — the two doors onto everything not listed. */
-const ON_CARET: Hint[] = [
-  { keys: shortcut('Ctrl+K'), label: 'commands' },
-  { keys: shortcut('Ctrl+F'), label: 'find' },
-]
+const ON_CARET: Hint[] = [hintFor('palette.open'), hintFor('file.findInDocument')]
 
 export function ShortcutHints({ selectionEmpty }: { selectionEmpty: boolean }) {
   const hints = selectionEmpty ? ON_CARET : ON_SELECTION

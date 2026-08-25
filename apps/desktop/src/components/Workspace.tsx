@@ -75,7 +75,8 @@ import {
   saveProseFont,
   type ProseFontId,
 } from '#/lib/proseFont'
-import { commandKey, isMac, shortcut } from '#/lib/platform'
+import { commandKey } from '#/lib/platform'
+import { keysFor } from '#/lib/shortcuts'
 import { CloseIcon, SettingsIcon } from '#/lib/icons'
 import {
   loadAccent,
@@ -168,13 +169,11 @@ const DiffReview = lazy(() =>
 )
 const UNTITLED: DocumentRef = { path: null, name: 'untitled.md' }
 
-/**
- * The one binding that is not Ctrl→⌘. ⌘Tab is the macOS application switcher
- * and never reaches a window, so document cycling stays on Control there;
- * the handler already accepts either modifier, so only the label moves.
- */
-const CYCLE_TAB_LABEL = isMac ? '⌃Tab' : 'Ctrl+Tab'
-const CYCLE_TAB_BACK_LABEL = isMac ? '⌃⇧Tab' : 'Ctrl+Shift+Tab'
+// The document-cycling labels used to live here as their own `isMac` ternary —
+// ⌘Tab is the macOS application switcher and never reaches a window, so
+// cycling stays on Control there. That exception now lives with the binding it
+// belongs to, as `macKeys` in `#/lib/shortcuts`, along with every other key
+// this file used to spell twice.
 
 /** How long after the last keystroke the buffer is journalled for crash
     recovery. Well ahead of autosave, and the only protection an untitled
@@ -1281,13 +1280,19 @@ export function Workspace() {
       // The editor gets the keystroke first — it is nested, and this listener
       // is on `window`, the outermost target — and ProseMirror calls
       // preventDefault on every shortcut it handles. Without this check the
-      // chrome acts on keys the manuscript has already consumed: Ctrl+B both
-      // bolds and toggles the sidebar, Ctrl+Shift+B quotes and toggles it,
-      // and Ctrl+Shift+S strikes through and opens Save As.
+      // chrome acts on keys the manuscript has already consumed: Ctrl+Shift+S
+      // would strike through *and* open Save As.
       //
-      // Deliberately not a "did this come from the editor?" test. What
-      // matters is whether the keystroke was *used*, not where it landed, so
-      // Ctrl+B from the agent composer still reaches the sidebar.
+      // Deliberately not a "did this come from the editor?" test. What matters
+      // is whether the keystroke was *used*, not where it landed, so Ctrl+\
+      // from the agent composer still reaches Structure.
+      //
+      // The other half of living with this rule is not spending a chord the
+      // manuscript already wants, because such a binding is not merely
+      // shadowed — it is dead everywhere an author actually types. Structure
+      // sat on Ctrl+B for months for exactly that reason. `manuscriptShadow()`
+      // in `#/lib/shortcuts` is where that collision is now checkable rather
+      // than remembered.
       if (event.defaultPrevented) return
       const key = event.key.toLowerCase()
       if (key === 'o') {
@@ -1303,17 +1308,25 @@ export function Workspace() {
         // preventDefault is doing real work rather than being tidy.
         event.preventDefault()
         void newDocument()
-      } else if (key === 'b') {
+      } else if (key === '\\') {
+        // Ctrl+\ rather than Ctrl+B. Bold is StarterKit's and it consumes the
+        // event before this listener runs, so the old binding opened Structure
+        // only when the caret was somewhere other than the prose — which is
+        // to say, almost never. Backslash is claimed by neither surface.
         event.preventDefault()
         toggleTenant('structure')
       } else if (key === 'k') {
         event.preventDefault()
         setPaletteOpen((open) => !open)
-      } else if (key === 'm' && event.altKey) {
-        // Ctrl+Alt+M / ⌥⌘M — what Word and Google Docs both bind, so the
-        // muscle memory is already there. Alt-modified so it cannot collide
-        // with the manuscript's own Ctrl+M, and gated on a real selection:
-        // commenting on nothing is not a thing to silently half-do.
+      } else if (key === '/') {
+        // Ctrl+/ rather than Word's and Docs' Ctrl+Alt+M. The muscle memory
+        // that came with the old binding was worth something, but a
+        // three-finger chord for the thing an author does *to a selection*
+        // they are already holding is worth less, and this one is free in both
+        // surfaces — nothing in Tiptap binds it, and the slash menu triggers
+        // on a typed "/", which is text, not a chord. Gated on a real
+        // selection inside `beginComment`: commenting on nothing is not a
+        // thing to silently half-do.
         event.preventDefault()
         beginCommentRef.current()
       } else if (key === ',') {
@@ -1527,28 +1540,35 @@ export function Workspace() {
     if (!editor) return
     const chain = () => editor.chain().focus()
     const commands: Command[] = [
-      // Shortcuts are declared in Windows/Linux spelling and translated here
-      // (see `shortcut`): the handler has always accepted Cmd as well as Ctrl,
-      // so on a Mac these labels were the only part that was wrong.
-      { id: 'file.new', title: 'New document', group: 'File', shortcut: `${shortcut('Ctrl+N')} · ${shortcut('Ctrl+T')}`, keywords: 'new tab blank untitled create', run: () => void newDocument() },
-      { id: 'file.open', title: 'Open file…', group: 'File', shortcut: shortcut('Ctrl+O'), run: () => void openDocument() },
-      { id: 'file.save', title: 'Save', group: 'File', shortcut: shortcut('Ctrl+S'), run: () => void saveDocument() },
-      { id: 'file.saveAs', title: 'Save as…', group: 'File', shortcut: shortcut('Ctrl+Shift+S'), run: () => void saveDocument(true) },
-      { id: 'file.closeTab', title: 'Close document', group: 'File', shortcut: shortcut('Ctrl+W'), keywords: 'close tab dismiss', run: closeActiveTab },
-      { id: 'file.nextTab', title: 'Next document', group: 'File', shortcut: CYCLE_TAB_LABEL, keywords: 'switch tab cycle forward', run: () => cycleTab(1) },
-      { id: 'file.prevTab', title: 'Previous document', group: 'File', shortcut: CYCLE_TAB_BACK_LABEL, keywords: 'switch tab cycle back', run: () => cycleTab(-1) },
+      // Shortcut labels come from `#/lib/shortcuts` keyed on the command's own
+      // id, so a palette row cannot advertise a key the handler below does not
+      // answer to — which it could, and did, when both were written out by
+      // hand. `keysFor` throws on an id it has no binding for rather than
+      // rendering an empty label, so a mismatch shows up on first paint.
+      //
+      // The Format and Insert rows get labels this way for the first time.
+      // Those actions are Tiptap's, not the chrome's, so their keys were never
+      // written down here at all — an author could run "Bullet list" from the
+      // palette every day without learning that Ctrl+Shift+8 does it.
+      { id: 'file.new', title: 'New document', group: 'File', shortcut: keysFor('file.new'), keywords: 'new tab blank untitled create', run: () => void newDocument() },
+      { id: 'file.open', title: 'Open file…', group: 'File', shortcut: keysFor('file.open'), run: () => void openDocument() },
+      { id: 'file.save', title: 'Save', group: 'File', shortcut: keysFor('file.save'), run: () => void saveDocument() },
+      { id: 'file.saveAs', title: 'Save as…', group: 'File', shortcut: keysFor('file.saveAs'), run: () => void saveDocument(true) },
+      { id: 'file.closeTab', title: 'Close document', group: 'File', shortcut: keysFor('file.closeTab'), keywords: 'close tab dismiss', run: closeActiveTab },
+      { id: 'file.nextTab', title: 'Next document', group: 'File', shortcut: keysFor('file.nextTab'), keywords: 'switch tab cycle forward', run: () => cycleTab(1) },
+      { id: 'file.prevTab', title: 'Previous document', group: 'File', shortcut: keysFor('file.prevTab'), keywords: 'switch tab cycle back', run: () => cycleTab(-1) },
       { id: 'file.exportPdf', title: 'Export PDF…', group: 'File', keywords: 'typeset print render', run: () => void exportPdf() },
       { id: 'file.checkpoint', title: 'Mark this version', group: 'File', keywords: 'checkpoint history revision snapshot milestone draft sent', run: () => void checkpoint() },
-      { id: 'comment.selection', title: 'Comment on selection', group: 'File', shortcut: shortcut('Ctrl+Alt+M'), keywords: 'comment annotate note thread discuss passage review', run: beginComment },
-      { id: 'file.findInDocument', title: 'Find in document…', group: 'File', shortcut: shortcut('Ctrl+F'), keywords: 'find replace search this document match next previous', run: summonFind },
+      { id: 'comment.selection', title: 'Comment on selection', group: 'File', shortcut: keysFor('comment.selection'), keywords: 'comment annotate note thread discuss passage review', run: beginComment },
+      { id: 'file.findInDocument', title: 'Find in document…', group: 'File', shortcut: keysFor('file.findInDocument'), keywords: 'find replace search this document match next previous', run: summonFind },
       { id: 'file.find', title: 'Search across folders…', group: 'File', keywords: 'search find look for text grep phrase across folders project workspace', run: () => setPaletteOpen(true) },
       { id: 'file.folders', title: 'Browse folders…', group: 'File', keywords: 'explorer workspace tree files directory root', run: openFiles },
       { id: 'file.rail', title: `File explorer: ${fileRailLabel(fileRail)}`, group: 'File', keywords: 'explorer pin pinned sidebar rail permanent summoned layer files tree', run: () => setFileRail(nextFileRail(fileRail)) },
-      { id: 'view.proof', title: 'Toggle proof', group: 'View', shortcut: shortcut('Ctrl+J'), keywords: 'typeset pages print render preview', run: () => toggleTenant('proof') },
-      { id: 'view.structure', title: 'Toggle structure', group: 'View', shortcut: shortcut('Ctrl+B'), keywords: 'outline sidebar sections marks', run: () => toggleTenant('structure') },
-      { id: 'view.agent', title: 'Toggle agent panel', group: 'View', shortcut: shortcut('Ctrl+Shift+A'), keywords: 'ai assistant opencode claude propose changes review', run: () => toggleTenant('agent') },
+      { id: 'view.proof', title: 'Toggle proof', group: 'View', shortcut: keysFor('view.proof'), keywords: 'typeset pages print render preview', run: () => toggleTenant('proof') },
+      { id: 'view.structure', title: 'Toggle structure', group: 'View', shortcut: keysFor('view.structure'), keywords: 'outline sidebar sections marks', run: () => toggleTenant('structure') },
+      { id: 'view.agent', title: 'Toggle agent panel', group: 'View', shortcut: keysFor('view.agent'), keywords: 'ai assistant opencode claude propose changes review', run: () => toggleTenant('agent') },
       { id: 'view.history', title: 'Show history', group: 'View', keywords: 'revisions timeline versions restore checkpoint', run: () => setTenant('history') },
-      { id: 'view.focus', title: 'Toggle focus mode', group: 'View', shortcut: shortcut('Ctrl+Shift+F'), keywords: 'zen typewriter dim centre center', run: () => setFocusModeState((on) => !on) },
+      { id: 'view.focus', title: 'Toggle focus mode', group: 'View', shortcut: keysFor('view.focus'), keywords: 'zen typewriter dim centre center', run: () => setFocusModeState((on) => !on) },
       { id: 'view.measure', title: `Writing width: ${measureLabel(measure)}`, group: 'View', keywords: 'column measure line length narrow wide', run: () => setMeasure(nextMeasure(measure)) },
       { id: 'view.proseFont', title: `Prose face: ${proseFontLabel(proseFont)}`, group: 'View', keywords: 'font serif sans typeface geist charter georgia face typography', run: cycleProseFont },
       { id: 'insert.imageStore', title: `Pasted images: ${imageStoreLabel(imageStore)}`, group: 'Insert', keywords: 'image paste screenshot assets folder library where store attachments', run: () => setImageStore(nextImageStore(imageStore)) },
@@ -1557,19 +1577,19 @@ export function Workspace() {
       // This used to write `data-theme` straight onto the root and remember
       // nothing, so an author who preferred paper chose it again every launch.
       { id: 'view.theme', title: `Theme: ${themeLabel(theme)}`, group: 'View', keywords: 'theme dark light appearance day night system', run: () => chooseTheme(nextTheme(theme)) },
-      { id: 'app.settings', title: 'Settings…', group: 'View', shortcut: shortcut('Ctrl+,'), keywords: 'preferences options configure appearance accent colour color theme width font images', run: () => setSettingsOpen(true) },
-      { id: 'format.h1', title: 'Heading 1', group: 'Format', keywords: 'title turn into', run: () => { chain().toggleHeading({ level: 1 }).run() } },
-      { id: 'format.h2', title: 'Heading 2', group: 'Format', keywords: 'section turn into', run: () => { chain().toggleHeading({ level: 2 }).run() } },
-      { id: 'format.h3', title: 'Heading 3', group: 'Format', keywords: 'subsection turn into', run: () => { chain().toggleHeading({ level: 3 }).run() } },
-      { id: 'format.paragraph', title: 'Text', group: 'Format', keywords: 'paragraph body normal', run: () => { chain().setParagraph().run() } },
-      { id: 'format.quote', title: 'Quote', group: 'Format', keywords: 'blockquote', run: () => { chain().toggleBlockquote().run() } },
-      { id: 'format.codeBlock', title: 'Code block', group: 'Format', run: () => { chain().toggleCodeBlock().run() } },
-      { id: 'format.bulletList', title: 'Bullet list', group: 'Format', keywords: 'unordered list bullets', run: () => { chain().toggleBulletList().run() } },
-      { id: 'format.orderedList', title: 'Numbered list', group: 'Format', keywords: 'ordered list numbers', run: () => { chain().toggleOrderedList().run() } },
-      { id: 'format.highlight', title: 'Mark to come back to', group: 'Format', keywords: 'highlight revisit note comeback', run: () => { chain().toggleHighlight().run() } },
+      { id: 'app.settings', title: 'Settings…', group: 'View', shortcut: keysFor('app.settings'), keywords: 'preferences options configure appearance accent colour color theme width font images', run: () => setSettingsOpen(true) },
+      { id: 'format.h1', title: 'Heading 1', group: 'Format', shortcut: keysFor('format.h1'), keywords: 'title turn into', run: () => { chain().toggleHeading({ level: 1 }).run() } },
+      { id: 'format.h2', title: 'Heading 2', group: 'Format', shortcut: keysFor('format.h2'), keywords: 'section turn into', run: () => { chain().toggleHeading({ level: 2 }).run() } },
+      { id: 'format.h3', title: 'Heading 3', group: 'Format', shortcut: keysFor('format.h3'), keywords: 'subsection turn into', run: () => { chain().toggleHeading({ level: 3 }).run() } },
+      { id: 'format.paragraph', title: 'Text', group: 'Format', shortcut: keysFor('format.paragraph'), keywords: 'paragraph body normal', run: () => { chain().setParagraph().run() } },
+      { id: 'format.quote', title: 'Quote', group: 'Format', shortcut: keysFor('format.quote'), keywords: 'blockquote', run: () => { chain().toggleBlockquote().run() } },
+      { id: 'format.codeBlock', title: 'Code block', group: 'Format', shortcut: keysFor('format.codeBlock'), run: () => { chain().toggleCodeBlock().run() } },
+      { id: 'format.bulletList', title: 'Bullet list', group: 'Format', shortcut: keysFor('format.bulletList'), keywords: 'unordered list bullets', run: () => { chain().toggleBulletList().run() } },
+      { id: 'format.orderedList', title: 'Numbered list', group: 'Format', shortcut: keysFor('format.orderedList'), keywords: 'ordered list numbers', run: () => { chain().toggleOrderedList().run() } },
+      { id: 'format.highlight', title: 'Mark to come back to', group: 'Format', shortcut: keysFor('format.highlight'), keywords: 'highlight revisit note comeback', run: () => { chain().toggleHighlight().run() } },
       { id: 'insert.table', title: 'Insert table', group: 'Insert', run: () => { chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() } },
       { id: 'insert.image', title: 'Insert image…', group: 'Insert', keywords: 'picture figure photo png jpg', run: () => void insertImage(editor, documentDir(docRef.path)) },
-      { id: 'insert.taskList', title: 'Insert task list', group: 'Insert', keywords: 'todo checkbox', run: () => { chain().toggleTaskList().run() } },
+      { id: 'insert.taskList', title: 'Insert task list', group: 'Insert', shortcut: keysFor('insert.taskList'), keywords: 'todo checkbox', run: () => { chain().toggleTaskList().run() } },
       { id: 'insert.divider', title: 'Insert section break', group: 'Insert', keywords: 'horizontal rule divider hr', run: () => { chain().setHorizontalRule().run() } },
     ]
     const unregister = commands.map(registerCommand)
@@ -1883,7 +1903,7 @@ export function Workspace() {
                         editor?.commands.focus()
                       }}
                       aria-label="Close proof"
-                      title={`Close proof — ${shortcut('Esc')}`}
+                      title={`Close proof — ${keysFor('chrome.dismiss')}`}
                       className="essay-chip absolute top-4 right-4 flex size-7 items-center justify-center"
                     >
                       <CloseIcon size={14} />
@@ -1945,7 +1965,7 @@ export function Workspace() {
                   type="button"
                   onClick={() => setSettingsOpen(true)}
                   aria-label="Settings"
-                  title={`Settings — ${shortcut('Ctrl+,')}`}
+                  title={`Settings — ${keysFor('app.settings')}`}
                   className="pointer-events-auto -ml-0.5 shrink-0 rounded text-[var(--essay-text-faint)] transition-colors duration-[var(--essay-speed-quick)] hover:text-[var(--essay-text)]"
                 >
                   <SettingsIcon size={13} />
