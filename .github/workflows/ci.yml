@@ -3,6 +3,13 @@ name: CI
 on:
   push:
     branches: [main]
+    # Docs do not change what CI proves about the binaries. Without this, a
+    # research note costs a full run of three jobs — and, before the size job
+    # moved to its own workflow, a 15-minute Windows release build behind it.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.github/ISSUE_TEMPLATE/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -162,48 +169,7 @@ jobs:
         # dependency breakage on a platform nobody develops on, and the type
         # and macro expansion work is where that shows up. A full link is
         # minutes of Typst codegen for a binary that is then thrown away, and
-        # the `size` job already links the real thing on Windows. The gap is
-        # honest: a Linux-only link error would slip through this.
+        # the size workflow links the real thing on Windows when Rust code
+        # actually changes. The gap is honest: a Linux-only link error would
+        # slip through this.
         run: cargo check -p essay-desktop
-
-  size:
-    name: size (release build budget)
-    runs-on: windows-latest
-    # Bounded because an unbounded job is not "patient", it is a six-hour
-    # runner bill for nothing. Measured 2026-08-19: `apt-get update` stalled on
-    # archive.ubuntu.com at 15:24 and produced not one further line until
-    # GitHub's own 360-minute ceiling killed it — twice in one run, 12 hours
-    # between them, for a mirror hiccup that the release workflow's identical
-    # apt step sailed through minutes earlier. The ceiling is the backstop; a
-    # job that has not finished in 30 minutes here has stopped making progress,
-    # and failing fast is what makes that visible instead of invisible.
-    timeout-minutes: 60
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build frontend
-        run: bun run build
-
-      - name: Build release binaries
-        # Release builds embed Typst plus its fonts and are slow (~5-10 min
-        # cold); Swatinem/rust-cache above is what keeps repeat runs fast.
-        run: cargo build --release -p essay-cli -p essay-desktop
-
-      - name: Check size budget
-        run: bun scripts/check-size.mjs

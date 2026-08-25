@@ -1,0 +1,79 @@
+name: Size
+
+# The release-build budget, split out of CI.
+#
+# It used to be a job in ci.yml, gated on pushes to main — which meant a
+# docs-only commit paid for a full `cargo build --release` of both binaries
+# (Typst, LTO, Windows runner) on its way to changing nothing measurable. That
+# job was the difference between CI's 3½-minute floor and its 25-minute
+# average, and it ran on pushes that could not have moved a byte of it.
+#
+# The budget it guards is real — `scripts/size-budget.json` is where decisions
+# like "mermaid is 83.5 MB unpacked, no" are enforced rather than remembered —
+# but binary size moves when *Rust* code and manifests move. So this workflow
+# runs on pushes that touch those, nightly so a drifting toolchain is noticed
+# without anyone pushing (the baselines are compiler-sensitive; see
+# size-budget.json's provenance note), and on demand.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'apps/desktop/src-tauri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'scripts/size-budget.json'
+      - 'scripts/check-size.mjs'
+  schedule:
+    # 03:00 UTC daily. A scheduled run is also the canary for the quiet
+    # failure mode: rustc or a dependency update growing the binaries without
+    # any commit touching them.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: size-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  size:
+    name: size (release build budget)
+    runs-on: windows-latest
+    # Bounded because an unbounded job is not "patient", it is a six-hour
+    # runner bill for nothing. Measured 2026-08-19: `apt-get update` stalled on
+    # archive.ubuntu.com at 15:24 and produced not one further line until
+    # GitHub's own 360-minute ceiling killed it — twice in one run, 12 hours
+    # between them, for a mirror hiccup that the release workflow's identical
+    # apt step sailed through minutes earlier. The ceiling is the backstop; a
+    # job that has not finished in 30 minutes here has stopped making progress,
+    # and failing fast is what makes that visible instead of invisible.
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        run: bun run build
+
+      - name: Build release binaries
+        # Release builds embed Typst plus its fonts and are slow (~5-10 min
+        # cold); Swatinem/rust-cache above is what keeps repeat runs fast.
+        run: cargo build --release -p essay-cli -p essay-desktop
+
+      - name: Check size budget
+        run: bun scripts/check-size.mjs
