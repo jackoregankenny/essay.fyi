@@ -19,7 +19,8 @@
 use crate::reconcile::{place_anchor, SectionSpan};
 use crate::{
     opaque_id, Actor, ActorKind, Anchor, AnchorUpdate, CommentEntry, CommentThread, ContextError,
-    NewAnchor, PlacedThread, Result, SectionRef, ThreadState,
+    Conversation, NewAnchor, NewTranscriptEntry, PlacedThread, Result, SectionRef,
+    StoredTranscript, ThreadState, TranscriptEntry, TRANSCRIPT_TAIL,
 };
 use essay_revisions::now_millis;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -337,6 +338,114 @@ impl ContextStore {
         Ok(refreshed)
     }
 
+    // ————— Agent transcripts —————
+
+    /// Record one line of an agent conversation, creating the conversation on
+    /// first sight.
+    ///
+    /// Streaming-shaped on purpose: the panel calls this as transcript chunks
+    /// arrive, and an entry re-recorded under a seq it has already seen is an
+    /// *update* of that entry — new payload, original arrival time — rather
+    /// than a duplicate. `agent_name` refreshes the row when given and leaves
+    /// what is stored when not, so entries recorded before the handshake
+    /// answered do not pin `NULL` over a name learned later.
+    pub fn record_transcript(
+        &self,
+        document_id: &str,
+        conversation_id: &str,
+        agent_name: Option<&str>,
+        entry: &NewTranscriptEntry,
+    ) -> Result<()> {
+        let now = now_millis();
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO conversations (id, document_id, agent_name, started_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?4)
+             ON CONFLICT(id) DO UPDATE SET
+               updated_at = excluded.updated_at,
+               agent_name = COALESCE(excluded.agent_name, conversations.agent_name)",
+            params![conversation_id, document_id, agent_name, now],
+        )?;
+        tx.execute(
+            "INSERT INTO transcript_entries (conversation_id, seq, kind, payload, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(conversation_id, seq) DO UPDATE SET
+               kind = excluded.kind, payload = excluded.payload",
+            params![conversation_id, entry.seq, entry.kind, entry.payload, now],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The conversation the author left open on this document, with its most
+    /// recent [`TRANSCRIPT_TAIL`] entries in speaking order.
+    ///
+    /// `None` means no conversation is open — never an error, because a
+    /// document with no agent history and one whose conversations were all
+    /// deliberately ended are the same state to the panel.
+    pub fn restore_transcript(&self, document_id: &str) -> Result<Option<StoredTranscript>> {
+        let conversation = self
+            .conn
+            .query_row(
+                "SELECT id, document_id, agent_name, started_at, updated_at, ended_at
+                   FROM conversations
+                  WHERE document_id = ?1 AND ended_at IS NULL
+                  ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+                params![document_id],
+                read_conversation,
+            )
+            .optional()?;
+        let Some(conversation) = conversation else {
+            return Ok(None);
+        };
+        // Newest-first so SQLite's LIMIT gives the tail cheaply; handed back
+        // oldest-first, which is the order a transcript reads in.
+        let mut statement = self.conn.prepare(
+            "SELECT seq, kind, payload, created_at FROM transcript_entries
+              WHERE conversation_id = ?1 ORDER BY seq DESC LIMIT ?2",
+        )?;
+        let mut entries: Vec<TranscriptEntry> = statement
+            .query_map(params![conversation.id, TRANSCRIPT_TAIL as i64], |row| {
+                Ok(TranscriptEntry {
+                    seq: row.get(0)?,
+                    kind: row.get(1)?,
+                    payload: row.get(2)?,
+                    created_at: row.get(3)?,
+                })
+            })?
+            .collect::<std::result::Result<_, _>>()?;
+        drop(statement);
+        entries.reverse();
+        Ok(Some(StoredTranscript { conversation, entries }))
+    }
+
+    /// Close a conversation. Nothing is deleted — the rows stay exactly as
+    /// they were, and "start a new conversation" only stops this one from
+    /// being what a restore hands back.
+    ///
+    /// Ending an unknown id is refused rather than ignored: the author drew
+    /// the line somewhere, and silence about where would be worse.
+    pub fn end_conversation(&self, conversation_id: &str) -> Result<()> {
+        let affected = self.conn.execute(
+            "UPDATE conversations SET ended_at = ?1 WHERE id = ?2 AND ended_at IS NULL",
+            params![now_millis(), conversation_id],
+        )?;
+        if affected == 0
+            && self
+                .conn
+                .query_row(
+                    "SELECT 1 FROM conversations WHERE id = ?1",
+                    params![conversation_id],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_none()
+        {
+            return Err(ContextError::NoSuchConversation(conversation_id.to_string()));
+        }
+        Ok(())
+    }
+
     // ————— Reads —————
 
     pub fn thread(&self, thread_id: &str) -> Result<CommentThread> {
@@ -625,7 +734,39 @@ CREATE TABLE IF NOT EXISTS scratch (
   body        TEXT NOT NULL,
   updated_at  INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS conversations (
+  id          TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL,
+  agent_name  TEXT,
+  started_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  ended_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS conversations_by_document ON conversations (document_id, updated_at);
+CREATE TABLE IF NOT EXISTS transcript_entries (
+  conversation_id TEXT NOT NULL REFERENCES conversations(id),
+  seq             INTEGER NOT NULL,
+  kind            TEXT NOT NULL,
+  payload         TEXT NOT NULL,
+  created_at      INTEGER NOT NULL,
+  PRIMARY KEY (conversation_id, seq)
+);
 ";
+
+const SELECT_CONVERSATION: &str = "SELECT id, document_id, agent_name, started_at, updated_at,
+                                         ended_at
+                                    FROM conversations";
+
+fn read_conversation(row: &rusqlite::Row<'_>) -> rusqlite::Result<Conversation> {
+    Ok(Conversation {
+        id: row.get(0)?,
+        document_id: row.get(1)?,
+        agent_name: row.get(2)?,
+        started_at: row.get(3)?,
+        updated_at: row.get(4)?,
+        ended_at: row.get(5)?,
+    })
+}
 
 #[cfg(test)]
 mod tests {
@@ -926,5 +1067,140 @@ mod tests {
         let comments = store.comments(&same, "text", "bytes-v1", &[]).unwrap();
         assert_eq!(comments.len(), 1);
         assert_eq!(comments[0].entries[0].body, "survives the rename");
+    }
+
+    // ————— Transcripts —————
+
+    fn entry(seq: i64, kind: &str, payload: &str) -> NewTranscriptEntry {
+        NewTranscriptEntry { seq, kind: kind.into(), payload: payload.into() }
+    }
+
+    #[test]
+    fn a_transcript_streams_into_itself_rather_than_duplicating() {
+        let (_dir, store, _doc) = store();
+        let id = store.resolve_document(Path::new("chat.md"), "h1").unwrap();
+
+        store
+            .record_transcript(&id, "conv", None, &entry(0, "thought", "hel"))
+            .unwrap();
+        let first_created: i64 = store
+            .conn
+            .query_row(
+                "SELECT created_at FROM transcript_entries WHERE conversation_id = 'conv' AND seq = 0",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        // The same seq arrives again as the chunk grows — an update, not a
+        // new row, and it keeps the time it first appeared.
+        store
+            .record_transcript(&id, "conv", Some("opencode"), &entry(0, "thought", "hello there"))
+            .unwrap();
+
+        let rows: i64 = store
+            .conn
+            .query_row("SELECT count(*) FROM transcript_entries", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 1);
+
+        let restored = store.restore_transcript(&id).unwrap().expect("open conversation");
+        assert_eq!(restored.conversation.id, "conv");
+        assert_eq!(restored.conversation.agent_name.as_deref(), Some("opencode"));
+        assert_eq!(restored.entries.len(), 1);
+        assert_eq!(restored.entries[0].payload, "hello there");
+        assert_eq!(restored.entries[0].created_at, first_created);
+    }
+
+    #[test]
+    fn restore_hands_back_the_newest_open_conversations_tail_in_speaking_order() {
+        let (_dir, store, _doc) = store();
+        let id = store.resolve_document(Path::new("chat.md"), "h1").unwrap();
+
+        store
+            .record_transcript(&id, "older", Some("claude"), &entry(0, "prompt", "earlier subject"))
+            .unwrap();
+        for seq in 0..(TRANSCRIPT_TAIL as i64 + 5) {
+            store
+                .record_transcript(&id, "newer", Some("opencode"), &entry(seq, "thought", "word"))
+                .unwrap();
+        }
+
+        let restored = store.restore_transcript(&id).unwrap().expect("a conversation");
+        assert_eq!(restored.conversation.id, "newer", "the newest open one");
+        assert_eq!(
+            restored.entries.len(),
+            TRANSCRIPT_TAIL,
+            "capped, though nothing was deleted to make it fit"
+        );
+        assert_eq!(restored.entries[0].seq, 5, "the tail, not the head");
+        assert_eq!(
+            restored.entries.last().unwrap().seq,
+            TRANSCRIPT_TAIL as i64 + 4,
+            "oldest-first, ready to render top to bottom"
+        );
+
+        // The capped head survives on disk for a surface that pages back.
+        let head: i64 = store
+            .conn
+            .query_row(
+                "SELECT count(*) FROM transcript_entries WHERE conversation_id = 'newer' AND seq < 5",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(head, 5);
+    }
+
+    #[test]
+    fn ending_a_conversation_draws_a_line_without_deleting_anything() {
+        let (_dir, store, _doc) = store();
+        let id = store.resolve_document(Path::new("chat.md"), "h1").unwrap();
+        store
+            .record_transcript(&id, "first", Some("opencode"), &entry(0, "prompt", "first"))
+            .unwrap();
+        store
+            .record_transcript(&id, "second", Some("opencode"), &entry(0, "prompt", "second"))
+            .unwrap();
+
+        store.end_conversation("second").unwrap();
+
+        // Restore falls back to the older still-open conversation…
+        let fallback = store.restore_transcript(&id).unwrap().expect("first still open");
+        assert_eq!(fallback.conversation.id, "first");
+
+        // …and ending that too leaves nothing open, without erroring twice.
+        store.end_conversation("first").unwrap();
+        assert!(store.restore_transcript(&id).unwrap().is_none());
+        store.end_conversation("first").unwrap(); // already ended: a no-op, not a fault
+
+        // The rows stay. A line drawn is not a deletion.
+        let conversations: i64 = store
+            .conn
+            .query_row("SELECT count(*) FROM conversations", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(conversations, 2);
+
+        assert!(matches!(
+            store.end_conversation("never-was"),
+            Err(ContextError::NoSuchConversation(_))
+        ));
+    }
+
+    #[test]
+    fn transcripts_are_per_document_not_per_sidecar() {
+        let (_dir, store, _doc) = store();
+        let one = store.resolve_document(Path::new("one.md"), "h1").unwrap();
+        let two = store.resolve_document(Path::new("two.md"), "h2").unwrap();
+
+        store
+            .record_transcript(&one, "conv", Some("opencode"), &entry(0, "prompt", "about one"))
+            .unwrap();
+
+        assert!(store.restore_transcript(&two).unwrap().is_none(), "a folder-mate sees none");
+        assert_eq!(
+            store.restore_transcript(&one).unwrap().unwrap().entries[0].payload,
+            "about one"
+        );
     }
 }

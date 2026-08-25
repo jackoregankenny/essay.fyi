@@ -1,5 +1,5 @@
-//! Document identity, comment threads and range anchors — the removable
-//! editorial sidecar (`.essay/context.sqlite`).
+//! Document identity, comment threads, range anchors and agent transcripts —
+//! the removable editorial sidecar (`.essay/context.sqlite`).
 //!
 //! Everything in this crate is workflow, never prose. Deleting `.essay/`
 //! loses comments and identity; it must never change a manuscript byte, and
@@ -45,7 +45,23 @@ pub enum ContextError {
     Store(#[from] rusqlite::Error),
     #[error("no such comment thread: {0}")]
     NoSuchThread(String),
+    #[error("no such conversation: {0}")]
+    NoSuchConversation(String),
 }
+
+/// How many of a conversation's most recent entries a restore hands back.
+///
+/// A cap rather than the whole log, and a tail rather than a head: the thing
+/// an author reopens a document to see is what the agent last did, not how the
+/// conversation opened three weeks ago. Nothing is deleted to make the cap
+/// work — the rows stay, and a surface that wants to page further back can ask
+/// for more without a migration.
+///
+/// 400 because the cost being bounded is React's, not SQLite's: every restored
+/// entry becomes a mounted transcript row, and a long agent turn emits
+/// thousands (thoughts arrive one word per event and fold, but tool calls do
+/// not).
+pub const TRANSCRIPT_TAIL: usize = 400;
 
 pub type Result<T> = std::result::Result<T, ContextError>;
 
@@ -236,4 +252,70 @@ pub struct AnchorUpdate {
     pub thread_id: String,
     #[serde(flatten)]
     pub anchor: NewAnchor,
+}
+
+// ————— Agent transcripts —————
+
+/// One run of talking to one agent about one document.
+///
+/// A conversation is the author's unit, not the protocol's. An ACP session
+/// ends when its subprocess does — a crash, a restart, "End session", the
+/// adapter's own timeout — and none of those mean the author has finished the
+/// subject. So sessions come and go inside a conversation, and the only thing
+/// that closes one is the author saying so.
+///
+/// `ended_at` is that saying-so, and it is the whole reason this row exists:
+/// restoring reads the newest conversation with `ended_at IS NULL`, so
+/// "start a new conversation" is a line drawn rather than a delete. What was
+/// said stays on disk; it simply stops being what the panel opens with.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Conversation {
+    pub id: String,
+    pub document_id: String,
+    /// The agent that was talking, as it last identified itself. Nullable
+    /// because the first entries can be recorded before an agent is
+    /// connected — the author's own prompt is a transcript entry too.
+    pub agent_name: Option<String>,
+    pub started_at: Timestamp,
+    pub updated_at: Timestamp,
+    /// Set when the author started a new conversation. Never a deletion.
+    pub ended_at: Option<Timestamp>,
+}
+
+/// One line of the transcript, as the panel drew it.
+///
+/// `payload` is opaque here on purpose — see the note above
+/// `ContextStore::record_transcript`. `kind` is lifted out of it into a column
+/// so a reader can tell a prompt from a thought without parsing, which is the
+/// one question this crate might plausibly be asked and the only one worth
+/// paying a column for.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptEntry {
+    /// Position in the conversation. Assigned by the panel, monotonic, and
+    /// the primary key beside the conversation id — which is what makes
+    /// recording a streaming entry an upsert rather than a duplicate.
+    pub seq: i64,
+    pub kind: String,
+    pub payload: String,
+    pub created_at: Timestamp,
+}
+
+/// An entry on its way in: no timestamp, because the store dates it, and an
+/// entry re-recorded as its chunks arrive keeps the time it first appeared.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewTranscriptEntry {
+    pub seq: i64,
+    pub kind: String,
+    pub payload: String,
+}
+
+/// What a restore hands back: the open conversation and its tail.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredTranscript {
+    pub conversation: Conversation,
+    pub entries: Vec<TranscriptEntry>,
 }
