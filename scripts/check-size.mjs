@@ -1,19 +1,30 @@
 #!/usr/bin/env node
 // scripts/check-size.mjs
 //
-// Size-budget gate for release artifacts. Reads scripts/size-budget.json,
-// measures the configured paths (a file's byte size, or a directory's
-// recursive total), and compares each against a recorded baseline with a
-// percentage tolerance.
+// Size ceiling for release artifacts. Reads scripts/size-budget.json, measures
+// the configured paths (a file's byte size, or a directory's recursive total),
+// and fails only when one is over its ceiling.
 //
-// Entries whose baseline is `null` are informational only: the measured
-// size is printed with a "record this" note, but the run never fails on
-// them. Once a baseline is filled in, exceeding
-// baseline * (1 + tolerancePercent / 100) fails the run (exit 1).
+// This used to be a baseline plus a percentage tolerance, and the difference
+// matters. A tolerance answers "did this grow?", which sounds like the useful
+// question and is not: every toolchain bump moves LTO output a percent or two,
+// so the check failed for reasons nobody chose and the baselines had to be
+// re-recorded to make it green again. A re-recorded baseline is a tripwire
+// moved to wherever the wire already was. Twice that happened here, and the
+// second time it hid a real 16% frontend regression behind a build-profile
+// change that had nothing to do with it.
 //
-// Runs under both `bun` and `node` (no dependencies). Paths in the budget
-// file are repo-root-relative and are resolved from this script's own
-// location, so it works regardless of the caller's working directory:
+// A ceiling answers "is this too big?", which is the question anyone actually
+// has. It does not move when the compiler does, it never needs re-recording to
+// pass, and the number in the file is a decision somebody made rather than a
+// measurement somebody took. Growth is still visible -- every run prints the
+// measured size and the headroom left -- it just is not a failure until it is
+// a problem.
+//
+// Entries whose ceiling is `null` are informational: measured and printed,
+// never failed on.
+//
+// Runs under both `bun` and `node` (no dependencies):
 //
 //   bun scripts/check-size.mjs
 //   node scripts/check-size.mjs
@@ -65,6 +76,8 @@ async function measure(targetPath) {
   return info.isDirectory() ? dirSizeBytes(absolute) : info.size;
 }
 
+/** Keys that configure the file rather than name an artifact. `tolerancePercent`
+ *  is listed so an old budget file does not get measured as a path. */
 function isMetaKey(key) {
   return key === "tolerancePercent" || key.startsWith("_");
 }
@@ -72,53 +85,59 @@ function isMetaKey(key) {
 async function main() {
   const raw = await readFile(budgetPath, "utf8");
   const budget = JSON.parse(raw);
-  const tolerancePercent = budget.tolerancePercent ?? 5;
   const entryKeys = Object.keys(budget).filter((key) => !isMetaKey(key));
 
   const rows = [];
   let failed = false;
 
   for (const targetPath of entryKeys) {
-    const baseline = budget[targetPath];
+    const ceiling = budget[targetPath];
     const measured = await measure(targetPath);
 
     let status;
     let detail = "";
+    let headroom = "";
 
     if (measured === null) {
-      if (baseline === null || baseline === undefined) {
-        status = "MISSING (no baseline)";
+      if (ceiling === null || ceiling === undefined) {
+        status = "MISSING (informational)";
       } else {
+        // A missing artifact is a build that did not produce what this file
+        // says it produces, which is worth failing on even though it is not a
+        // size problem.
         status = "FAIL (missing)";
         failed = true;
-        detail = `expected ~${formatBytes(baseline)}, artifact not found at ${targetPath}`;
+        detail = `nothing at ${targetPath} -- did the build produce it?`;
       }
-    } else if (baseline === null || baseline === undefined) {
-      status = "OK (no baseline yet -- record this)";
+    } else if (ceiling === null || ceiling === undefined) {
+      status = "OK (informational)";
+      headroom = "no ceiling";
+    } else if (measured > ceiling) {
+      status = "FAIL (over ceiling)";
+      failed = true;
+      const over = measured - ceiling;
+      detail = `${formatBytes(over)} over the ${formatBytes(ceiling)} ceiling`;
+      headroom = `-${formatBytes(over)}`;
     } else {
-      const limit = baseline * (1 + tolerancePercent / 100);
-      if (measured > limit) {
-        status = "FAIL (over budget)";
-        failed = true;
-        const overPercent = ((measured / baseline - 1) * 100).toFixed(1);
-        detail = `+${overPercent}% over baseline (limit ${formatBytes(limit)})`;
-      } else {
-        status = "OK";
-      }
+      status = "OK";
+      const left = ceiling - measured;
+      const pct = ((measured / ceiling) * 100).toFixed(0);
+      headroom = `${formatBytes(left)} left (${pct}% used)`;
     }
 
     rows.push({
       path: targetPath,
-      baseline: baseline === null || baseline === undefined ? null : formatBytes(baseline),
+      ceiling: ceiling === null || ceiling === undefined ? null : formatBytes(ceiling),
       measured: measured === null ? "n/a" : formatBytes(measured),
       status,
+      headroom,
       detail,
     });
   }
 
-  console.log(`\nSize budget check (tolerance: ${tolerancePercent}%)\n`);
+  console.log(`\nSize ceilings\n`);
   for (const row of rows) {
-    const line = `${row.status.padEnd(38)} ${row.path.padEnd(38)} measured=${row.measured.padEnd(10)} baseline=${row.baseline ?? "null"}`;
+    const line = `${row.status.padEnd(24)} ${row.path.padEnd(38)} measured=${row.measured.padEnd(10)} ceiling=${(row.ceiling ?? "none").padEnd(10)} ${row.headroom}`;
     console.log(row.detail ? `${line}  (${row.detail})` : line);
   }
   console.log("");
@@ -126,15 +145,13 @@ async function main() {
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (summaryPath) {
     const lines = [];
-    lines.push("### Size budget");
+    lines.push("### Size ceilings");
     lines.push("");
-    lines.push(`Tolerance: ${tolerancePercent}%`);
-    lines.push("");
-    lines.push("| Path | Measured | Baseline | Status | Detail |");
+    lines.push("| Path | Measured | Ceiling | Headroom | Status |");
     lines.push("| --- | --- | --- | --- | --- |");
     for (const row of rows) {
       lines.push(
-        `| \`${row.path}\` | ${row.measured} | ${row.baseline ?? "_none_"} | ${row.status} | ${row.detail || "-"} |`
+        `| \`${row.path}\` | ${row.measured} | ${row.ceiling ?? "_none_"} | ${row.headroom || "-"} | ${row.status}${row.detail ? ` — ${row.detail}` : ""} |`
       );
     }
     lines.push("");
@@ -142,7 +159,7 @@ async function main() {
   }
 
   if (failed) {
-    console.error("Size budget check failed: one or more artifacts exceeded their budget.");
+    console.error("Size check failed: an artifact is over its ceiling, or missing.");
     process.exit(1);
   }
 }

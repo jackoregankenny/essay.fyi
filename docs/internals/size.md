@@ -4,32 +4,53 @@ For contributors who need to know what Essay's artifacts weigh, why, and which
 levers have already been pulled. The CI job that measures them is in
 [release](./release.md).
 
-## The size budget, armed
+## Ceilings, not baselines
 
-`scripts/size-budget.json` lists artifacts against baseline byte counts, with
-a `tolerancePercent` (currently 5).
+`scripts/size-budget.json` gives each artifact a **ceiling** in bytes. The run
+fails when an artifact is bigger than its ceiling, and otherwise prints how much
+headroom is left.
 
 ```json
 {
-  "tolerancePercent": 5,
-  "target/release/essay.exe": 38385152,
-  "target/release/essay-desktop.exe": 52202496,
-  "apps/desktop/dist": 1640804
+  "target/release/essay-desktop.exe": 73400320,
+  "target/release/essay.exe": 73400320,
+  "apps/desktop/dist": 4194304
 }
 ```
 
-**These are enforced**: exceeding `baseline × (1 + tolerance/100)` fails the
-run. Setting an entry back to `null` makes it informational again — the
-measured size is printed with a "record this" note and the run never fails on
-it, which is what all three did until the levers below were pulled and the
-numbers settled.
+This replaced a baseline plus a 5% tolerance, and the difference is the whole
+point. A tolerance answers *"did this grow?"*, which sounds like the useful
+question and is not: every toolchain bump moves LTO output a percent or two, so
+the check failed for reasons nobody chose and the baselines had to be
+re-recorded to make it green. **A re-recorded baseline is a tripwire moved to
+wherever the wire already was.**
 
-The baselines were measured on `x86_64-pc-windows-msvc`, which is the target
-the `size` job uses too (`runs-on: windows-latest`). One caveat is written
-into the file itself and worth repeating: fat LTO output is sensitive to the
-compiler version, so a miss of a few percent on the *first* CI run after they
-landed is a toolchain difference rather than code growth — take CI's numbers
-from the job summary in that case. A miss on any run after that is real.
+That happened twice here. The second time it mattered: the binaries were
+rebaselined for the thin-LTO change, and the run that failed on 2026-08-25 had
+actually failed on `apps/desktop/dist` growing **16.2%** — a frontend
+regression sitting unnoticed behind a build-profile change that had nothing to
+do with it, for a month.
+
+A ceiling answers *"is this too big?"*, which is the question anyone actually
+has. It does not move when the compiler does, it never needs re-recording to
+pass, and the number in the file is a decision somebody made rather than a
+measurement somebody took. Growth stays visible — every run prints the measured
+size and the headroom — it just is not a failure until it is a problem.
+
+The numbers, and why:
+
+| Path | Ceiling | Today | Reasoning |
+| --- | --- | --- | --- |
+| `essay-desktop.exe` | 70 MB | ~52.6 MB | 70 MB of binary is roughly a 21 MB installer at the ~3.4× the NSIS bundle achieves, which is still reasonable to ask someone to download. Needing more is a conversation, not a number to nudge. |
+| `essay.exe` | 70 MB | ~38 MB | Links the same Typst compiler; no argument for a different standard. |
+| `apps/desktop/dist` | 4 MB | ~1.9 MB | Deliberately not generous. The mermaid decision turned on a ~2–3 MB chunk being too much, so a ceiling that let mermaid in without comment would not be enforcing the decision this file exists to enforce. |
+
+Setting an entry to `null` makes it informational: measured and printed, never
+failed on.
+
+Measured on `x86_64-pc-windows-msvc`, which is the target the budget leg of the
+`size` job uses too (`runs-on: windows-latest`). The macOS and Linux legs of that
+matrix exist to warm the release cache and do not run this check.
 
 What a local release build measures (Windows, `x86_64-pc-windows-msvc`):
 
@@ -214,8 +235,9 @@ utilities and relies on `twMerge` to resolve them, so it cannot simply become
 about 57 KB but means hand-maintaining `@font-face` rules, which is a poor
 trade for a page loaded from local disk.
 
-A missing artifact with a baseline is a failure; a missing artifact with no
-baseline is not.
+A missing artifact with a ceiling is a failure — a build that did not produce
+what this file says it produces is worth stopping on, even though it is not a
+size problem. A missing artifact with no ceiling is not.
 
 Two naming traps the file documents in its own `_note` fields, worth repeating:
 `essay-cli`'s `[[bin]]` is named `essay`, so it builds to
