@@ -42,6 +42,10 @@ const tauriConfPath = path.join(
   "apps/desktop/src-tauri/tauri.conf.json"
 );
 const cargoTomlPath = path.join(repoRoot, "Cargo.toml");
+const changelogPath = path.join(
+  repoRoot,
+  "apps/desktop/src/content/changelog.md"
+);
 
 function git(args, { capture = true } = {}) {
   return execFileSync("git", args, {
@@ -98,6 +102,33 @@ async function main() {
 
   if (next === current) fail(`already at ${current}`);
   const tag = `v${next}`;
+
+  // The changelog has to name this version before the tag exists.
+  //
+  // `lib/changelog.ts` parses this file and the help tab in the footer shows
+  // the newest entry it finds, so a release with no entry does not show
+  // nothing -- it shows the *previous* release's summary, to everyone, as
+  // though it were current. That is not hypothetical: the file said
+  // "0.1.0 -- Unreleased" through both v0.1.1 and v0.1.2, because nothing
+  // between writing a version down and pushing a tag ever asked.
+  //
+  // Checked here rather than in CI because here is where it is still cheap to
+  // fix: the alternative is a red release workflow after the tag is public.
+  const changelog = await readFile(changelogPath, "utf8");
+  const heading = new RegExp(`^##\\s+${next.replace(/\./g, "\\.")}\\b`, "m");
+  if (!heading.test(changelog)) {
+    fail(
+      [
+        `apps/desktop/src/content/changelog.md has no "## ${next}" entry.`,
+        "",
+        "The help tab shows the newest entry in that file, so releasing without",
+        `one shows the previous release's summary as if it were ${next}.`,
+        "",
+        "Add a heading, a one-line summary paragraph, and whatever `###`",
+        "sections apply, then run this again.",
+      ].join("\n")
+    );
+  }
 
   // Checked before anything is written. A release cut on top of unrelated
   // uncommitted work commits that work too, under a message that says it is a
