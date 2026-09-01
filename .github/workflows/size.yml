@@ -1,19 +1,42 @@
-name: Size
+name: Size and release cache
 
-# The release-build budget, split out of CI.
+# The release-build budget, and the warm cargo cache the release workflow
+# restores from. One workflow because they are the same build.
 #
-# It used to be a job in ci.yml, gated on pushes to main — which meant a
-# docs-only commit paid for a full `cargo build --release` of both binaries
-# (Typst, LTO, Windows runner) on its way to changing nothing measurable. That
-# job was the difference between CI's 3½-minute floor and its 25-minute
-# average, and it ran on pushes that could not have moved a byte of it.
+# The budget half was split out of ci.yml, where it was gated on pushes to main
+# — which meant a docs-only commit paid for a full `cargo build --release` of
+# both binaries (Typst, LTO, Windows runner) on its way to changing nothing
+# measurable. That job was the difference between CI's 3½-minute floor and its
+# 25-minute average, and it ran on pushes that could not have moved a byte of
+# it. The budget it guards is real — `scripts/size-budget.json` is where
+# decisions like "mermaid is 83.5 MB unpacked, no" are enforced rather than
+# remembered — but binary size moves when *Rust* code and manifests move, so
+# that is what it runs on.
 #
-# The budget it guards is real — `scripts/size-budget.json` is where decisions
-# like "mermaid is 83.5 MB unpacked, no" are enforced rather than remembered —
-# but binary size moves when *Rust* code and manifests move. So this workflow
-# runs on pushes that touch those, nightly so a drifting toolchain is noticed
-# without anyone pushing (the baselines are compiler-sensitive; see
-# size-budget.json's provenance note), and on demand.
+# The cache half is why this is a three-platform matrix rather than the one
+# Windows job it used to be, and it is worth writing down because the reasoning
+# is not local to this file.
+#
+# GitHub scopes every cache to the ref that wrote it, and lets a run restore
+# only from its own ref or from the default branch. A release runs on
+# `refs/tags/v0.1.3`, so it can never see a cache written by `refs/tags/v0.1.2`
+# — the caches a release writes have no reader, ever. Measured after v0.1.2:
+# 2.82 GB saved under the tag and unreachable, while all three platform jobs
+# logged "No cache found" and compiled Typst from scratch, 24m42s on Windows,
+# 31m15s on macOS, 14m11s on Linux. Every release was going to pay that, not
+# just the first.
+#
+# The default branch is the one ref a tag run *can* restore from. So the warm
+# caches have to be written here, on main, under a key the release job also
+# uses — hence `shared-key: release` on both sides, since rust-cache otherwise
+# derives the key from the job id and `bundle` could not read what `size` wrote.
+#
+# The cost is honest: a push that touches Rust now spends three runners instead
+# of one. They run in parallel, the repository is public so the minutes are
+# free, and it is what makes a release restore instead of rebuild. If it ever
+# reads as too noisy, drop the `push` trigger and keep the schedule — a cache
+# is restorable by prefix even when Cargo.lock has moved since it was written,
+# so a week-old warm cache is still most of the win.
 
 on:
   push:
@@ -25,13 +48,17 @@ on:
       - 'Cargo.lock'
       - 'scripts/size-budget.json'
       - 'scripts/check-size.mjs'
+      # This file itself, because it is now the only thing that writes the
+      # caches release.yml restores from. A change to the matrix, the shared
+      # key or the build command has to be able to re-prime them, and without
+      # this line the first release after such a change is cold again with
+      # nothing on `main` to explain why.
+      - '.github/workflows/size.yml'
   schedule:
-    # Weekly, not nightly, and this is a billing decision as much as a
-    # scheduling one: windows-latest minutes bill at 2×, and a nightly run of
-    # this job spends more of the month's included minutes than every other
-    # workflow combined — to confirm, most days, that nothing changed. Weekly
-    # still catches a toolchain or dependency drift within a week of it
-    # starting, which is the only thing a scheduled run is here to do.
+    # Weekly. Catches a toolchain or dependency drift within a week of it
+    # starting, which is the only thing a scheduled run is here to do — and it
+    # refreshes the release caches, which GitHub evicts after seven days
+    # without a read. A release that restores one also counts as a read.
     - cron: '0 3 * * 1'
   workflow_dispatch:
 
@@ -41,15 +68,51 @@ concurrency:
 
 jobs:
   size:
-    name: size (release build budget)
-    runs-on: windows-latest
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.platform }}
+    # On a push, only the leg that checks the budget runs. The two that exist
+    # purely to warm a cache run on the schedule and on demand.
+    #
+    # The alternative — all three on every Rust push — is three runners spun up
+    # to answer a question only one of them is asked, and on a public repo that
+    # is somebody else's electricity. A cache primed weekly is still most of the
+    # win, because rust-cache falls back to a prefix match when Cargo.lock has
+    # moved since it was written: a release restores the older cache and
+    # recompiles only what actually changed. Run this manually before cutting a
+    # release if the last scheduled prime was a long time or a big dependency
+    # bump ago.
+    if: matrix.check-size || github.event_name != 'push'
+    strategy:
+      # A macOS failure should not cost the Windows budget check, and vice
+      # versa: these legs share a workflow but not a purpose.
+      fail-fast: false
+      matrix:
+        include:
+          # The platforms, and the targets, exactly as release.yml builds them
+          # — a cache warmed for a different target triple is a cache the
+          # release job restores and then ignores.
+          - platform: windows-latest
+            label: size budget + windows release cache
+            packages: '-p essay-cli -p essay-desktop'
+            targets: ''
+            check-size: true
+          - platform: macos-latest
+            label: macos release cache (universal)
+            packages: '-p essay-desktop'
+            targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            check-size: false
+          - platform: ubuntu-24.04
+            label: linux release cache
+            packages: '-p essay-desktop'
+            targets: ''
+            check-size: false
     # Bounded because an unbounded job is not "patient", it is a six-hour
     # runner bill for nothing. Measured 2026-08-19: `apt-get update` stalled on
     # archive.ubuntu.com at 15:24 and produced not one further line until
     # GitHub's own 360-minute ceiling killed it — twice in one run, 12 hours
     # between them, for a mirror hiccup that the release workflow's identical
     # apt step sailed through minutes earlier. The ceiling is the backstop; a
-    # job that has not finished in 30 minutes here has stopped making progress,
+    # job that has not finished in 60 minutes here has stopped making progress,
     # and failing fast is what makes that visible instead of invisible.
     timeout-minutes: 60
     steps:
@@ -63,20 +126,74 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          # The key release.yml restores from. Keep the two in step: rust-cache
+          # keys on the job id unless told otherwise, and a rename here is a
+          # silent return to cold release builds.
+          shared-key: release
+          # The whole point of this job is the cache, so a failure must not
+          # throw it away. It did exactly that on 2026-08-25: the budget check
+          # is the last step, it failed, and `Post Cache cargo artifacts` was
+          # skipped — discarding 22 minutes of compilation and leaving main
+          # with no Windows cache at all, which is why the release that
+          # followed had nothing to restore. A budget miss is a statement about
+          # the binary, not about the artifacts that built it.
+          cache-on-failure: true
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        # Same set as release.yml, minus the AppImage packaging tools: this job
+        # compiles the shell but never bundles it.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            build-essential \
+            curl wget file
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Build frontend
+        # tauri::generate_context! embeds apps/desktop/dist at compile time, so
+        # the shell will not build until the frontend has.
         run: bun run build
 
       - name: Build release binaries
-        # Release builds embed Typst plus its fonts and are slow (~5-10 min
-        # cold); Swatinem/rust-cache above is what keeps repeat runs fast.
-        run: cargo build --release -p essay-cli -p essay-desktop
+        shell: bash
+        # Release builds embed Typst and are slow cold (~22 min on Windows,
+        # longer on macOS where this compiles twice); the cache above is what
+        # keeps repeat runs — and every release — fast.
+        #
+        # macOS builds each architecture explicitly rather than via
+        # `--target universal-apple-darwin`, which is a lipo of the two and not
+        # a rustc target: cargo cannot build it, and the artifacts the release
+        # actually reuses are the per-arch ones underneath.
+        run: |
+          set -eu
+          if [ -n "${{ matrix.targets }}" ]; then
+            IFS=',' read -ra TRIPLES <<< "${{ matrix.targets }}"
+            for triple in "${TRIPLES[@]}"; do
+              echo "::group::cargo build --release --target $triple"
+              cargo build --release --target "$triple" ${{ matrix.packages }}
+              echo "::endgroup::"
+            done
+          else
+            cargo build --release ${{ matrix.packages }}
+          fi
 
       - name: Check size budget
+        if: matrix.check-size
+        # Windows only: the baselines in scripts/size-budget.json are byte
+        # counts for target/release/*.exe, measured on x86_64-pc-windows-msvc.
+        # The other legs of this matrix exist for their caches.
         run: bun scripts/check-size.mjs

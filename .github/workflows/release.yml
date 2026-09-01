@@ -23,6 +23,16 @@ name: Release
 # not an Apple Developer ID: there are no Apple secrets here, so the macOS
 # artifacts are unsigned and unnotarised, and a first launch needs the
 # right-click → Open dance. Auto-updates after that are unaffected.
+#
+# Shape of the run, and why it is four jobs rather than two:
+#
+#   guard   → draft → bundle (×3, in parallel) → publish
+#
+# `draft` creates the empty draft release up front so the three platform jobs
+# have something to upload into. They would otherwise race to create it, which
+# is the price of running them at the same time — and running them at the same
+# time is worth paying for. Measured on v0.1.2, which was serial: Windows 26m,
+# then macOS 32m, then Linux 15m, 74 minutes end to end for 32 minutes of work.
 
 on:
   push:
@@ -60,21 +70,71 @@ jobs:
             exit 1
           fi
 
+  draft:
+    name: open the draft release
+    needs: guard
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.draft.outputs.id }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create or reuse the draft
+        id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        # Created here, before the matrix, because three parallel jobs that
+        # each create-the-release-if-absent is a race with no good outcome:
+        # either two of them 422 or the release exists twice. With the id
+        # handed down, tauri-action uploads into an existing release and never
+        # reaches for the create path at all.
+        #
+        # Idempotent on purpose. A tag whose Windows leg failed gets re-run,
+        # and the second run must find the same draft rather than trip over
+        # the assets the first one already uploaded.
+        #
+        # Drafted rather than published: the updater reads
+        # `releases/latest/download/latest.json`, so a release that is public
+        # before every platform has finished is one that offers an update to
+        # operating systems it does not yet list. A draft is invisible to the
+        # updater, which is what is wanted until the `publish` job says so.
+        run: |
+          set -eu
+          TAG="$GITHUB_REF_NAME"
+          ID=$(gh api "repos/$GH_REPO/releases" --paginate \
+            --jq "[.[] | select(.tag_name == \"$TAG\")][0].id")
+          if [ -n "$ID" ] && [ "$ID" != "null" ]; then
+            echo "reusing existing release $ID for $TAG"
+          else
+            gh release create "$TAG" \
+              --draft \
+              --title "Essay $TAG" \
+              --notes "$(cat .github/release-notes.md)"
+            ID=$(gh api "repos/$GH_REPO/releases" --paginate \
+              --jq "[.[] | select(.tag_name == \"$TAG\")][0].id")
+            echo "created release $ID for $TAG"
+          fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
   bundle:
     name: ${{ matrix.label }}
-    needs: guard
+    needs: draft
     runs-on: ${{ matrix.platform }}
     strategy:
       # One platform failing should not cancel installers that already built:
       # the draft release keeps whatever landed, and the tag can be re-run.
       fail-fast: false
-      # Deliberately serial. Each run of tauri-action builds `latest.json` by
-      # downloading the release's existing copy, merging its own platform in
-      # and re-uploading — a read-modify-write. Two jobs finishing at once lose
-      # one platform's entry, and a missing entry is not an error anywhere: it
-      # is simply an OS that stops being offered updates. Restore parallelism
-      # only alongside a final job that regenerates the whole file.
-      max-parallel: 1
+      # Parallel. This used to be `max-parallel: 1`, because each run of
+      # tauri-action built `latest.json` by downloading the release's existing
+      # copy, merging its own platform in and re-uploading — a read-modify-
+      # write that loses a platform's entry when two jobs finish together, and
+      # a missing entry is not an error anywhere, just an OS that quietly
+      # stops being offered updates. `includeUpdaterJson: false` below removes
+      # that write entirely; the `publish` job composes the whole manifest
+      # once, from the signatures, when every platform is done. One writer, so
+      # there is nothing left to serialise.
       matrix:
         include:
           - platform: windows-latest
@@ -82,8 +142,11 @@ jobs:
             args: ''
             rust-targets: ''
           # One universal binary rather than two builds: it covers Apple
-          # Silicon and Intel, and tauri-action writes both darwin-aarch64 and
-          # darwin-x86_64 into `latest.json` from it.
+          # Silicon and Intel, and one artifact serves both darwin-aarch64 and
+          # darwin-x86_64 in the manifest. It is also the long pole of the
+          # whole workflow — 31 minutes of the 32 this run now takes — because
+          # it compiles the entire dependency graph once per architecture on
+          # the smallest runner GitHub offers.
           - platform: macos-latest
             label: macos (universal .app + .dmg)
             args: '--target universal-apple-darwin'
@@ -113,6 +176,32 @@ jobs:
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
+        with:
+          # Both of these are about *whose* cache this is, and the answer is
+          # never this run's own.
+          #
+          # GitHub scopes a cache to the ref that wrote it and lets a run
+          # restore only from its own ref or from the default branch. A run on
+          # `refs/tags/v0.1.2` therefore writes a cache that `refs/tags/v0.1.3`
+          # can never see. Measured after v0.1.2: 2.82 GB of cargo artifacts
+          # saved under the tag, unreachable by every release that will ever
+          # follow it, while all three platform jobs logged "No cache found"
+          # and compiled Typst from nothing — 24m42s on Windows, 31m15s on
+          # macOS, 14m11s on Linux. That was not a cold first run that would
+          # warm itself up. It was the steady state.
+          #
+          # So the caches these jobs restore are written on `main`, by the
+          # `size` workflow, under this same shared key. `shared-key` is what
+          # makes the keys match at all: without it rust-cache derives the key
+          # from the job id, so `bundle` could not restore what `size` saved
+          # even on the same ref and the same OS.
+          shared-key: release
+          # And nothing is written back, because a tag-scoped cache has no
+          # reader — not even a re-run of this tag, which restores from `main`
+          # like any other run. Saving one costs ~45s per job and 2.8 GB of the
+          # repository's 10 GB cache budget, evicting the caches on `main` that
+          # are the ones actually being read.
+          save-if: false
 
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
@@ -139,50 +228,43 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Without these the bundler builds an installer but no signature,
-          # and `latest.json` is written with an empty one that no client
-          # will accept.
+          # and the manifest is written with an empty one that no client will
+          # accept.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           args: ${{ matrix.args }}
-          tagName: ${{ github.ref_name }}
-          releaseName: Essay ${{ github.ref_name }}
-          # Early builds, and the notes say so — the people trying this are
-          # doing someone a favour and should know what they are holding. The
-          # macOS line is not a disclaimer but an instruction: there are no
-          # Apple secrets here, so Gatekeeper stops an unsigned .app with a
-          # message that reads like a virus warning, and a tester who is not
-          # told simply stops there.
-          releaseBody: |
-            Essay is early. It writes plain Markdown and never takes your file
-            hostage, but expect rough edges and please say when you hit one.
+          # Upload into the draft the `draft` job opened, rather than creating
+          # one. This is what makes running the three platforms at once safe.
+          releaseId: ${{ needs.draft.outputs.id }}
+          # The one write that could not be parallel. `publish` composes the
+          # manifest from the .sig files instead — see
+          # scripts/compose-latest-json.mjs, which reproduces byte-for-byte
+          # what this action emitted for v0.1.2.
+          includeUpdaterJson: false
 
-            Download the installer for your platform below. Existing
-            installations update themselves within the hour.
-
-            **macOS:** these builds are unsigned, so the first launch needs
-            right-click on the app, then Open — double-clicking will refuse.
-            Every launch after that is normal, and updates are unaffected.
-
-            **Linux:** `.deb` for Debian and Ubuntu, `.AppImage` for anything
-            else. Only the AppImage updates itself.
-          # Drafted here and published by the `announce` job below. The updater
-          # reads `releases/latest/download/latest.json`, so the moment this
-          # release stops being a draft it is what every installed copy checks
-          # — and if that happens after the first platform finishes, the other
-          # two are offered an update that does not list them yet. A draft is
-          # invisible to the updater, which is exactly what is wanted until
-          # every platform has merged its entry.
-          releaseDraft: true
-          prerelease: false
-          includeUpdaterJson: true
-
-  announce:
-    name: publish the release
+  publish:
+    name: compose latest.json and publish
     needs: bundle
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compose the updater manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # One writer, after every platform has landed its signatures. The
+        # script fails the job if any platform an installed copy actually looks
+        # up is missing from the manifest, which turns the old silent failure —
+        # an OS that stops being offered updates and says nothing — into a red
+        # run.
+        run: |
+          node scripts/compose-latest-json.mjs \
+            --tag "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY"
+
       - name: Flip the draft to published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
