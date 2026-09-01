@@ -60,11 +60,14 @@ What a local release build measures (Windows, `x86_64-pc-windows-msvc`):
 | `target/release/essay.exe` | 49.23 MB | 45.79 MB | **36.59 MB** |
 | `apps/desktop/dist` | 1.55 MB | 1.55 MB | 1.55 MB |
 
-Those three columns measure the *levers*, each against the same tree. The
-recorded baselines are a little above the last column — 49.78 MB, 36.61 MB
-and 1.56 MB — because citations, the revision timeline, the author font
-directory and the raw-HTML node landed after that comparison was taken. The
-gap is the cost of those features, not drift in the levers.
+Those three columns measure the *levers*, each against the same tree, and the
+table is now historical in two ways. It predates the features that landed since
+— citations, the revision timeline, the author font directory, the raw-HTML
+node — and it predates `[profile.release]` moving from `lto = "fat"` to
+`lto = "thin"`, which trades about 2 MB of binary for halving the build. So the
+middle column is no longer what ships. Today: ~51.3 MB and ~36.6 MB against
+ceilings of 70 MB, and ~1.8 MB of `dist` against 4 MB. The gap from the last
+column is the cost of those features plus thin LTO, not drift in the levers.
 
 **Those are unpacked binaries, and they are not the number a user downloads.**
 The NSIS installer compresses with LZMA, and a binary this full of repeated
