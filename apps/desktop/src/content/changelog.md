@@ -2,7 +2,42 @@
 
 Every release, in the order it happened. The newest is at the top.
 
-## 0.1.0 — Unreleased
+## 0.1.3 — 31 August 2026
+
+Nothing you can see. This release carries a build change that makes every
+future one about twice as fast to produce, and proves the rebuilt release
+pipeline end to end.
+
+### Under the hood
+
+- The three platform installers now build at the same time instead of one
+  after another, and each build is about half as long
+- The update manifest is assembled once, by one job, and the release fails
+  rather than quietly publishing without a platform in it — the failure that
+  makes an operating system stop being offered updates with nothing said
+- Essay's binary is about 2 MB bigger as a result, which is roughly half a
+  megabyte on the installer you download
+
+## 0.1.2 — 25 August 2026
+
+Lists look like lists again, and the explorer earns the column it takes.
+
+### Fixed
+
+- **Bullets and numbers are back.** A document written with `- ` or `1. ` had
+  been drawing with no marker and no indent. The Markdown on disk was correct
+  the whole time and round-tripped correctly, so nothing but your own eyes was
+  ever told otherwise
+- Keyboard shortcuts no longer collide with each other
+
+### Changed
+
+- The pinned file explorer folds to a sliver when you want the room back
+- Agent conversations are kept in the `.essay` sidecar, so a transcript
+  survives closing the document
+- The section fan fades out rather than vanishing
+
+## 0.1.1 — 19 August 2026
 
 The first build worth handing to someone else. Essay opens a Markdown file, lets you edit the designed document rather than the markup, typesets it properly, and never rewrites a word you did not ask it to.
 

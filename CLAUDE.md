@@ -384,9 +384,30 @@ fat+cgu16 15m16s/56,108,544, thin+cgu16 7m34s/60,350,976, thin+cgu1
 build for 3.9% of binary — about 0.6 MB of installer after the ~3.4x
 compression. The guess that codegen-units was the cheap half was wrong: at 16 it
 bought 12% and cost 5.6%, which fails the size budget outright. `size-budget.json`
-was rebaselined against the thin numbers, and that — not the megabytes — is the
-real cost, because a tripwire that has been moved measures the next regression
-from a higher floor.
+was rebaselined against the thin numbers — and then stopped being a baseline at
+all.
+
+**The size check is a ceiling now, not a baseline plus a tolerance.** A
+tolerance answers *did this grow?*, which is not the question anyone has: every
+toolchain bump moves LTO output a percent or two, so it failed for reasons
+nobody chose and the baselines had to be re-recorded to go green, which is a
+tripwire moved to wherever the wire already was. It happened twice, and the
+second time it mattered — the run that failed on 2026-08-25 had failed on
+`apps/desktop/dist` growing **16.2%**, a frontend regression sitting unnoticed
+behind a build-profile change that had nothing to do with it. The numbers are
+now decisions rather than measurements: 70 MB for each binary (~52.6 and ~38
+today), 4 MB for `dist` (~1.9 today, and deliberately tight, since the mermaid
+decision turned on a ~2–3 MB chunk being too much to add). Growth is still
+printed every run as headroom; it is simply not a failure until it is a problem.
+
+**The changelog is checked before a tag exists.** `lib/changelog.ts` parses
+`apps/desktop/src/content/changelog.md` and the footer's help tab shows the
+newest entry, so a release with no entry does not show nothing — it shows the
+*previous* release's summary to everyone, as though it were current. The file
+said "0.1.0 — Unreleased" through both v0.1.1 and v0.1.2 for exactly that
+reason: nothing between writing a version down and pushing a tag ever asked.
+`scripts/release.mjs` now refuses without a `## <version>` heading, checked
+there rather than in CI because that is where it is still cheap to fix.
 
 **target/ is garbage-collected now, because cargo never does it.** Cargo
 addresses artifacts by a metadata hash over the crate's configuration and keeps

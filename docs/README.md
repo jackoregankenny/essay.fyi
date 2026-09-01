@@ -69,7 +69,7 @@ For contributors.
 - [Release](./internals/release.md) — the three-platform matrix, signing, the
   tag rule, and what CI does not check.
 - [Artifact size](./internals/size.md) — what the binaries and the bundle
-  weigh, the size budget, and which levers have been pulled.
+  weigh, the ceilings they are held to, and which levers have been pulled.
 
 ## Background
 
