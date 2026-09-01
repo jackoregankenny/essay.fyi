@@ -89,21 +89,126 @@ describe('lists are drawn as lists', () => {
     }
   })
 
-  test('prose.css restores what preflight takes away', () => {
-    // happy-dom does not cascade stylesheets, so the guard is over the sheet's
-    // own text: these selectors must carry explicit list-style rules, because
-    // `@import "tailwindcss"` zeroes them globally and nothing else puts them
-    // back.
-    const css = readFileSync(
-      path.join(
-        path.dirname(fileURLToPath(import.meta.url)),
-        '..',
-        'prose.css',
-      ),
-      'utf8',
-    )
-    expect(css).toMatch(/\.essay-prose ul\b[^{]*\{[^}]*list-style-type:\s*disc/)
-    expect(css).toMatch(/\.essay-prose ol\b[^{]*\{[^}]*list-style-type:\s*decimal/)
-    expect(css).toMatch(/\.essay-prose ul,[^{]*\{[^}]*list-style-position:\s*outside/)
+  // ——— The cascade, not the file ———
+  //
+  // What stood here was a regex over prose.css's own text, justified by the
+  // claim that happy-dom does not cascade stylesheets. It does, for longhand
+  // properties, so the guard passed whenever the rule *existed* — which is not
+  // the property this file is named for. A rule that exists and loses draws
+  // exactly the bug it was written to catch, with every test still green.
+  //
+  // What happy-dom will and will not do, measured rather than assumed, because
+  // the first rewrite of this block got it wrong in the other direction:
+  //
+  //   no stylesheet at all        list-style-type: ""      <- no UA stylesheet
+  //   `list-style: none`          list-style-type: ""      <- shorthand ignored
+  //   `list-style-type: none`     list-style-type: "none"
+  //   longhand none + prose.css   list-style-type: "disc"
+  //
+  // The second line is the load-bearing one. happy-dom does not expand the
+  // `list-style` shorthand, and preflight is written as a shorthand, so these
+  // tests cannot stage the specificity contest between preflight and prose.css
+  // and must not claim to. What they can prove is the half that actually
+  // regressed: prose.css names an explicit marker on the manuscript surface,
+  // and a live editor's list picks it up. The first line is why that means
+  // something — with nothing loaded the value is empty, so `disc` cannot arrive
+  // by default and can only have come from the sheet under test.
+  //
+  // Also out of reach from here, stated rather than implied: that the app
+  // imports prose.css at all, and that ManuscriptEditor keeps
+  // `class: 'essay-prose'` on the surface. Both live in apps/desktop.
+
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  const PROSE = path.join(here, '..', 'prose.css')
+
+  /** Attaches prose.css to the document and hands back the undo, because
+      happy-dom's document outlives any one test. */
+  function loadProse(): () => void {
+    const el = document.createElement('style')
+    el.textContent = readFileSync(PROSE, 'utf8')
+    document.head.appendChild(el)
+    return () => el.remove()
+  }
+
+  /** A live editor attached to the document — getComputedStyle only cascades for
+      elements actually in it, which is why editorWith's detached div cannot be
+      reused here — carrying the same class ManuscriptEditor puts on the
+      manuscript surface. */
+  function mounted(source: string) {
+    const host = document.createElement('div')
+    document.body.appendChild(host)
+    const editor = new Editor({
+      element: host,
+      extensions: manuscriptExtensions(),
+      editorProps: { attributes: { class: 'essay-prose' } },
+    })
+    setManuscript(editor, source)
+    return {
+      editor,
+      dispose: () => {
+        editor.destroy()
+        host.remove()
+      },
+    }
+  }
+
+  test('without prose.css a list has no marker at all', () => {
+    // The sensitivity check, and the only reason to trust the next test. If a
+    // marker ever turns up here, `disc` below is arriving from somewhere other
+    // than the sheet under test and the assertion has stopped being able to
+    // fail.
+    const list = mounted('- First\n- Second\n')
+    try {
+      const ul = list.editor.view.dom.querySelector('ul')!
+      expect(getComputedStyle(ul).listStyleType).toBe('')
+    } finally {
+      list.dispose()
+    }
+  })
+
+  test('prose.css gives a rendered list its marker back', () => {
+    const restore = loadProse()
+    const bullets = mounted('- First\n- Second\n')
+    const numbers = mounted('1. First\n2. Second\n')
+    try {
+      const ul = bullets.editor.view.dom.querySelector('ul')!
+      const ol = numbers.editor.view.dom.querySelector('ol')!
+
+      expect(getComputedStyle(ul).listStyleType).toBe('disc')
+      expect(getComputedStyle(ol).listStyleType).toBe('decimal')
+
+      // A marker is only generated for a list-item box. `display: flex` — which
+      // is what the task-list rule sets — removes it with no other visible
+      // effect, so assert the box and not only the type.
+      expect(getComputedStyle(ul.querySelector('li')!).display).toBe('list-item')
+      expect(getComputedStyle(ol.querySelector('li')!).display).toBe('list-item')
+
+      // Preflight zeroes list padding too, and a marker set `outside` with no
+      // padding to hang in sits off the edge of the measure.
+      expect(getComputedStyle(ul).listStylePosition).toBe('outside')
+      expect(parseFloat(getComputedStyle(ul).paddingLeft)).toBeGreaterThan(0)
+    } finally {
+      bullets.dispose()
+      numbers.dispose()
+      restore()
+    }
+  })
+
+  test('a task list is a checkbox list, not a bulleted one', () => {
+    // The counter-case. Task items are deliberately unmarked and flex, so a
+    // future rule broad enough to give every li a marker back would regress in
+    // the opposite direction while reading as a fix. Asserted structurally: the
+    // rule that suppresses the bullet is a `list-style` shorthand, which is the
+    // one thing happy-dom drops.
+    const restore = loadProse()
+    const tasks = mounted('- [ ] Todo\n- [x] Done\n')
+    try {
+      const ul = tasks.editor.view.dom.querySelector('ul[data-type="taskList"]')
+      expect(ul).not.toBeNull()
+      expect(ul!.querySelectorAll('input[type="checkbox"]').length).toBe(2)
+    } finally {
+      tasks.dispose()
+      restore()
+    }
   })
 })
