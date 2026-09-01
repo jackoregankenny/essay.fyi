@@ -1,9 +1,11 @@
 {
   "tolerancePercent": 5,
-  "target/release/essay.exe": 38385152,
-  "target/release/essay-desktop.exe": 52202496,
+  "target/release/essay.exe": 39868416,
+  "target/release/essay-desktop.exe": 55190528,
   "apps/desktop/dist": 1640804,
   "_note": "Baselines are byte counts from a real `bun run build` plus `cargo build --release -p essay-cli -p essay-desktop` -- the same commands the `size` job runs. The check fails when a build exceeds baseline * (1 + tolerancePercent / 100); set an entry back to null to make it informational again.",
-  "_provenance": "Measured locally on x86_64-pc-windows-msvc, the same target the `size` job uses (runs-on: windows-latest). Fat LTO output is sensitive to the compiler version, so if the FIRST CI run after these landed misses by a few percent, take CI's numbers from the job summary rather than assuming a regression -- that is a toolchain difference, not code growth. A miss on any run after that is a real one.",
+  "_provenance": "Measured locally on x86_64-pc-windows-msvc, the same target the `size` job uses (runs-on: windows-latest). LTO output is sensitive to the compiler version, so if the FIRST CI run after these landed misses by a few percent, take CI's numbers from the job summary rather than assuming a regression -- that is a toolchain difference, not code growth. A miss on any run after that is a real one.",
+  "_ltoNote": "The two binary baselines were re-recorded on 2026-08-31 when [profile.release] moved from `lto = \"fat\"` to `lto = \"thin\"`, which halves the cold build (17m20s -> 8m17s, measured) and costs 3.9% of binary size. Both numbers come from that same thin build on rustc 1.97.1. Re-recording a tripwire is the real cost of that decision, so it is written down here rather than only in the commit: a regression is now measured from a higher floor. The previous fat-LTO baselines were 38385152 and 52202496.",
+  "_distNote": "`apps/desktop/dist` is deliberately NOT rebaselined and is currently over budget: 1905798 bytes measured on 2026-08-31 against a 1640804 baseline, +16.2%, which is what failed the `size` run on 2026-08-25 -- the binaries were never the problem. That is frontend growth, not a build-profile question, so moving this number would hide the one thing the budget was watching for. Either the growth is accounted for (the Tasks tenant, the help panel and the changelog reader all landed since it was recorded) and the baseline should be re-recorded on purpose, or something got bundled that should not have been. Decide it, then set it.",
   "_binaryNameNote": "essay-cli's [[bin]] is named `essay`, not `essay-cli` (see crates/essay-cli/Cargo.toml) -- `cargo build -p essay-cli` produces target/release/essay.exe. essay-desktop has no [[bin]] override, so its binary matches the package name: target/release/essay-desktop.exe."
 }

@@ -325,14 +325,22 @@ verb (the crate API is shaped for that last one).
 types against the host and silently drops the rest. `app` is not decorative:
 the macOS updater artifact is `Essay.app.tar.gz` and only exists when that
 target is bundled; `appimage` is there because `.deb` is not an updatable
-format. `release.yml` is guard → bundle (matrix) → announce, and two things in
-it are load-bearing: the matrix is `max-parallel: 1` because tauri-action
-builds `latest.json` by read-modify-write on the release's copy and two jobs
-finishing together lose a platform's entry — which is not an error anywhere,
-just an OS that quietly stops being offered updates — and the release is
-**drafted, then published by a final job**, because the updater reads
-`releases/latest/download/latest.json` and publishing after the first platform
-finishes offers everyone else an update that does not list them. `ubuntu-24.04`
+format. `release.yml` is guard → draft → bundle (matrix, in
+parallel) → publish, and three things in it are load-bearing. The **draft
+release is opened before the matrix**, because three jobs that each
+create-the-release-if-absent race for it; passing `releaseId` down means
+tauri-action never reaches for its create path at all. The **matrix runs in
+parallel**, which it could not while tauri-action wrote `latest.json` itself —
+it did that by read-modify-write on the release's copy, and two jobs finishing
+together lose a platform's entry, which is not an error anywhere, just an OS
+that quietly stops being offered updates. `includeUpdaterJson: false` removes
+that write, and `scripts/compose-latest-json.mjs` builds the whole manifest
+once, in the final job, from the `.sig` assets: one writer, nothing left to
+serialise, and it **fails the run** when a platform an installed copy actually
+looks up is missing, rather than shipping a manifest without it. And the
+release is **drafted, then published by that final job**, because the updater
+reads `releases/latest/download/latest.json` and publishing after the first
+platform finishes offers everyone else an update that does not list them. `ubuntu-24.04`
 is pinned, not `ubuntu-latest`: the build host sets the glibc floor of every
 artifact. macOS builds are unsigned and unnotarised (no Apple secrets), so a
 first launch needs right-click → Open; auto-updates are unaffected, since the
@@ -349,9 +357,36 @@ which nothing checks and which therefore drifts. `scripts/release.mjs` sets
 both from one argument, refreshes `Cargo.lock`, commits and tags. It does not
 push: pushing is the irreversible half (three platform builds, then a public
 release that installed copies fetch within the hour), so `--push` is opt-in and
-the undo commands are printed instead. Signing secrets are already on the repo;
-as of 2026-08-17 no tag has ever been pushed, so the pipeline is untested end
-to end.
+the undo commands are printed instead. Signing secrets are already on the repo, and the
+pipeline has shipped v0.1.1 and v0.1.2 end to end.
+
+**Releases took 74 minutes, and 42 of them were queueing.** Measured on
+v0.1.2: Windows 26m, then macOS 32m, then Linux 15m, strictly one after
+another, for 32 minutes of actual work. Two things were wrong and both are
+fixed. The matrix was serial for the `latest.json` race above, which the
+composer retires. And the cargo cache never once hit — GitHub scopes a cache to
+the ref that wrote it and lets a run restore only from its own ref or the
+default branch, so the 2.82 GB those jobs saved under `refs/tags/v0.1.2` is
+unreachable by every release that will ever follow it, and all three logged
+"No cache found" and compiled Typst from nothing. That was the steady state,
+not a cold first run. The warm caches are therefore written on `main`, by
+`size.yml`, whose matrix grew to all three platforms for exactly that reason,
+under `shared-key: release` so the keys match — rust-cache otherwise derives
+them from the job id, and `bundle` could not read what `size` wrote even on the
+same ref. `save-if: false` on the release side, because a tag-scoped cache has
+no reader, not even a re-run of its own tag. `cache-on-failure: true` on the
+size side, because the budget check is the last step and a miss there was
+discarding 22 minutes of compilation — which is why `main` had no Windows cache
+for the release to restore in the first place. And the profile's escape hatch was taken, after
+measuring all four corners cold on the same commit: fat+cgu1 17m20s/53,111,296,
+fat+cgu16 15m16s/56,108,544, thin+cgu16 7m34s/60,350,976, thin+cgu1
+8m17s/55,190,528. `lto = "thin"` with `codegen-units` **still 1** halves the
+build for 3.9% of binary — about 0.6 MB of installer after the ~3.4x
+compression. The guess that codegen-units was the cheap half was wrong: at 16 it
+bought 12% and cost 5.6%, which fails the size budget outright. `size-budget.json`
+was rebaselined against the thin numbers, and that — not the megabytes — is the
+real cost, because a tripwire that has been moved measures the next regression
+from a higher floor.
 
 **target/ is garbage-collected now, because cargo never does it.** Cargo
 addresses artifacts by a metadata hash over the crate's configuration and keeps

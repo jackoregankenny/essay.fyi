@@ -7,20 +7,43 @@ members = ["apps/desktop/src-tauri", "crates/*"]
 # Essay links one very large dependency — the Typst compiler — into every
 # artifact, and cargo's stock release profile leaves it in sixteen codegen
 # units with no cross-crate inlining or dead-code elimination between them.
-# Measured on essay-desktop: 64.38 MB stock, 58.96 MB with these settings.
 #
-# The cost is build time, and it is not small: a cold release build roughly
-# doubles, because fat LTO cannot start until every crate has compiled and
-# then optimises the lot as one unit. That is paid by the `size` job and the
-# release workflow, which already cache aggressively, and never by `cargo
-# check`, `cargo test` or `tauri dev` — none of which use this profile. If it
-# ever becomes the bottleneck, `lto = "thin"` keeps most of the saving for a
-# fraction of the link time.
+# The comment here used to say fat LTO was the price of a small binary and
+# that `lto = "thin"` was the escape hatch if build time ever became the
+# bottleneck. It became the bottleneck, so the escape hatch was measured
+# rather than assumed. All four corners, cold, x86_64-pc-windows-msvc,
+# rustc 1.97.1, 16 cores, same commit — time, then essay-desktop.exe:
+#
+#   fat  + codegen-units=1    17m20s   53,111,296     <- what shipped before
+#   fat  + codegen-units=16   15m16s   56,108,544
+#   thin + codegen-units=16    7m34s   60,350,976
+#   thin + codegen-units=1     8m17s   55,190,528     <- what ships now
+#
+# Two things fell out of that, and neither was the guess.
+#
+# `codegen-units` is not the cheap half. Going 1 -> 16 under fat LTO bought
+# back 12% of the build and cost 5.6% of the binary, which is a bad trade and
+# fails the size budget outright. The intuition that whole-program LTO makes
+# per-crate codegen units irrelevant to size is simply wrong here, so it stays
+# at 1 — and staying at 1 is what keeps thin LTO's cost down to 3.9%.
+#
+# `lto` is where the time actually was. Thin at codegen-units=1 halves the
+# cold build for 2.03 MB of binary, which after the installer's ~3.4x
+# compression is roughly 0.6 MB of download. Fat LTO optimises the whole
+# program as a single serial unit and cannot start until every crate has
+# compiled; thin partitions that work and runs it across cores. The gap will
+# be narrower on a 4-core runner than it is on the 16-core machine measured
+# above, but it does not close: the serial link is slow at any core count.
+#
+# scripts/size-budget.json was rebaselined against the thin numbers when this
+# landed. That is the real cost of this decision — not the megabytes, but that
+# the tripwire had to be moved, so a regression is now measured from a higher
+# floor.
 #
 # `strip` earns nothing on the MSVC target, where symbols live in a separate
 # PDB; it is here for the GNU, macOS and Linux targets, where they do not.
 [profile.release]
-lto = "fat"
+lto = "thin"
 codegen-units = 1
 strip = "symbols"
 
