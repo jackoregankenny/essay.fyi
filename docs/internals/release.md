@@ -53,21 +53,34 @@ expansion. A full link is minutes of Typst codegen for a binary that is thrown
 away, and the `size` job already links the real thing. The gap is worth stating
 plainly — **a Linux-only *link* error still slips through this.**
 
-### `size` (windows)
+### `size` — a separate workflow
 
-Only on manual dispatch or a push to `main`, because a release build embeds
-Typst and its fonts and takes five to ten minutes cold. `Swatinem/rust-cache`
-is what keeps repeat runs bearable.
+`.github/workflows/size.yml`, not `ci.yml`. On pushes to `main` that touch Rust
+or the manifests, weekly, and on demand. It does two jobs that happen to be the
+same build.
 
-Builds the frontend, then `cargo build --release -p essay-cli -p essay-desktop`,
-then `bun scripts/check-size.mjs`.
+The **budget leg** (`windows-latest`) builds the frontend, then
+`cargo build --release -p essay-cli -p essay-desktop`, then
+`bun scripts/check-size.mjs`.
+
+The **cache legs** (`macos-latest`, `ubuntu-24.04`) build the same release
+profile and keep nothing anybody looks at. They exist to write the cargo caches
+`release.yml` restores — see [the caches](#the-caches-are-written-on-main) — and
+they are skipped on a push, because three runners spun up to answer a question
+one of them is asked is somebody else's electricity.
+
+`cache-on-failure: true`, because the budget check is the last step: a failure
+there was discarding 22 minutes of compilation and leaving `main` with no
+Windows cache for the next release to restore.
 
 ## Artifact size
 
 The `size` job runs `bun scripts/check-size.mjs` against
-`scripts/size-budget.json`. What the artifacts weigh, what the budget does
-and does not currently enforce, and which size levers have been pulled are in
-[artifact size](./size.md).
+`scripts/size-budget.json`. Those numbers are **ceilings, not baselines**: the
+check fails only when an artifact is bigger than its ceiling, and otherwise
+prints how much headroom is left. What the artifacts weigh, why a ceiling
+replaced the old baseline-plus-tolerance, and which size levers have been
+pulled are in [artifact size](./size.md).
 
 ## Releasing
 
@@ -75,13 +88,18 @@ and does not currently enforce, and which size levers have been pulled are in
 installer on each desktop platform, signs the updater artifacts, and publishes
 them all as one GitHub release.
 
-Three jobs, in order:
+Four jobs:
 
 | Job | Runs on | Does |
 | --- | --- | --- |
 | `guard` | ubuntu | Checks the tag against `tauri.conf.json`, and nothing else |
-| `bundle` | matrix | Builds, signs and uploads each platform's installer into a **draft** release |
-| `announce` | ubuntu | Flips that draft to published |
+| `draft` | ubuntu | Opens the draft release the matrix uploads into |
+| `bundle` | matrix, **parallel** | Builds, signs and uploads each platform's installer |
+| `publish` | ubuntu | Composes `latest.json`, then flips the draft to published |
+
+`draft` exists because three parallel jobs that each create-the-release-if-absent
+race for it. With its id passed down, `tauri-action` uploads into an existing
+release and never reaches its create path at all.
 
 ### The tag must match `tauri.conf.json`
 
@@ -132,16 +150,28 @@ accept. That failure is silent on the release side and total on the client
 side, which is why it is worth checking that a release actually produced
 signatures before announcing it.
 
-### The matrix is deliberately serial
+### The matrix runs in parallel, and why it could not before
 
-`max-parallel: 1`, and it must stay that way until something regenerates
-`latest.json` wholesale.
+It was `max-parallel: 1` until the manifest got a single writer, and the reason
+is worth keeping, because the failure it avoided is the silent kind.
 
-Each run of `tauri-action` builds `latest.json` by downloading the release's
-existing copy, merging its own platform in, and re-uploading it — a
-read-modify-write. Two jobs finishing at once lose one platform's entry, and a
-lost entry **is not an error anywhere**: it is simply an operating system that
-quietly stops being offered updates.
+Each run of `tauri-action` used to build `latest.json` by downloading the
+release's existing copy, merging its own platform in, and re-uploading it — a
+read-modify-write across three machines. Two jobs finishing at once lose one
+platform's entry, and a lost entry **is not an error anywhere**: it is simply an
+operating system that quietly stops being offered updates.
+
+Serialising made that unlikely and cost 42 of the 74 minutes v0.1.2 took —
+Windows 26m, then macOS 32m, then Linux 15m, each waiting on the one before it
+for no reason but that file.
+
+`includeUpdaterJson: false` removes the write entirely, and
+`scripts/compose-latest-json.mjs` builds the whole manifest once, in `publish`,
+from the `.sig` assets already on the release. One writer, so there is nothing
+left to order. It was checked against the published v0.1.2 manifest before being
+trusted with one — same nine platform keys, same signatures, same URLs — and it
+**fails the run** when a platform an installed copy actually looks up is
+missing, rather than publishing a release that stops offering updates to an OS.
 
 `fail-fast: false` for the opposite reason: one platform failing should not
 cancel installers that already built. The draft keeps whatever landed, and the
@@ -149,7 +179,7 @@ tag can be re-run.
 
 ### Drafted, then published
 
-`releaseDraft: true` in `bundle`, and the `announce` job flips it afterwards.
+The `draft` job opens it as a draft, and `publish` flips it afterwards.
 
 The updater reads `releases/latest/download/latest.json`, so the moment the
 release stops being a draft it is what every installed copy checks. Publishing
@@ -157,13 +187,37 @@ when the first platform finishes would offer everyone else an update that does
 not list their platform yet. A draft is invisible to the updater, which is
 exactly what is wanted until every platform has merged its entry.
 
-`announce` finds the release by listing rather than by `releases/tags/<tag>`,
+`publish` finds the release by listing rather than by `releases/tags/<tag>`,
 because that endpoint 404s on drafts, and sets `make_latest=true` explicitly —
 that is what makes `releases/latest/download/latest.json` resolve here.
 
-`createUpdaterArtifacts: true` in `tauri.conf.json` and
-`includeUpdaterJson: true` in the workflow are what produce and publish
-`latest.json`.
+`createUpdaterArtifacts: true` in `tauri.conf.json` is what produces the `.sig`
+files. `includeUpdaterJson: false` in the workflow is what stops `tauri-action`
+writing the manifest, leaving `compose-latest-json.mjs` as its only writer.
+
+### The caches are written on `main`
+
+GitHub scopes a cache to the ref that wrote it and lets a run restore only from
+its own ref or from the default branch. A release runs on `refs/tags/v0.1.3`, so
+a cache **it** writes can never be read by `v0.1.4`.
+
+Measured after v0.1.2: 2.82 GB saved under the tag, unreachable by every release
+that would ever follow it, while all three jobs logged `No cache found` and
+compiled Typst from nothing — 24m42s on Windows, 31m15s on macOS, 14m11s on
+Linux. That was the steady state, not a cold first run.
+
+So the warm caches are written on `main`, by `size.yml`, under
+`shared-key: release`. That key is what makes them match: rust-cache otherwise
+derives the key from the job id, and `bundle` could not restore what `size`
+saved even on the same ref and the same OS. The release side sets
+`save-if: false`, because a tag-scoped cache has no reader — not even a re-run
+of its own tag, which restores from `main` like any other run.
+
+**Before cutting a release, check the caches are warm.** If the last scheduled
+`size` run was a long time or a big dependency bump ago, dispatch it manually and
+let it finish. A cold release still succeeds; it just takes about three times as
+long. rust-cache falls back to a prefix match when `Cargo.lock` has moved, so a
+slightly stale cache is still most of the win.
 
 ### Why `ubuntu-24.04` and not `ubuntu-latest`
 
@@ -188,8 +242,12 @@ Stated because CI going green is not the same claim as the app working.
   header, whether the 78px reservation is right (macOS has moved this between
   versions), and whether Linux `decorations: true` reads as acceptable chrome or
   as a double titlebar on GNOME/KDE.
-- **No macOS or Linux bundle has been produced yet.** The first tag after this
-  landed is the first time the bundlers run at all.
+- **The parallel release path has not run yet.** v0.1.1 and v0.1.2 both shipped
+  on the old serial pipeline; the four-job shape above is proven only against the
+  v0.1.2 artifacts it was checked over, not by a release of its own.
+- **`scripts/release-local.mjs` has never built anything.** Its five guards were
+  exercised; the macOS build, the `_universal` rename and the upload need a Mac
+  and a real tag.
 
 ## Current bundle configuration
 
@@ -212,16 +270,63 @@ Stated because CI going green is not the same claim as the app working.
   partially overridden and each platform file repeats the window geometry.
 - `security.csp` is `null`. Worth revisiting before a public 1.0.
 
-## Release checklist
+## Cutting a release
 
-1. `bun run typecheck`, `bun test`, `cargo test --workspace --exclude essay-desktop` clean locally.
-2. Bump `version` in `apps/desktop/src-tauri/tauri.conf.json`. Commit.
-3. Confirm the two signing secrets still exist on the repository.
-4. Tag `v<same version>` and push the tag.
-5. Wait for all three `bundle` jobs. `announce` only runs when they have
+After merging whatever the release contains:
+
+```bash
+git checkout main && git pull
+```
+
+1. **Write the changelog entry.** `apps/desktop/src/content/changelog.md` is not
+   decoration — `lib/changelog.ts` parses the newest entry and the help tab in
+   the footer shows it. A release without an entry shows the *previous*
+   release's summary to everyone who opens it.
+2. **Check the caches are warm.** If the last `size` run on `main` was a long
+   time or a big dependency bump ago, dispatch it and let it finish. Cold costs
+   about three times the wall clock.
+3. **Bump and tag.**
+
+   ```bash
+   bun run release patch
+   ```
+
+   `patch`, `minor`, `major`, or an explicit `X.Y.Z`. The version is written
+   down twice — `tauri.conf.json`, which is what `latest.json` serves and what
+   `guard` checks, and `[workspace.package]` in `Cargo.toml`, which nothing
+   checks and which therefore drifts. The script sets both, refreshes
+   `Cargo.lock`, commits and tags. `--dry-run` prints the edits and stops.
+
+4. **Push**, which is the irreversible half and is why the script does not do it
+   for you:
+
+   ```bash
+   git push origin main && git push origin v0.1.3
+   ```
+
+   To undo instead, before pushing:
+
+   ```bash
+   git tag -d v0.1.3 && git reset --hard HEAD~1
+   ```
+
+5. **Wait for all three `bundle` jobs.** `publish` only runs when they have
    finished, and until it does the release is a draft nobody's updater sees.
-6. Check the published release has an installer for each platform, and a
-   `latest.json` listing `windows-x86_64`, `darwin-aarch64`,
-   `darwin-x86_64` and `linux-x86_64`, each with a non-empty signature. A
-   missing platform entry is the failure this workflow is arranged to prevent,
-   and it is silent everywhere else.
+6. **Check the published release** has an installer for each platform and a
+   `latest.json` listing `windows-x86_64`, `darwin-aarch64`, `darwin-x86_64` and
+   `linux-x86_64`, each with a non-empty signature. `compose-latest-json.mjs`
+   fails the run rather than publishing one of these missing, so this is a
+   check on the check — but it is the failure the whole workflow is arranged to
+   prevent, and it is silent everywhere else.
+
+Roughly 15 minutes warm, 35 cold.
+
+### Re-running a failed release
+
+Everything is idempotent. `draft` reuses the existing draft, and `tauri-action`
+replaces an asset of the same name rather than duplicating it. Re-run the failed
+job from the Actions page, or re-push the tag.
+
+Moving a tag to a different commit works and is how `v0.1.2` ended up pointing
+at a commit two ahead of the one named "Release v0.1.2". If you do it, know that
+the artifacts and the commit message will disagree about what shipped.
